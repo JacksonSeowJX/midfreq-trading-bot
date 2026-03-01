@@ -1,0 +1,7 @@
+pandas
+pyarrow
+yfinance
+pydantic
+python-dotenv
+pytz
+ib-insync
