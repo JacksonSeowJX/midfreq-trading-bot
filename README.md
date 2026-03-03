@@ -1,4 +1,24 @@
-# Mid-Frequency Market Data Service
+# Quantitative Trading Bot for mid-frequency stock trading
+
+Name: Seow Jia Xian Jackson
+FYP ID: CCDS25-1040
+Project Title: Development of Quantitative Trading Bot for mid-frequency stock trading
+Supervisor: Prof Chng Eng Siong
+Start Date: 12 Jan 2026
+End Date: 19 Oct 2026
+
+# Contact
+- Email: seow0126@e.ntu.edu.sg
+- Linkedin:
+
+# Overview
+
+## Video Updates (YouTube)
+
+Week 7
+- https://studio.youtube.com/video/G-v-z53wfnk/edit
+
+## Mid-Frequency Market Data Service
 
 This repository provides a modular and extensible framework for fetching, standardizing, and storing historical and live market data for US stocks. It is part of the "Development of a Modular Quantitative Trading Framework for Mid-Frequency Stock Trading" project.
 
@@ -44,8 +64,3 @@ The system standardizes all OHLCV data to the following schema:
 - `low`
 - `close`
 - `volume`
-
-## Video Updates (YouTube)
-
-Week 7
-- https://studio.youtube.com/video/G-v-z53wfnk/edit
