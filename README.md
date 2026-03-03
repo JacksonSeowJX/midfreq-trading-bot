@@ -1,17 +1,17 @@
-# Quantitative Trading Bot for mid-frequency stock trading
+## Quantitative Trading Bot for mid-frequency stock trading
 
-Name: Seow Jia Xian Jackson
-FYP ID: CCDS25-1040
-Project Title: Development of Quantitative Trading Bot for mid-frequency stock trading
+### Name: Seow Jia Xian Jackson
+### FYP ID: CCDS25-1040
+### Project Title: Development of Quantitative Trading Bot for mid-frequency stock trading
 Supervisor: Prof Chng Eng Siong
 Start Date: 12 Jan 2026
 End Date: 19 Oct 2026
 
-# Contact
+## Contact
 - Email: seow0126@e.ntu.edu.sg
 - Linkedin:
 
-# Overview
+## Overview
 
 ## Video Updates (YouTube)
 
