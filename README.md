@@ -44,3 +44,8 @@ The system standardizes all OHLCV data to the following schema:
 - `low`
 - `close`
 - `volume`
+
+## Video Updates (YouTube)
+
+Week 7
+- https://studio.youtube.com/video/G-v-z53wfnk/edit
