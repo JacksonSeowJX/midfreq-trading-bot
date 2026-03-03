@@ -9,9 +9,13 @@
 
 ## Contact
 - Email: seow0126@e.ntu.edu.sg
-- Linkedin:
+- Linkedin: https://www.linkedin.com/in/jackson-seow-jia-xian-798186182/
 
 ## Overview
+
+This project focuses on the development of a quantitative trading bot for mid-frequency U.S. stock trading. 
+
+The system is designed with modular components including a market data service, backtesting engine, trading logic module, and order gateway. It supports configurable candlestick intervals (e.g., 5-minute, 1-hour, daily) and integrates with brokerage APIs for paper trading and execution testing.
 
 ## Video Updates (YouTube)
 
