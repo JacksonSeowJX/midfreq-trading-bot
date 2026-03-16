@@ -1,10 +1,13 @@
 import pandas as pd
 from datetime import datetime
 from typing import Optional, List, Callable
-from ib_insync import IB, Stock, util, BarDataList
+from ib_insync import IB, Stock, util
 from core.base_provider import BaseDataProvider
 from core.models import Timeframe, Candle
 from core.aggregator import TickAggregator
+
+# Enable ib_insync's own event loop integration
+util.startLoop()
 
 class IBProvider(BaseDataProvider):
     def __init__(self, host: str = '127.0.0.1', port: int = 7497, client_id: int = 1):
@@ -22,7 +25,9 @@ class IBProvider(BaseDataProvider):
             print(f"Connected to IB on {self.host}:{self.port}")
 
     def disconnect(self):
-        self.ib.disconnect()
+        if self.ib.isConnected():
+            self.ib.disconnect()
+            print("Disconnected from IB.")
 
     def _get_contract(self, symbol: str) -> Stock:
         return Stock(symbol, 'SMART', 'USD')
@@ -38,22 +43,23 @@ class IBProvider(BaseDataProvider):
         contract = self._get_contract(symbol)
         self.ib.qualifyContracts(contract)
 
-        # Map timeframe to IB duration/barSize
-        # Simplified mapping
         bar_size_map = {
             Timeframe.MIN_1: "1 min",
             Timeframe.MIN_5: "5 mins",
             Timeframe.HOUR_1: "1 hour",
+            Timeframe.HOUR_4: "4 hours",
             Timeframe.DAY_1: "1 day"
         }
         bar_size = bar_size_map.get(timeframe, "1 day")
         
-        # Calculate duration string (e.g., '1 M', '1 Y')
+        # Calculate duration string
         delta = end_date - start_date
         if delta.days > 365:
             duration = f"{delta.days // 365 + 1} Y"
-        else:
+        elif delta.days > 0:
             duration = f"{delta.days + 1} D"
+        else:
+            duration = "1 D"
 
         bars = self.ib.reqHistoricalData(
             contract,
@@ -69,14 +75,8 @@ class IBProvider(BaseDataProvider):
             return pd.DataFrame()
 
         df = util.df(bars)
-        # Standardize columns
         df = df.rename(columns={
             'date': 'timestamp',
-            'open': 'open',
-            'high': 'high',
-            'low': 'low',
-            'close': 'close',
-            'volume': 'volume'
         })
         
         df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
@@ -87,18 +87,26 @@ class IBProvider(BaseDataProvider):
         self.connect()
         contract = self._get_contract(symbol)
         self.ib.qualifyContracts(contract)
-        ticker = self.ib.reqTickers(contract)[0]
+        
+        # Request market data snapshot
+        self.ib.reqMktData(contract, '', False, True)
+        self.ib.sleep(2)  # Give IB time to return data
+        ticker = self.ib.ticker(contract)
         
         return {
             "symbol": symbol,
-            "last_price": ticker.last or ticker.close,
+            "last_price": ticker.last if ticker.last == ticker.last else ticker.close,
+            "bid": ticker.bid if ticker.bid == ticker.bid else None,
+            "ask": ticker.ask if ticker.ask == ticker.ask else None,
             "timestamp": datetime.now()
         }
 
     def get_latest_candle(self, symbol: str, timeframe: Timeframe) -> Optional[Candle]:
-        # Implementation similar to get_historical_data but fetching just the last bar
-        # For simplicity, reuse historical but limited
-        df = self.get_historical_data(symbol, timeframe, datetime.now() - pd.Timedelta(days=1), datetime.now())
+        df = self.get_historical_data(
+            symbol, timeframe, 
+            datetime.now() - pd.Timedelta(days=1), 
+            datetime.now()
+        )
         if df.empty:
             return None
         last_row = df.iloc[-1]
@@ -124,17 +132,27 @@ class IBProvider(BaseDataProvider):
         self._on_candle_callbacks.append(callback)
 
         self.ib.reqMktData(contract, '', False, False)
-        self.ib.pendingTickHandlers.add(self._on_pending_tick)
+        self.ib.pendingTickersEvent += self._on_pending_tickers
         self._streaming_contracts[symbol] = contract
         print(f"Started live streaming for {symbol}")
 
-    def _on_pending_tick(self, ticker):
-        symbol = ticker.contract.symbol
-        if symbol in self._aggregators:
-            price = ticker.last or ticker.close
-            volume = ticker.lastSize or 0
-            if price:
-                candle = self._aggregators[symbol].on_tick(price, volume, datetime.now())
-                if candle:
-                    for cb in self._on_candle_callbacks:
-                        cb(candle)
+    def _on_pending_tickers(self, tickers):
+        for ticker in tickers:
+            if not hasattr(ticker, 'contract') or ticker.contract is None:
+                continue
+            symbol = ticker.contract.symbol
+            if symbol in self._aggregators:
+                price = ticker.last if ticker.last == ticker.last else None
+                volume = ticker.lastSize if ticker.lastSize == ticker.lastSize else 0
+                if price and price > 0:
+                    candle = self._aggregators[symbol].on_tick(price, volume, datetime.now())
+                    if candle:
+                        for cb in self._on_candle_callbacks:
+                            cb(candle)
+
+    def run_live(self, duration_seconds: int = 60):
+        """
+        Run the IB event loop for a specified duration to receive live data.
+        """
+        print(f"Listening for live data for {duration_seconds} seconds...")
+        self.ib.sleep(duration_seconds)
