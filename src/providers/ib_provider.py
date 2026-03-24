@@ -22,7 +22,12 @@ class IBProvider(BaseDataProvider):
     def connect(self):
         if not self.ib.isConnected():
             self.ib.connect(self.host, self.port, clientId=self.client_id)
+            # Request delayed frozen data as fallback if live subscription is unavailable
+            # Type 1 = Live, Type 3 = Delayed, Type 4 = Delayed Frozen
+            self.ib.reqMarketDataType(4)
             print(f"Connected to IB on {self.host}:{self.port}")
+            print("Market data type: Delayed Frozen (will auto-upgrade to Live if subscribed)")
+
 
     def disconnect(self):
         if self.ib.isConnected():
@@ -30,7 +35,7 @@ class IBProvider(BaseDataProvider):
             print("Disconnected from IB.")
 
     def _get_contract(self, symbol: str) -> Stock:
-        return Stock(symbol, 'SMART', 'USD')
+        return Stock(symbol, 'ISLAND', 'USD')
 
     def get_historical_data(
         self, 
@@ -88,18 +93,28 @@ class IBProvider(BaseDataProvider):
         contract = self._get_contract(symbol)
         self.ib.qualifyContracts(contract)
         
-        # Request market data snapshot
-        self.ib.reqMktData(contract, '', False, True)
-        self.ib.sleep(2)  # Give IB time to return data
+        # Use streaming subscription (not snapshot) to avoid regulatory snapshot permission error
+        self.ib.reqMktData(contract, '', False, False)
+        self.ib.sleep(3)  # Give IB time to return delayed/live data
         ticker = self.ib.ticker(contract)
+        
+        # Extract prices — use delayed fields as fallback
+        last = ticker.last if ticker.last == ticker.last else None
+        bid = ticker.bid if ticker.bid == ticker.bid else None
+        ask = ticker.ask if ticker.ask == ticker.ask else None
+        close = ticker.close if ticker.close == ticker.close else None
+        
+        # Cancel the market data subscription after getting the quote
+        self.ib.cancelMktData(contract)
         
         return {
             "symbol": symbol,
-            "last_price": ticker.last if ticker.last == ticker.last else ticker.close,
-            "bid": ticker.bid if ticker.bid == ticker.bid else None,
-            "ask": ticker.ask if ticker.ask == ticker.ask else None,
+            "last_price": last or close,
+            "bid": bid,
+            "ask": ask,
             "timestamp": datetime.now()
         }
+
 
     def get_latest_candle(self, symbol: str, timeframe: Timeframe) -> Optional[Candle]:
         df = self.get_historical_data(
