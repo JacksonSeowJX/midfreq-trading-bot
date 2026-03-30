@@ -5,3 +5,4 @@ pydantic
 python-dotenv
 pytz
 ib-insync
+moomoo-api
