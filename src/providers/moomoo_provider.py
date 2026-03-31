@@ -29,9 +29,10 @@ class MoomooProvider(BaseDataProvider):
         Timeframe.MIN_1: KLType.K_1M,
         Timeframe.MIN_5: KLType.K_5M,
         Timeframe.HOUR_1: KLType.K_60M,
-        Timeframe.HOUR_4: KLType.K_4H,
+        Timeframe.HOUR_4: KLType.K_60M,  # Moomoo doesn't support 4H natively, use 1H
         Timeframe.DAY_1: KLType.K_DAY,
     }
+
 
     def _get_context(self) -> OpenQuoteContext:
         """Get or create a quote context connection to OpenD."""
@@ -65,14 +66,6 @@ class MoomooProvider(BaseDataProvider):
             start=start_str,
             end=end_str,
             ktype=kl_type,
-            fields=[
-                KL_FIELD.DATE_TIME,
-                KL_FIELD.OPEN,
-                KL_FIELD.HIGH,
-                KL_FIELD.LOW,
-                KL_FIELD.CLOSE,
-                KL_FIELD.VOLUME,
-            ],
             max_count=1000
         )
 
@@ -80,19 +73,15 @@ class MoomooProvider(BaseDataProvider):
             print(f"Error fetching historical data: {data}")
             return pd.DataFrame()
 
-        # Standardize columns
+        # Standardize columns to our OHLCV schema
         df = data.rename(columns={
             'time_key': 'timestamp',
-            'open': 'open',
-            'high': 'high',
-            'low': 'low',
-            'close': 'close',
-            'volume': 'volume'
         })
 
         df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
         df.set_index('timestamp', inplace=True)
         return df[['open', 'high', 'low', 'close', 'volume']]
+
 
     def get_latest_quote(self, symbol: str) -> dict:
         ctx = self._get_context()
@@ -112,11 +101,51 @@ class MoomooProvider(BaseDataProvider):
         return {
             "symbol": symbol,
             "last_price": row.get('last_price'),
-            "bid": row.get('bid_price'),
-            "ask": row.get('ask_price'),
+            "open": row.get('open_price'),
+            "high": row.get('high_price'),
+            "low": row.get('low_price'),
+            "prev_close": row.get('prev_close_price'),
             "volume": row.get('volume'),
+            "turnover": row.get('turnover'),
             "timestamp": datetime.now()
         }
+
+    def get_bbo(self, symbol: str) -> dict:
+        """
+        Get Best Bid and Offer (BBO) from the live order book.
+        Returns top-of-book bid/ask with size and full order book depth.
+        """
+        ctx = self._get_context()
+
+        ret, err = ctx.subscribe([symbol], [SubType.QUOTE, SubType.ORDER_BOOK])
+        if ret != RET_OK:
+            print(f"Subscribe error: {err}")
+            return {"symbol": symbol, "error": str(err)}
+
+        # Get order book for BBO
+        ret, book = ctx.get_order_book(symbol)
+        if ret != RET_OK:
+            print(f"Order book error: {book}")
+            return {"symbol": symbol, "error": str(book)}
+
+        bids = book.get('Bid', [])
+        asks = book.get('Ask', [])
+
+        result = {
+            "symbol": symbol,
+            "best_bid": bids[0][0] if bids else None,
+            "best_bid_size": bids[0][1] if bids else None,
+            "best_bid_orders": bids[0][2] if bids else None,
+            "best_ask": asks[0][0] if asks else None,
+            "best_ask_size": asks[0][1] if asks else None,
+            "best_ask_orders": asks[0][2] if asks else None,
+            "spread": round(asks[0][0] - bids[0][0], 4) if bids and asks else None,
+            "bid_depth": [(p, s, n) for p, s, n, _ in bids],
+            "ask_depth": [(p, s, n) for p, s, n, _ in asks],
+            "timestamp": datetime.now()
+        }
+        return result
+
 
     def get_latest_candle(self, symbol: str, timeframe: Timeframe) -> Optional[Candle]:
         df = self.get_historical_data(
