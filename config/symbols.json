@@ -1,0 +1,31 @@
+{
+  "markets": {
+    "HK": {
+      "provider": "moomoo",
+      "status": "live",
+      "symbols": [
+        "HK.00700",
+        "HK.00005",
+        "HK.09988",
+        "HK.03690",
+        "HK.01299",
+        "HK.00941",
+        "HK.02318",
+        "HK.01211",
+        "HK.01810",
+        "HK.09618",
+        "HK.09888"
+      ]
+    },
+    "US": {
+      "provider": "moomoo",
+      "status": "planned",
+      "symbols": [
+        "US.AAPL",
+        "US.TSLA",
+        "US.MSFT",
+        "US.NVDA"
+      ]
+    }
+  }
+}
