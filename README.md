@@ -21,14 +21,9 @@ The system is designed with modular components including a market data service, 
 
 Week 7
 - https://studio.youtube.com/video/G-v-z53wfnk/edit
+  
 Week 9
 - https://www.youtube.com/watch?v=GHJNfMNTLsA
-Week 11
--
-Week 13
--
-Week 15
--
 
 ## Mid-Frequency Market Data Service
 
