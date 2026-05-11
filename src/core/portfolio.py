@@ -16,6 +16,9 @@ class Portfolio:
         
         # Trade history for metrics
         self.trade_history: List[Dict[str, Any]] = []
+        
+        # Equity curve: records (timestamp, equity_value) after each trade
+        self.equity_curve: List[Dict[str, Any]] = []
 
     def execute_trade(self, symbol: str, is_buy: bool, qty: float, price: float, timestamp: datetime):
         """
@@ -71,13 +74,24 @@ class Portfolio:
             'commission': commission,
             'cash_after': self.cash
         })
+        
+        # Record equity snapshot (cash + position value at trade price)
+        pos_value = sum(p['qty'] * price for p in self.positions.values())
+        self.equity_curve.append({
+            'timestamp': timestamp,
+            'equity': self.cash + pos_value
+        })
 
     def get_position_qty(self, symbol: str) -> float:
         return self.positions.get(symbol, {}).get('qty', 0.0)
 
     def calculate_metrics(self, current_prices: Dict[str, float]) -> Dict[str, Any]:
         """
-        Calculate final portfolio value and equity using latest known prices.
+        Calculate final portfolio value, equity, and advanced performance metrics:
+        - Sharpe Ratio (annualized, assuming 252 trading days)
+        - Maximum Drawdown (largest peak-to-trough decline)
+        - Win Rate (% of profitable round-trip trades)
+        - Profit Factor (gross profit / gross loss)
         """
         position_value = 0.0
         for sym, pos in self.positions.items():
@@ -87,13 +101,65 @@ class Portfolio:
         total_equity = self.cash + position_value
         return_pct = ((total_equity - self.initial_cash) / self.initial_cash) * 100
 
+        # --- Advanced Metrics ---
+        # Win Rate & Profit Factor from paired BUY/SELL trades
+        wins = 0
+        losses = 0
+        gross_profit = 0.0
+        gross_loss = 0.0
+        buy_prices: Dict[str, float] = {}  # track entry price per symbol
+
+        for trade in self.trade_history:
+            sym = trade['symbol']
+            if trade['action'] == 'BUY':
+                buy_prices[sym] = trade['price']
+            elif trade['action'] == 'SELL' and sym in buy_prices:
+                pnl = (trade['price'] - buy_prices[sym]) * trade['qty']
+                if pnl > 0:
+                    wins += 1
+                    gross_profit += pnl
+                else:
+                    losses += 1
+                    gross_loss += abs(pnl)
+                del buy_prices[sym]
+
+        total_completed = wins + losses
+        win_rate = (wins / total_completed * 100) if total_completed > 0 else 0.0
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf') if gross_profit > 0 else 0.0
+
+        # Sharpe Ratio from equity curve
+        sharpe_ratio = 0.0
+        max_drawdown = 0.0
+        if len(self.equity_curve) >= 2:
+            equities = [e['equity'] for e in self.equity_curve]
+            # Returns between consecutive equity snapshots
+            returns = [(equities[i] - equities[i-1]) / equities[i-1] for i in range(1, len(equities)) if equities[i-1] != 0]
+            if returns:
+                import statistics
+                mean_ret = statistics.mean(returns)
+                std_ret = statistics.stdev(returns) if len(returns) > 1 else 0.0
+                sharpe_ratio = (mean_ret / std_ret * (252 ** 0.5)) if std_ret > 0 else 0.0
+
+            # Max Drawdown
+            peak = equities[0]
+            for eq in equities:
+                if eq > peak:
+                    peak = eq
+                dd = (peak - eq) / peak * 100
+                if dd > max_drawdown:
+                    max_drawdown = dd
+
         return {
             'initial_cash': self.initial_cash,
             'final_equity': total_equity,
             'return_pct': return_pct,
             'total_trades': len(self.trade_history),
             'cash_balance': self.cash,
-            'open_positions': self.positions
+            'open_positions': self.positions,
+            'sharpe_ratio': sharpe_ratio,
+            'max_drawdown': max_drawdown,
+            'win_rate': win_rate,
+            'profit_factor': profit_factor,
         }
 
     def print_trade_log(self):
