@@ -16,7 +16,8 @@ class Backtester:
         self.storage = storage
         self.portfolio = portfolio
 
-    def run(self, strategy_class: Type[BaseStrategy], symbols: list[str], timeframe: Timeframe, **strategy_params) -> Dict[str, Any]:
+    def run(self, strategy_class: Type[BaseStrategy], symbols: list[str], timeframe: Timeframe, 
+            start_date: datetime = None, end_date: datetime = None, **strategy_params) -> Dict[str, Any]:
         """
         Executes the backtest simulation across multiple symbols.
         """
@@ -33,8 +34,14 @@ class Backtester:
             folder = symbol.replace('.', '_')
             df = self.storage.load_data(folder, timeframe.value)
             
+            if not df.empty and start_date:
+                df = df[df.index >= pd.to_datetime(start_date, utc=True)]
+            if not df.empty and end_date:
+                # Include the entire end_date by adding 1 day
+                df = df[df.index < (pd.to_datetime(end_date, utc=True) + pd.Timedelta(days=1))]
+
             if df.empty:
-                print(f"  [!] Skipped {symbol}: No data found for {timeframe.value}")
+                print(f"  [!] Skipped {symbol}: No data found for {timeframe.value} in given date range")
                 continue
                 
             all_data[symbol] = df
