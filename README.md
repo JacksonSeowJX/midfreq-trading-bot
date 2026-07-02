@@ -19,17 +19,20 @@ The system is designed with modular components including a market data service, 
 
 ## Video Updates (YouTube)
 
-Update 1
+Update 1 (29 Mar 26)
 - https://studio.youtube.com/video/G-v-z53wfnk/edit
   
-Update 2
+Update 2 (12 Apr 26)
 - https://www.youtube.com/watch?v=GHJNfMNTLsA
 
-Update 3
+Update 3 (26 Apr 26)
 - https://youtu.be/EwG7gCxUNEM
 
-Update 4
+Update 4 (10 May 26)
 - https://youtu.be/LtlsBnNPh5E
+
+Update 5 (24 May 26)
+- https://youtu.be/SHOYmgZUYfA
 
 ## Mid-Frequency Market Data Service
 
