@@ -16,6 +16,8 @@ from core.portfolio import Portfolio
 from core.strategy import STRATEGY_REGISTRY
 from core.backtester import Backtester
 from core.models import Timeframe
+from core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+from core.optimizer import grid_search, walk_forward, generate_param_grid, OBJECTIVES
 
 # Set page config
 st.set_page_config(page_title="Quantitative Trading Dashboard", layout="wide", page_icon="📈")
@@ -41,7 +43,8 @@ symbol = st.sidebar.selectbox("Symbol", available_symbols if available_symbols e
 
 # 2. Strategy Selection (dynamic from registry)
 strategy_names = list(STRATEGY_REGISTRY.keys())
-selected_strategy = st.sidebar.selectbox("Strategy", strategy_names)
+default_strategy_idx = strategy_names.index("Z-Score Mean Reversion") if "Z-Score Mean Reversion" in strategy_names else 0
+selected_strategy = st.sidebar.selectbox("Strategy", strategy_names, index=default_strategy_idx)
 strategy_info = STRATEGY_REGISTRY[selected_strategy]
 
 st.sidebar.subheader(f"{selected_strategy} Parameters")
@@ -101,9 +104,88 @@ initial_capital = st.sidebar.number_input("Starting Capital (HKD)", min_value=10
 
 st.sidebar.markdown("---")
 
+# ─── Risk Management Controls ────────────────────────────────────
+st.sidebar.subheader("🛡️ Risk Management")
+
+with st.sidebar.expander("Stop-Loss & Take-Profit", expanded=False):
+    enable_stop_loss = st.checkbox("Enable Fixed Stop-Loss", value=False)
+    stop_loss_pct = st.slider("Stop-Loss %", min_value=1.0, max_value=15.0, value=3.0, step=0.5,
+                              disabled=not enable_stop_loss) / 100.0 if enable_stop_loss else None
+
+    enable_trailing = st.checkbox("Enable Trailing Stop", value=False)
+    trailing_stop_pct = st.slider("Trailing Stop %", min_value=1.0, max_value=15.0, value=5.0, step=0.5,
+                                  disabled=not enable_trailing) / 100.0 if enable_trailing else None
+
+    enable_take_profit = st.checkbox("Enable Take-Profit", value=False)
+    take_profit_pct = st.slider("Take-Profit %", min_value=1.0, max_value=30.0, value=5.0, step=0.5,
+                                disabled=not enable_take_profit) / 100.0 if enable_take_profit else None
+
+with st.sidebar.expander("Position Sizing", expanded=False):
+    sizing_options = {
+        "Fixed Quantity (100 shares)": SizingMethod.FIXED_QUANTITY,
+        "Fixed Fractional (% of equity)": SizingMethod.FIXED_FRACTIONAL,
+        "Kelly Criterion (optimal)": SizingMethod.KELLY,
+    }
+    selected_sizing = st.selectbox("Sizing Method", list(sizing_options.keys()))
+    sizing_method = sizing_options[selected_sizing]
+
+    sizing_kwargs = {}
+    if sizing_method == SizingMethod.FIXED_QUANTITY:
+        sizing_kwargs['qty'] = st.number_input("Shares per Trade", min_value=1, value=100, step=10)
+    elif sizing_method == SizingMethod.FIXED_FRACTIONAL:
+        sizing_kwargs['risk_pct'] = st.slider("Risk % per Trade", min_value=0.5, max_value=10.0, value=2.0, step=0.5) / 100.0
+    elif sizing_method == SizingMethod.KELLY:
+        sizing_kwargs['fraction'] = st.slider("Kelly Fraction", min_value=0.1, max_value=1.0, value=0.5, step=0.1)
+        sizing_kwargs['max_pct'] = st.slider("Max Position %", min_value=5.0, max_value=50.0, value=25.0, step=5.0) / 100.0
+
+with st.sidebar.expander("Circuit Breaker", expanded=False):
+    max_drawdown_pct = st.slider("Max Drawdown Halt %", min_value=5.0, max_value=50.0, value=10.0, step=1.0) / 100.0
+
+
+def build_risk_manager():
+    """Build a RiskManager from the current sidebar settings."""
+    sizer = create_position_sizer(sizing_method, **sizing_kwargs)
+    return RiskManager(
+        stop_loss_pct=stop_loss_pct if enable_stop_loss else None,
+        trailing_stop_pct=trailing_stop_pct if enable_trailing else None,
+        take_profit_pct=take_profit_pct if enable_take_profit else None,
+        max_drawdown_pct=max_drawdown_pct,
+        position_sizer=sizer,
+    )
+
+# Slippage setting
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚙️ Execution Model")
+slippage_bps = st.sidebar.slider("Slippage (basis points)", min_value=0.0, max_value=50.0, value=0.0, step=1.0,
+                                  help="Simulated slippage: buys pay more, sells receive less. 1 bps = 0.01%.")
+
+st.sidebar.markdown("---")
+
+# ─── Strategy Optimization Controls ──────────────────────────────
+st.sidebar.subheader("🔬 Strategy Optimization")
+
+with st.sidebar.expander("Grid Search / Walk-Forward", expanded=True):
+    opt_mode = st.radio("Mode", ["Grid Search", "Walk-Forward"], horizontal=True, index=1)
+
+    objective_labels = {v: k for k, v in OBJECTIVES.items()}
+    selected_objective_label = st.selectbox("Objective", list(OBJECTIVES.values()))
+    objective = objective_labels[selected_objective_label]
+
+    grid_size = len(generate_param_grid(selected_strategy))
+    st.caption(f"Full parameter grid for **{selected_strategy}**: {grid_size} combinations")
+
+    if opt_mode == "Grid Search":
+        max_combinations = st.number_input("Max Combinations", min_value=5, max_value=2000, value=min(200, max(grid_size, 5)), step=5)
+    else:
+        n_splits = st.number_input("Rolling Windows", min_value=2, max_value=10, value=3, step=1)
+        train_pct = st.slider("Train Fraction", min_value=0.5, max_value=0.9, value=0.6, step=0.05)
+
+st.sidebar.markdown("---")
+
 # 5. Execution Actions
 run_sim = st.sidebar.button("🚀 Run Backtest", type="primary", use_container_width=True)
 run_compare = st.sidebar.button("⚡ Compare All Strategies", use_container_width=True)
+run_optimize = st.sidebar.button("🔬 Run Optimization", use_container_width=True)
 
 
 # ─── Chart Plotting Functions ───────────────────────────────────────
@@ -245,7 +327,9 @@ def plot_equity_curve(equity_data):
 if run_sim:
     with st.spinner(f'Running {selected_strategy} on {symbol}...'):
         portfolio = Portfolio(initial_cash=initial_capital, commission_rate=0.001)
-        backtester = Backtester(storage=storage, portfolio=portfolio)
+        risk_mgr = build_risk_manager()
+        backtester = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_mgr,
+                                slippage_bps=slippage_bps)
 
         # Determine symbols list (pairs trading needs 2)
         sim_symbols = [symbol, pair_symbol] if selected_strategy == "Pairs Trading" and pair_symbol else [symbol]
@@ -266,7 +350,7 @@ if run_sim:
 
         # --- TOP ROW: KPIs ---
         if metrics:
-            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
 
             equity = metrics['final_equity']
             ret_pct = metrics['return_pct']
@@ -287,6 +371,13 @@ if run_sim:
                 pf = metrics['profit_factor']
                 pf_str = f"{pf:.2f}" if pf != float('inf') else "∞"
                 st.metric("Profit Factor", pf_str)
+            with col7:
+                bench = metrics.get('benchmark_return_pct', 0.0)
+                st.metric("Benchmark", f"{bench:+.2f}%")
+            with col8:
+                alpha = metrics.get('alpha', 0.0)
+                alpha_color = "normal" if alpha >= 0 else "inverse"
+                st.metric("Alpha", f"{alpha:+.2f}%", delta_color=alpha_color)
 
         # --- CHART ---
         folder = symbol.replace('.', '_')
@@ -298,10 +389,27 @@ if run_sim:
             fig = plot_fn(raw_df, strategy_params)
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- EQUITY CURVE ---
-            if portfolio.equity_curve:
-                st.markdown("### 📈 Equity Curve")
-                eq_fig = plot_equity_curve(portfolio.equity_curve)
+            # --- EQUITY CURVE (use detailed per-candle data) ---
+            equity_data = portfolio.equity_curve_detailed if portfolio.equity_curve_detailed else portfolio.equity_curve
+            if equity_data:
+                st.markdown("### 📈 Equity Curve vs. Buy-and-Hold Benchmark")
+                eq_fig = plot_equity_curve(equity_data)
+                
+                # Add benchmark line if available
+                bench_ret = metrics.get('benchmark_return_pct', 0.0)
+                if equity_data and bench_ret != 0.0:
+                    eq_df_tmp = pd.DataFrame(equity_data)
+                    # Linear interpolation of benchmark
+                    bench_start = initial_capital
+                    bench_end = initial_capital * (1 + bench_ret / 100)
+                    n = len(eq_df_tmp)
+                    bench_values = [bench_start + (bench_end - bench_start) * i / (n - 1) for i in range(n)]
+                    eq_fig.add_trace(go.Scatter(
+                        x=eq_df_tmp['timestamp'], y=bench_values,
+                        mode='lines', line=dict(color='rgba(255,165,0,0.7)', width=2, dash='dot'),
+                        name=f'Buy & Hold ({bench_ret:+.2f}%)'
+                    ))
+                
                 st.plotly_chart(eq_fig, use_container_width=True)
 
             # --- TRADE LOG ---
@@ -313,13 +421,28 @@ if run_sim:
                 trade_df['price'] = trade_df['price'].apply(lambda x: f"HKD {x:.2f}")
                 trade_df['commission'] = trade_df['commission'].apply(lambda x: f"HKD {x:.2f}")
                 trade_df['cash_after'] = trade_df['cash_after'].apply(lambda x: f"HKD {x:.2f}")
+                
+                # Add exit reason column if present
+                if 'exit_reason' not in trade_df.columns:
+                    trade_df['exit_reason'] = ''
 
                 def highlight_action(val):
                     color = '#4CAF50' if val.upper() == 'BUY' else '#F44336'
                     return f'color: white; background-color: {color}; padding: 4px; border-radius: 4px; text-align: center; font-weight: bold;'
 
+                def highlight_exit(val):
+                    if val == 'stop_loss':
+                        return 'color: white; background-color: #F44336; padding: 2px 4px; border-radius: 4px; font-weight: bold;'
+                    elif val == 'trailing_stop':
+                        return 'color: white; background-color: #FF9800; padding: 2px 4px; border-radius: 4px; font-weight: bold;'
+                    elif val == 'take_profit':
+                        return 'color: white; background-color: #4CAF50; padding: 2px 4px; border-radius: 4px; font-weight: bold;'
+                    return ''
+
                 st.dataframe(
-                    trade_df.style.map(highlight_action, subset=['action']),
+                    trade_df.style
+                        .map(highlight_action, subset=['action'])
+                        .map(highlight_exit, subset=['exit_reason']),
                     use_container_width=True,
                     height=300
                 )
@@ -342,7 +465,9 @@ elif run_compare:
     progress = st.progress(0)
     for i, (strat_name, info) in enumerate(compare_strategies.items()):
         portfolio = Portfolio(initial_cash=initial_capital, commission_rate=0.001)
-        bt = Backtester(storage=storage, portfolio=portfolio)
+        risk_mgr = build_risk_manager()
+        bt = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_mgr,
+                        slippage_bps=slippage_bps)
         defaults = {k: v['default'] for k, v in info['params'].items()}
 
         f_buf = io.StringIO()
@@ -351,9 +476,11 @@ elif run_compare:
                              start_date=start_date, end_date=end_date, **defaults)
 
         if metrics:
+            alpha = metrics.get('alpha', 0.0)
             results.append({
                 'Strategy': strat_name,
                 'Return %': f"{metrics['return_pct']:+.2f}%",
+                'Alpha': f"{alpha:+.2f}%",
                 'Trades': metrics['total_trades'],
                 'Win Rate': f"{metrics['win_rate']:.1f}%",
                 'Sharpe': f"{metrics['sharpe_ratio']:.2f}",
@@ -361,8 +488,10 @@ elif run_compare:
                 'Final Equity': f"HKD {metrics['final_equity']:,.2f}",
                 '_return': metrics['return_pct'],  # for sorting
             })
-            if portfolio.equity_curve:
-                equity_curves[strat_name] = portfolio.equity_curve
+            # Use detailed equity curve for comparison
+            eq_data = portfolio.equity_curve_detailed if portfolio.equity_curve_detailed else portfolio.equity_curve
+            if eq_data:
+                equity_curves[strat_name] = eq_data
 
         progress.progress((i + 1) / len(compare_strategies))
 
@@ -406,5 +535,148 @@ elif run_compare:
     else:
         st.warning("No results to compare. Ensure data exists for the selected symbol and timeframe.")
 
+elif run_optimize:
+    # ─── Strategy Optimization Mode ────────────────────────────────
+    sim_symbols = [symbol, pair_symbol] if selected_strategy == "Pairs Trading" and pair_symbol else [symbol]
+    risk_mgr = build_risk_manager()
+
+    progress_bar = st.progress(0.0)
+    status_text = st.empty()
+
+    def _progress(pct, msg):
+        progress_bar.progress(min(pct, 1.0))
+        status_text.text(msg)
+
+    if opt_mode == "Grid Search":
+        st.markdown(f"### 🔬 Grid Search — {selected_strategy} on {symbol}")
+        st.markdown(f"Optimizing for **{selected_objective_label}**")
+
+        results_df = grid_search(
+            strategy_name=selected_strategy,
+            symbols=sim_symbols,
+            timeframe=timeframe,
+            start_date=start_date,
+            end_date=end_date,
+            storage=storage,
+            objective=objective,
+            initial_capital=initial_capital,
+            risk_manager=risk_mgr,
+            slippage_bps=slippage_bps,
+            max_combinations=max_combinations,
+            progress_callback=_progress,
+        )
+
+        progress_bar.empty()
+        status_text.empty()
+
+        if results_df.empty:
+            st.warning("No results. Ensure data exists for the selected symbol and timeframe.")
+        else:
+            best = results_df.iloc[0]
+            st.success(f"✅ Tested {len(results_df)} parameter combinations")
+
+            param_cols = [c for c in results_df.columns if c not in
+                          ('return_pct', 'sharpe_ratio', 'max_drawdown', 'win_rate',
+                           'profit_factor', 'total_trades', 'alpha', '_objective')]
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Best Params", ", ".join(f"{k}={best[k]}" for k in param_cols))
+            with col2:
+                st.metric("Return", f"{best['return_pct']:+.2f}%")
+            with col3:
+                st.metric("Sharpe Ratio", f"{best['sharpe_ratio']:.2f}")
+            with col4:
+                st.metric("Max Drawdown", f"{best['max_drawdown']:.2f}%")
+
+            st.markdown("### 📋 Top Results")
+            display_cols = param_cols + ['return_pct', 'sharpe_ratio', 'max_drawdown', 'win_rate', 'profit_factor', 'total_trades', 'alpha']
+            top_df = results_df[display_cols].head(50).copy()
+            for c in ['return_pct', 'max_drawdown', 'win_rate', 'alpha']:
+                top_df[c] = top_df[c].apply(lambda x: f"{x:+.2f}%")
+            top_df['sharpe_ratio'] = top_df['sharpe_ratio'].apply(lambda x: f"{x:.2f}")
+            top_df['profit_factor'] = top_df['profit_factor'].apply(lambda x: f"{x:.2f}" if x != float('inf') else "∞")
+            st.dataframe(top_df, use_container_width=True, height=350)
+
+            st.markdown(f"### 📊 {selected_objective_label} by Parameter Combination")
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=[", ".join(f"{k}={r[k]}" for k in param_cols) for _, r in results_df.head(30).iterrows()],
+                y=results_df.head(30)['_objective'],
+                marker_color='dodgerblue',
+            ))
+            fig.update_layout(height=400, margin=dict(l=0, r=0, t=20, b=100), xaxis_tickangle=-45,
+                              yaxis_title=selected_objective_label)
+            st.plotly_chart(fig, use_container_width=True)
+
+    else:
+        # ─── Walk-Forward ───────────────────────────────────────────
+        st.markdown(f"### 🔬 Walk-Forward Optimization — {selected_strategy} on {symbol}")
+        st.markdown(f"**{n_splits}** rolling windows, **{train_pct:.0%}** train / **{1-train_pct:.0%}** test, optimizing for **{selected_objective_label}**")
+
+        wf_result = walk_forward(
+            strategy_name=selected_strategy,
+            symbols=sim_symbols,
+            timeframe=timeframe,
+            start_date=datetime.combine(start_date, datetime.min.time()),
+            end_date=datetime.combine(end_date, datetime.min.time()),
+            storage=storage,
+            n_splits=n_splits,
+            train_pct=train_pct,
+            objective=objective,
+            initial_capital=initial_capital,
+            risk_manager=risk_mgr,
+            slippage_bps=slippage_bps,
+            progress_callback=_progress,
+        )
+
+        progress_bar.empty()
+        status_text.empty()
+
+        summary = wf_result.get('summary', {})
+        windows = wf_result.get('windows', [])
+
+        if summary.get('error'):
+            st.warning(summary['error'])
+        elif not windows:
+            st.warning("No results. Ensure data exists for the selected symbol and timeframe.")
+        else:
+            st.success(f"✅ Walk-forward complete — {summary['total_windows']} windows")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Avg Out-of-Sample Return", f"{summary['avg_oos_return']:+.2f}%")
+            with col2:
+                st.metric("Avg In-Sample Return", f"{summary['avg_train_return']:+.2f}%")
+            with col3:
+                st.metric("Consistency (Positive OOS Windows)", f"{summary['consistency_pct']:.0f}%")
+
+            st.markdown("### 📋 Window Detail")
+            window_rows = []
+            for w in windows:
+                window_rows.append({
+                    'Window': w.window_id,
+                    'Train': f"{w.train_start.date()} → {w.train_end.date()}",
+                    'Test': f"{w.test_start.date()} → {w.test_end.date()}",
+                    'Best Params': ", ".join(f"{k}={v}" for k, v in w.best_params.items()),
+                    'Train Return': f"{w.train_metrics.get('return_pct', 0.0):+.2f}%",
+                    'Test (OOS) Return': f"{w.test_metrics.get('return_pct', 0.0):+.2f}%",
+                    'Test Sharpe': f"{w.test_metrics.get('sharpe_ratio', 0.0):.2f}",
+                })
+            st.dataframe(pd.DataFrame(window_rows), use_container_width=True, height=250)
+
+            st.markdown("### 📊 In-Sample vs. Out-of-Sample Return by Window")
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=[f"W{w.window_id}" for w in windows], y=summary['train_returns'],
+                                 name='Train (In-Sample)', marker_color='rgba(100,149,237,0.6)'))
+            fig.add_trace(go.Bar(x=[f"W{w.window_id}" for w in windows], y=summary['oos_returns'],
+                                 name='Test (Out-of-Sample)', marker_color='dodgerblue'))
+            fig.add_hline(y=0, line_dash="dot", line_color="gray")
+            fig.update_layout(barmode='group', height=400, margin=dict(l=0, r=0, t=20, b=0), yaxis_title='Return %')
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.caption("If out-of-sample returns are consistently much worse than in-sample (train) returns, "
+                       "the strategy is likely overfitting to historical noise rather than a real edge.")
+
 else:
-    st.info("👆 Select a **strategy** and adjust parameters on the sidebar, then click **Run Backtest** or **Compare All Strategies**.")
+    st.info("👆 Select a **strategy** and adjust parameters on the sidebar, then click **Run Backtest**, **Compare All Strategies**, or **Run Optimization**.")
