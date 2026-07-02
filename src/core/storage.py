@@ -8,7 +8,9 @@ class DataStorage:
         self.base_path.mkdir(exist_ok=True)
 
     def _get_file_path(self, symbol: str, timeframe: str) -> Path:
-        symbol_dir = self.base_path / symbol.upper()
+        # Convert symbol format: "HK.00700" -> "HK_00700" to match folder names
+        folder_name = symbol.upper().replace(".", "_")
+        symbol_dir = self.base_path / folder_name
         symbol_dir.mkdir(parents=True, exist_ok=True)
         return symbol_dir / f"{timeframe}.parquet"
 

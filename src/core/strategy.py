@@ -1,18 +1,77 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from core.models import Candle
 from core.portfolio import Portfolio
+from core.risk_manager import RiskManager
 
 class BaseStrategy:
     """
     Abstract strategy class. All custom algorithms should inherit from this.
     """
-    def __init__(self, portfolio: Portfolio, **kwargs):
+    def __init__(self, portfolio: Portfolio, risk_manager: Optional[RiskManager] = None, **kwargs):
         self.portfolio = portfolio
+        self.risk_manager = risk_manager
         self.params = kwargs
 
     def on_start(self):
         """Called once before the strategy begins running data"""
         pass
+
+    def _get_trade_qty(self, symbol: str, price: float) -> int:
+        """Calculate trade quantity using risk manager or default to 100."""
+        if self.risk_manager:
+            stats = self.portfolio.get_trade_stats()
+            equity = self.portfolio.cash + sum(
+                p['qty'] * price for p in self.portfolio.positions.values()
+            )
+            return self.risk_manager.calculate_position_size(
+                equity=equity,
+                entry_price=price,
+                win_rate=stats.get('win_rate'),
+                avg_win=stats.get('avg_win'),
+                avg_loss=stats.get('avg_loss'),
+            )
+        return 100
+
+    def _check_risk_exits(self, symbol: str, candle: Candle) -> bool:
+        """
+        Check and execute any risk-based exit signals.
+        Returns True if an exit was triggered (strategy logic should be skipped).
+        """
+        if not self.risk_manager:
+            return False
+
+        current_position = self.portfolio.get_position_qty(symbol)
+        if current_position <= 0:
+            return False
+
+        # Update trailing stop peak price
+        self.risk_manager.update_peak_price(symbol, candle.close)
+        self.portfolio.update_peak_price(symbol, candle.close)
+
+        # Check for risk exit signals
+        entry_price = self.portfolio.get_entry_price(symbol)
+        exit_reason = self.risk_manager.check_exit_signals(
+            symbol, candle.close, entry_price
+        )
+
+        if exit_reason:
+            self.portfolio.execute_trade(
+                symbol, False, current_position, candle.close, candle.timestamp,
+                exit_reason=exit_reason
+            )
+            self.risk_manager.clear_position(symbol)
+            return True
+
+        return False
+
+    def _is_halted(self, current_price: float) -> bool:
+        """Check if the portfolio circuit breaker has been triggered."""
+        if not self.risk_manager:
+            return False
+        equity = self.portfolio.cash + sum(
+            p['qty'] * current_price for p in self.portfolio.positions.values()
+        )
+        return self.risk_manager.is_trading_halted(equity, self.portfolio.initial_cash)
 
     def on_data(self, symbol: str, candle: Candle):
         """
@@ -28,8 +87,8 @@ class MovingAverageCrossover(BaseStrategy):
     Buys when fast MA crosses above slow MA.
     Sells when fast MA crosses below slow MA.
     """
-    def __init__(self, portfolio: Portfolio, fast_period: int = 10, slow_period: int = 50):
-        super().__init__(portfolio, fast_period=fast_period, slow_period=slow_period)
+    def __init__(self, portfolio: Portfolio, fast_period: int = 10, slow_period: int = 50, risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, fast_period=fast_period, slow_period=slow_period)
         self.fast = fast_period
         self.slow = slow_period
         
@@ -40,6 +99,12 @@ class MovingAverageCrossover(BaseStrategy):
         print(f"Starting MA Crossover Strategy (Fast: {self.fast}, Slow: {self.slow})")
 
     def on_data(self, symbol: str, candle: Candle):
+        # Check risk exits first
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
         if symbol not in self.history:
             self.history[symbol] = []
             
@@ -70,15 +135,19 @@ class MovingAverageCrossover(BaseStrategy):
         # Golden Cross: Fast MA moves above Slow MA
         if prev_fast_ma <= prev_slow_ma and fast_ma > slow_ma:
             if current_position == 0:
-                # Execute Market Buy
-                trade_qty = 100 # Buy 100 shares
-                self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                trade_qty = self._get_trade_qty(symbol, candle.close)
+                if trade_qty > 0:
+                    self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                    if self.risk_manager:
+                        self.risk_manager.register_entry(symbol, candle.close)
 
         # Death Cross: Fast MA moves below Slow MA
         elif prev_fast_ma >= prev_slow_ma and fast_ma < slow_ma:
             if current_position > 0:
                 # Liquidate all holdings
-                self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp)
+                self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp, exit_reason='signal')
+                if self.risk_manager:
+                    self.risk_manager.clear_position(symbol)
 
 
 class RSIStrategy(BaseStrategy):
@@ -87,8 +156,8 @@ class RSIStrategy(BaseStrategy):
     Buys when RSI drops below the oversold threshold.
     Sells when RSI rises above the overbought threshold.
     """
-    def __init__(self, portfolio: Portfolio, rsi_period: int = 14, oversold: float = 30, overbought: float = 70):
-        super().__init__(portfolio, rsi_period=rsi_period, oversold=oversold, overbought=overbought)
+    def __init__(self, portfolio: Portfolio, rsi_period: int = 14, oversold: float = 30, overbought: float = 70, risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, rsi_period=rsi_period, oversold=oversold, overbought=overbought)
         self.period = rsi_period
         self.oversold = oversold
         self.overbought = overbought
@@ -117,6 +186,12 @@ class RSIStrategy(BaseStrategy):
         return 100.0 - (100.0 / (1.0 + rs))
 
     def on_data(self, symbol: str, candle: Candle):
+        # Check risk exits first
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
         if symbol not in self.history:
             self.history[symbol] = []
 
@@ -135,12 +210,17 @@ class RSIStrategy(BaseStrategy):
 
         # Oversold → BUY signal
         if rsi < self.oversold and current_position == 0:
-            trade_qty = 100
-            self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+            trade_qty = self._get_trade_qty(symbol, candle.close)
+            if trade_qty > 0:
+                self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                if self.risk_manager:
+                    self.risk_manager.register_entry(symbol, candle.close)
 
         # Overbought → SELL signal
         elif rsi > self.overbought and current_position > 0:
-            self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp)
+            self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp, exit_reason='signal')
+            if self.risk_manager:
+                self.risk_manager.clear_position(symbol)
 
 
 class MACDStrategy(BaseStrategy):
@@ -150,8 +230,8 @@ class MACDStrategy(BaseStrategy):
     Buys when MACD crosses above the signal line.
     Sells when MACD crosses below the signal line.
     """
-    def __init__(self, portfolio: Portfolio, fast_ema: int = 12, slow_ema: int = 26, signal_period: int = 9):
-        super().__init__(portfolio, fast_ema=fast_ema, slow_ema=slow_ema, signal_period=signal_period)
+    def __init__(self, portfolio: Portfolio, fast_ema: int = 12, slow_ema: int = 26, signal_period: int = 9, risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, fast_ema=fast_ema, slow_ema=slow_ema, signal_period=signal_period)
         self.fast_ema = fast_ema
         self.slow_ema = slow_ema
         self.signal_period = signal_period
@@ -172,6 +252,12 @@ class MACDStrategy(BaseStrategy):
         return ema_values
 
     def on_data(self, symbol: str, candle: Candle):
+        # Check risk exits first
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
         if symbol not in self.history:
             self.history[symbol] = []
 
@@ -220,13 +306,18 @@ class MACDStrategy(BaseStrategy):
         # Bullish crossover: MACD crosses above Signal
         if macd_prev <= signal_prev and macd_curr > signal_curr:
             if current_position == 0:
-                trade_qty = 100
-                self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                trade_qty = self._get_trade_qty(symbol, candle.close)
+                if trade_qty > 0:
+                    self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                    if self.risk_manager:
+                        self.risk_manager.register_entry(symbol, candle.close)
 
         # Bearish crossover: MACD crosses below Signal
         elif macd_prev >= signal_prev and macd_curr < signal_curr:
             if current_position > 0:
-                self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp)
+                self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp, exit_reason='signal')
+                if self.risk_manager:
+                    self.risk_manager.clear_position(symbol)
 
 
 class BollingerBandsStrategy(BaseStrategy):
@@ -235,8 +326,8 @@ class BollingerBandsStrategy(BaseStrategy):
     Buys when price touches the lower band (oversold).
     Sells when price touches the upper band (overbought).
     """
-    def __init__(self, portfolio: Portfolio, bb_period: int = 20, num_std: float = 2.0):
-        super().__init__(portfolio, bb_period=bb_period, num_std=num_std)
+    def __init__(self, portfolio: Portfolio, bb_period: int = 20, num_std: float = 2.0, risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, bb_period=bb_period, num_std=num_std)
         self.period = bb_period
         self.num_std = num_std
         self.history: Dict[str, list] = {}
@@ -245,6 +336,12 @@ class BollingerBandsStrategy(BaseStrategy):
         print(f"Starting Bollinger Bands Strategy (Period: {self.period}, Std Dev: {self.num_std})")
 
     def on_data(self, symbol: str, candle: Candle):
+        # Check risk exits first
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
         if symbol not in self.history:
             self.history[symbol] = []
 
@@ -269,13 +366,18 @@ class BollingerBandsStrategy(BaseStrategy):
 
         # Price at or below lower band → BUY
         if candle.close <= lower_band and current_position == 0:
-            trade_qty = 100
-            self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+            trade_qty = self._get_trade_qty(symbol, candle.close)
+            if trade_qty > 0:
+                self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                if self.risk_manager:
+                    self.risk_manager.register_entry(symbol, candle.close)
 
 
         # Price at or above upper band → SELL
         elif candle.close >= upper_band and current_position > 0:
-            self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp)
+            self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp, exit_reason='signal')
+            if self.risk_manager:
+                self.risk_manager.clear_position(symbol)
 
 
 class ZScoreMeanReversion(BaseStrategy):
@@ -291,8 +393,8 @@ class ZScoreMeanReversion(BaseStrategy):
     distributed over the lookback window. Extreme z-scores (|z| > 2) occur <5% of
     the time under a normal distribution, suggesting a reversion is likely.
     """
-    def __init__(self, portfolio: Portfolio, lookback: int = 20, entry_z: float = 2.0, exit_z: float = 0.5):
-        super().__init__(portfolio, lookback=lookback, entry_z=entry_z, exit_z=exit_z)
+    def __init__(self, portfolio: Portfolio, lookback: int = 20, entry_z: float = 2.0, exit_z: float = 0.5, risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, lookback=lookback, entry_z=entry_z, exit_z=exit_z)
         self.lookback = lookback
         self.entry_z = entry_z
         self.exit_z = exit_z
@@ -302,6 +404,12 @@ class ZScoreMeanReversion(BaseStrategy):
         print(f"Starting Z-Score Mean Reversion (Lookback: {self.lookback}, Entry Z: ±{self.entry_z}, Exit Z: ±{self.exit_z})")
 
     def on_data(self, symbol: str, candle: Candle):
+        # Check risk exits first
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
         if symbol not in self.history:
             self.history[symbol] = []
 
@@ -327,12 +435,17 @@ class ZScoreMeanReversion(BaseStrategy):
 
         # Z-score very negative → price is statistically cheap → BUY
         if z < -self.entry_z and current_position == 0:
-            trade_qty = 100
-            self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+            trade_qty = self._get_trade_qty(symbol, candle.close)
+            if trade_qty > 0:
+                self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                if self.risk_manager:
+                    self.risk_manager.register_entry(symbol, candle.close)
 
         # Z-score reverts toward 0 → take profit on long
         elif current_position > 0 and z > -self.exit_z:
-            self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp)
+            self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp, exit_reason='signal')
+            if self.risk_manager:
+                self.risk_manager.clear_position(symbol)
 
 
 class PairsTradingStrategy(BaseStrategy):
@@ -357,8 +470,8 @@ class PairsTradingStrategy(BaseStrategy):
     Note: In this simplified version, we only trade stock A (long/flat).
     A full implementation would simultaneously short stock B.
     """
-    def __init__(self, portfolio: Portfolio, lookback: int = 30, entry_z: float = 2.0, exit_z: float = 0.5):
-        super().__init__(portfolio, lookback=lookback, entry_z=entry_z, exit_z=exit_z)
+    def __init__(self, portfolio: Portfolio, lookback: int = 30, entry_z: float = 2.0, exit_z: float = 0.5, risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, lookback=lookback, entry_z=entry_z, exit_z=exit_z)
         self.lookback = lookback
         self.entry_z = entry_z
         self.exit_z = exit_z
@@ -370,6 +483,12 @@ class PairsTradingStrategy(BaseStrategy):
         print(f"Starting Pairs Trading (Lookback: {self.lookback}, Entry Z: ±{self.entry_z}, Exit Z: ±{self.exit_z})")
 
     def on_data(self, symbol: str, candle: Candle):
+        # Check risk exits first
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
         if symbol not in self.prices:
             self.prices[symbol] = []
             self._symbols_list.append(symbol)
@@ -419,12 +538,17 @@ class PairsTradingStrategy(BaseStrategy):
 
         # Spread is very low → stock A is cheap relative to B → BUY A
         if z < -self.entry_z and current_position == 0:
-            trade_qty = 100
-            self.portfolio.execute_trade(sym_a, True, trade_qty, prices_a[-1], candle.timestamp)
+            trade_qty = self._get_trade_qty(sym_a, prices_a[-1])
+            if trade_qty > 0:
+                self.portfolio.execute_trade(sym_a, True, trade_qty, prices_a[-1], candle.timestamp)
+                if self.risk_manager:
+                    self.risk_manager.register_entry(sym_a, prices_a[-1])
 
         # Spread reverts → take profit
         elif current_position > 0 and z > -self.exit_z:
-            self.portfolio.execute_trade(sym_a, False, current_position, prices_a[-1], candle.timestamp)
+            self.portfolio.execute_trade(sym_a, False, current_position, prices_a[-1], candle.timestamp, exit_reason='signal')
+            if self.risk_manager:
+                self.risk_manager.clear_position(sym_a)
 
 
 class EnsembleStrategy(BaseStrategy):
@@ -437,8 +561,8 @@ class EnsembleStrategy(BaseStrategy):
     Buy Signal: Total Score >= 2 (at least 2 out of 3 strategies say BUY)
     Sell Signal: Total Score <= -2 (at least 2 out of 3 strategies say SELL)
     """
-    def __init__(self, portfolio: Portfolio, consensus_threshold: int = 2):
-        super().__init__(portfolio, consensus_threshold=consensus_threshold)
+    def __init__(self, portfolio: Portfolio, consensus_threshold: int = 2, risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, consensus_threshold=consensus_threshold)
         self.consensus_threshold = consensus_threshold
         
         # Instantiate sub-strategies (we use dummy portfolios for them since the ensemble handles actual trades)
@@ -456,6 +580,12 @@ class EnsembleStrategy(BaseStrategy):
         self.bb_strat.on_start()
 
     def on_data(self, symbol: str, candle: Candle):
+        # Check risk exits first
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
         if symbol not in self.history:
             self.history[symbol] = []
 
@@ -517,12 +647,17 @@ class EnsembleStrategy(BaseStrategy):
 
         # Consensus BUY
         if vote_score >= self.consensus_threshold and current_position == 0:
-            trade_qty = 100
-            self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+            trade_qty = self._get_trade_qty(symbol, candle.close)
+            if trade_qty > 0:
+                self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                if self.risk_manager:
+                    self.risk_manager.register_entry(symbol, candle.close)
 
         # Consensus SELL
         elif vote_score <= -self.consensus_threshold and current_position > 0:
-            self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp)
+            self.portfolio.execute_trade(symbol, False, current_position, candle.close, candle.timestamp, exit_reason='signal')
+            if self.risk_manager:
+                self.risk_manager.clear_position(symbol)
 
 
 # ─── Strategy Registry ─────────────────────────────────────────────
