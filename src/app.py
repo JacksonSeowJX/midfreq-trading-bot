@@ -326,7 +326,7 @@ def plot_equity_curve(equity_data):
 
 if run_sim:
     with st.spinner(f'Running {selected_strategy} on {symbol}...'):
-        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=0.001)
+        portfolio = Portfolio(initial_cash=initial_capital)
         risk_mgr = build_risk_manager()
         backtester = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_mgr,
                                 slippage_bps=slippage_bps)
@@ -464,7 +464,7 @@ elif run_compare:
 
     progress = st.progress(0)
     for i, (strat_name, info) in enumerate(compare_strategies.items()):
-        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=0.001)
+        portfolio = Portfolio(initial_cash=initial_capital)
         risk_mgr = build_risk_manager()
         bt = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_mgr,
                         slippage_bps=slippage_bps)
