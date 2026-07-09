@@ -11,3 +11,4 @@ data/
 # Runtime artifacts
 live_sessions/
 .DS_Store
+.claude/
