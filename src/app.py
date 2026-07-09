@@ -296,6 +296,26 @@ def plot_ensemble(df, params):
     return fig
 
 
+def plot_regime(df, params):
+    """Candlestick + Efficiency Ratio subplot with the trend/range threshold"""
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3],
+                        subplot_titles=[f'{symbol} — Price', 'Efficiency Ratio (trend vs range)'])
+    fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Price'), row=1, col=1)
+
+    lookback = params['regime_lookback']
+    net_move = (df['close'] - df['close'].shift(lookback)).abs()
+    path = df['close'].diff().abs().rolling(lookback).sum()
+    er = (net_move / path).clip(0, 1)
+
+    fig.add_trace(go.Scatter(x=df.index, y=er, line=dict(color='mediumpurple', width=2), name='Efficiency Ratio'), row=2, col=1)
+    fig.add_hline(y=params['er_threshold'], line_dash="dash", line_color="orange",
+                  annotation_text=f"threshold {params['er_threshold']} (above = trend leg)", row=2, col=1)
+    fig.update_layout(height=600, xaxis_rangeslider_visible=False, margin=dict(l=0, r=0, t=40, b=0))
+    fig.update_yaxes(title_text="Price", row=1, col=1)
+    fig.update_yaxes(title_text="ER", range=[0, 1], row=2, col=1)
+    return fig
+
+
 # Map strategy name → plot function
 PLOT_FUNCTIONS = {
     "SMA Crossover": plot_sma_crossover,
@@ -305,6 +325,7 @@ PLOT_FUNCTIONS = {
     "Z-Score Mean Reversion": plot_zscore,
     "Pairs Trading": plot_pairs,
     "Ensemble Voting": plot_ensemble,
+    "Regime Switch": plot_regime,
 }
 
 
