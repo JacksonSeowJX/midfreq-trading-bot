@@ -662,6 +662,132 @@ class EnsembleStrategy(BaseStrategy):
 
 # ─── Strategy Registry ─────────────────────────────────────────────
 # Maps display names to (strategy_class, default_params) for the GUI
+class RegimeSwitchStrategy(BaseStrategy):
+    """
+    Regime-aware meta-strategy: classifies the market as TRENDING or
+    RANGING each candle, then trades with the style suited to that regime.
+
+    Regime signal — Kaufman Efficiency Ratio over `regime_lookback` candles:
+        ER = |close_now - close_then| / sum(|candle-to-candle moves|)
+    ER near 1 = price moved in a straight line (trend); near 0 = price
+    churned without going anywhere (range).
+
+    TRENDING (ER >= er_threshold)  -> SMA crossover (ride the trend)
+    RANGING  (ER <  er_threshold)  -> Bollinger Bands (fade the extremes)
+
+    On a regime flip while holding a position, the position is closed
+    (exit_reason='regime_change') so each leg starts from a clean slate.
+    Motivated by the 2026-07 walk-forward study: mean reversion won in
+    ranging conditions, trend-following needs trends — nothing won
+    unconditionally.
+    """
+    def __init__(self, portfolio: Portfolio,
+                 regime_lookback: int = 20, er_threshold: float = 0.30,
+                 fast_period: int = 5, slow_period: int = 20,
+                 bb_period: int = 14, num_std: float = 2.5,
+                 risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager,
+                         regime_lookback=regime_lookback, er_threshold=er_threshold,
+                         fast_period=fast_period, slow_period=slow_period,
+                         bb_period=bb_period, num_std=num_std)
+        self.regime_lookback = regime_lookback
+        self.er_threshold = er_threshold
+        self.fast = fast_period
+        self.slow = slow_period
+        self.bb_period = bb_period
+        self.num_std = num_std
+        self.history: Dict[str, list] = {}
+        self.regime: Dict[str, str] = {}  # symbol -> 'TREND' | 'RANGE'
+
+    def on_start(self):
+        print(f"Starting Regime Switch Strategy (ER lookback: {self.regime_lookback}, "
+              f"threshold: {self.er_threshold} | trend: SMA {self.fast}/{self.slow} | "
+              f"range: BB {self.bb_period}/{self.num_std}σ)")
+
+    def _efficiency_ratio(self, prices: list) -> Optional[float]:
+        window = prices[-(self.regime_lookback + 1):]
+        if len(window) < self.regime_lookback + 1:
+            return None
+        net_move = abs(window[-1] - window[0])
+        path = sum(abs(window[i] - window[i - 1]) for i in range(1, len(window)))
+        return (net_move / path) if path > 0 else 0.0
+
+    def on_data(self, symbol: str, candle: Candle):
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
+        prices = self.history.setdefault(symbol, [])
+        prices.append(candle.close)
+        max_keep = max(self.slow, self.bb_period, self.regime_lookback) + 2
+        if len(prices) > max_keep:
+            prices.pop(0)
+
+        er = self._efficiency_ratio(prices)
+        if er is None:
+            return
+        regime = 'TREND' if er >= self.er_threshold else 'RANGE'
+
+        # Regime flip while holding -> flatten, let the new leg start clean
+        prev_regime = self.regime.get(symbol)
+        current_position = self.portfolio.get_position_qty(symbol)
+        if prev_regime is not None and regime != prev_regime and current_position > 0:
+            self.portfolio.execute_trade(symbol, False, current_position,
+                                         candle.close, candle.timestamp,
+                                         exit_reason='regime_change')
+            if self.risk_manager:
+                self.risk_manager.clear_position(symbol)
+            current_position = 0
+        self.regime[symbol] = regime
+
+        if regime == 'TREND':
+            self._trend_leg(symbol, candle, prices, current_position)
+        else:
+            self._range_leg(symbol, candle, prices, current_position)
+
+    def _trend_leg(self, symbol: str, candle: Candle, prices: list, position: float):
+        if len(prices) <= self.slow:
+            return
+        fast_ma = sum(prices[-self.fast:]) / self.fast
+        slow_ma = sum(prices[-self.slow:]) / self.slow
+        prev_fast = sum(prices[-(self.fast + 1):-1]) / self.fast
+        prev_slow = sum(prices[-(self.slow + 1):-1]) / self.slow
+
+        if prev_fast <= prev_slow and fast_ma > slow_ma and position == 0:
+            qty = self._get_trade_qty(symbol, candle.close)
+            if qty > 0:
+                self.portfolio.execute_trade(symbol, True, qty, candle.close, candle.timestamp)
+                if self.risk_manager:
+                    self.risk_manager.register_entry(symbol, candle.close)
+        elif prev_fast >= prev_slow and fast_ma < slow_ma and position > 0:
+            self.portfolio.execute_trade(symbol, False, position, candle.close,
+                                         candle.timestamp, exit_reason='signal')
+            if self.risk_manager:
+                self.risk_manager.clear_position(symbol)
+
+    def _range_leg(self, symbol: str, candle: Candle, prices: list, position: float):
+        if len(prices) < self.bb_period:
+            return
+        window = prices[-self.bb_period:]
+        middle = sum(window) / self.bb_period
+        std = (sum((p - middle) ** 2 for p in window) / self.bb_period) ** 0.5
+        upper = middle + self.num_std * std
+        lower = middle - self.num_std * std
+
+        if candle.close <= lower and position == 0:
+            qty = self._get_trade_qty(symbol, candle.close)
+            if qty > 0:
+                self.portfolio.execute_trade(symbol, True, qty, candle.close, candle.timestamp)
+                if self.risk_manager:
+                    self.risk_manager.register_entry(symbol, candle.close)
+        elif candle.close >= upper and position > 0:
+            self.portfolio.execute_trade(symbol, False, position, candle.close,
+                                         candle.timestamp, exit_reason='signal')
+            if self.risk_manager:
+                self.risk_manager.clear_position(symbol)
+
+
 STRATEGY_REGISTRY = {
     "SMA Crossover": {
         "class": MovingAverageCrossover,
@@ -713,6 +839,13 @@ STRATEGY_REGISTRY = {
         "class": EnsembleStrategy,
         "params": {
             "consensus_threshold": {"label": "Consensus Required (votes)", "min": 1, "max": 3, "default": 2, "step": 1},
+        }
+    },
+    "Regime Switch": {
+        "class": RegimeSwitchStrategy,
+        "params": {
+            "regime_lookback": {"label": "Regime Lookback (candles)", "min": 10, "max": 50, "default": 20, "step": 5},
+            "er_threshold":    {"label": "Trend Threshold (Efficiency Ratio)", "min": 0.15, "max": 0.60, "default": 0.30, "step": 0.05},
         }
     },
 }
