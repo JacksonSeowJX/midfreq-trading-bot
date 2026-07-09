@@ -1,0 +1,36 @@
+strategy,symbol,timeframe,window,train_start,test_start,best_params,train_return_pct,test_return_pct,test_sharpe,test_trades,test_max_dd
+Z-Score Mean Reversion,HK.00700,5m,1,2026-01-08,2026-02-19,"{'lookback': 10, 'entry_z': 2.9, 'exit_z': 0.0}",-2.089,-0.318,-4.583,2,0.509
+Z-Score Mean Reversion,HK.00700,5m,2,2026-03-09,2026-04-20,"{'lookback': 100, 'entry_z': 2.3, 'exit_z': 0.0}",-1.023,-1.779,-4.288,8,3.326
+Z-Score Mean Reversion,HK.00700,5m,3,2026-05-08,2026-06-19,"{'lookback': 90, 'entry_z': 3.3, 'exit_z': 0.0}",0.434,0.0,0.0,0,0.0
+RSI,HK.00700,5m,1,2026-01-08,2026-02-19,"{'rsi_period': 20, 'oversold': 13, 'overbought': 66}",1.512,-0.316,-4.583,2,0.699
+RSI,HK.00700,5m,2,2026-03-09,2026-04-20,"{'rsi_period': 21, 'oversold': 12, 'overbought': 78}",1.917,-0.297,-0.496,4,2.209
+RSI,HK.00700,5m,3,2026-05-08,2026-06-19,"{'rsi_period': 21, 'oversold': 20, 'overbought': 63}",1.881,0.788,3.087,4,0.704
+Bollinger Bands,HK.00700,5m,1,2026-01-08,2026-02-19,"{'bb_period': 5, 'num_std': 2.5}",-3.593,1.318,2.398,3,2.972
+Bollinger Bands,HK.00700,5m,2,2026-03-09,2026-04-20,"{'bb_period': 10, 'num_std': 2.5}",-0.007,-3.28,-7.491,8,3.502
+Bollinger Bands,HK.00700,5m,3,2026-05-08,2026-06-19,"{'bb_period': 11, 'num_std': 3.0}",1.94,1.897,3.125,2,2.608
+SMA Crossover,HK.00700,5m,1,2026-01-08,2026-02-19,"{'fast_period': 44, 'slow_period': 173}",0.668,-1.449,-3.07,7,3.436
+SMA Crossover,HK.00700,5m,2,2026-03-09,2026-04-20,"{'fast_period': 26, 'slow_period': 101}",0.651,-3.132,-9.499,8,3.231
+SMA Crossover,HK.00700,5m,3,2026-05-08,2026-06-19,"{'fast_period': 50, 'slow_period': 149}",1.111,0.848,1.618,5,2.771
+MACD,HK.00700,5m,1,2026-01-08,2026-02-19,"{'fast_ema': 48, 'slow_ema': 100, 'signal_period': 30}",-8.215,-0.392,-0.864,13,2.614
+MACD,HK.00700,5m,2,2026-03-09,2026-04-20,"{'fast_ema': 34, 'slow_ema': 60, 'signal_period': 22}",3.052,-3.13,-7.271,15,3.485
+MACD,HK.00700,5m,3,2026-05-08,2026-06-19,"{'fast_ema': 50, 'slow_ema': 74, 'signal_period': 28}",1.048,4.567,8.938,9,2.173
+Z-Score Mean Reversion,HK.00700,1h,1,2025-07-09,2025-09-10,"{'lookback': 22, 'entry_z': 1.7, 'exit_z': 0.0}",4.515,0.885,5.084,2,0.199
+Z-Score Mean Reversion,HK.00700,1h,2,2025-10-08,2025-12-10,"{'lookback': 49, 'entry_z': 2.6, 'exit_z': 0.0}",0.676,0.0,0.0,0,0.0
+Z-Score Mean Reversion,HK.00700,1h,3,2026-01-07,2026-03-11,"{'lookback': 34, 'entry_z': 2.9, 'exit_z': 0.0}",0.453,-2.731,-3.429,2,4.348
+Z-Score Mean Reversion,HK.00700,1h,4,2026-04-08,2026-06-10,"{'lookback': 26, 'entry_z': 2.5, 'exit_z': 0.0}",2.348,0.524,0.922,2,1.894
+RSI,HK.00700,1h,1,2025-07-09,2025-09-10,"{'rsi_period': 26, 'oversold': 39, 'overbought': 78}",9.258,4.169,6.031,1,1.365
+RSI,HK.00700,1h,2,2025-10-08,2025-12-10,"{'rsi_period': 44, 'oversold': 35, 'overbought': 63}",3.81,0.0,0.0,0,0.0
+RSI,HK.00700,1h,3,2026-01-07,2026-03-11,"{'rsi_period': 24, 'oversold': 18, 'overbought': 63}",1.047,-1.161,-1.212,2,3.647
+RSI,HK.00700,1h,4,2026-04-08,2026-06-10,"{'rsi_period': 28, 'oversold': 15, 'overbought': 75}",3.711,0.0,0.0,0,0.0
+Bollinger Bands,HK.00700,1h,1,2025-07-09,2025-09-10,"{'bb_period': 13, 'num_std': 2.0}",7.731,0.885,5.084,2,0.199
+Bollinger Bands,HK.00700,1h,2,2025-10-08,2025-12-10,"{'bb_period': 26, 'num_std': 2.5}",0.676,0.0,0.0,0,0.0
+Bollinger Bands,HK.00700,1h,3,2026-01-07,2026-03-11,"{'bb_period': 15, 'num_std': 2.5}",-2.282,-1.308,-1.226,1,4.348
+Bollinger Bands,HK.00700,1h,4,2026-04-08,2026-06-10,"{'bb_period': 16, 'num_std': 2.0}",6.538,-0.647,-0.655,2,4.001
+SMA Crossover,HK.00700,1h,1,2025-07-09,2025-09-10,"{'fast_period': 22, 'slow_period': 21}",10.692,1.112,1.233,1,3.188
+SMA Crossover,HK.00700,1h,2,2025-10-08,2025-12-10,"{'fast_period': 14, 'slow_period': 53}",-0.128,-0.579,-1.503,1,2.069
+SMA Crossover,HK.00700,1h,3,2026-01-07,2026-03-11,"{'fast_period': 2, 'slow_period': 149}",0.287,0.0,0.0,0,0.0
+SMA Crossover,HK.00700,1h,4,2026-04-08,2026-06-10,"{'fast_period': 39, 'slow_period': 145}",1.367,0.0,0.0,0,0.0
+MACD,HK.00700,1h,1,2025-07-09,2025-09-10,"{'fast_ema': 10, 'slow_ema': 17, 'signal_period': 5}",8.72,0.19,0.324,10,2.229
+MACD,HK.00700,1h,2,2025-10-08,2025-12-10,"{'fast_ema': 37, 'slow_ema': 10, 'signal_period': 15}",-1.472,-2.192,-6.696,3,2.31
+MACD,HK.00700,1h,3,2026-01-07,2026-03-11,"{'fast_ema': 20, 'slow_ema': 64, 'signal_period': 30}",1.188,0.0,0.0,0,0.0
+MACD,HK.00700,1h,4,2026-04-08,2026-06-10,"{'fast_ema': 41, 'slow_ema': 91, 'signal_period': 30}",2.088,0.0,0.0,0,0.0
