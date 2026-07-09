@@ -14,7 +14,9 @@ Usage:
 """
 import sys
 import argparse
-sys.path.insert(0, 'src')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
+sys.stdout.reconfigure(line_buffering=True)  # live output even when piped/backgrounded
 
 from core.models import Timeframe
 from core.strategy import STRATEGY_REGISTRY
