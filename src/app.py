@@ -187,6 +187,10 @@ run_sim = st.sidebar.button("🚀 Run Backtest", type="primary", use_container_w
 run_compare = st.sidebar.button("⚡ Compare All Strategies", use_container_width=True)
 run_optimize = st.sidebar.button("🔬 Run Optimization", use_container_width=True)
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("📡 Live Paper Trading")
+run_live_view = st.sidebar.button("Show Live Account & Sessions", use_container_width=True)
+
 
 # ─── Chart Plotting Functions ───────────────────────────────────────
 
@@ -698,6 +702,89 @@ elif run_optimize:
 
             st.caption("If out-of-sample returns are consistently much worse than in-sample (train) returns, "
                        "the strategy is likely overfitting to historical noise rather than a real edge.")
+
+elif run_live_view:
+    # ─── Live Paper Trading View ───────────────────────────────────
+    st.markdown("### 📡 Live Paper Trading — Account & Session History")
+
+    # Broker state (requires OpenD)
+    try:
+        from core.order_gateway import MoomooPaperGateway
+        gw = MoomooPaperGateway()
+        acc = gw.get_account_info()
+        positions = gw.get_positions()
+        orders = gw.list_today_orders()
+        gw.close()
+
+        col1, col2, col3, col4 = st.columns(4)
+        initial = 1_000_000.0  # Moomoo paper account starting balance
+        pnl_pct = (acc.get('total_assets', initial) - initial) / initial * 100
+        with col1:
+            st.metric("Total Assets", f"HKD {acc.get('total_assets', 0):,.2f}",
+                      f"{pnl_pct:+.3f}% all-time", delta_color="normal" if pnl_pct >= 0 else "inverse")
+        with col2:
+            st.metric("Cash", f"HKD {acc.get('cash', 0):,.2f}")
+        with col3:
+            st.metric("Market Value", f"HKD {acc.get('market_value', 0):,.2f}")
+        with col4:
+            st.metric("Open Positions", len(positions))
+
+        if positions:
+            st.markdown("#### Open Positions")
+            st.dataframe(pd.DataFrame([
+                {'Symbol': s, 'Qty': p['qty'], 'Avg Cost': f"HKD {p['entry_price']:.2f}"}
+                for s, p in positions.items()
+            ]), use_container_width=True)
+
+        if orders:
+            st.markdown("#### Today's Orders")
+            odf = pd.DataFrame(orders)
+            cols = [c for c in ['code', 'trd_side', 'qty', 'price', 'order_status', 'create_time'] if c in odf.columns]
+            st.dataframe(odf[cols], use_container_width=True, height=220)
+        else:
+            st.info("No orders today.")
+    except Exception as e:
+        st.warning(f"OpenD not reachable — broker state unavailable ({e}). Session history below.")
+
+    # Session history from live_sessions/*.jsonl
+    import json
+    session_dir = Path(__file__).parent.parent / 'live_sessions'
+    session_files = sorted(session_dir.glob('session_*.jsonl'), reverse=True)
+
+    if session_files:
+        st.markdown("#### Forward-Test Session History")
+        rows = []
+        for f in session_files:
+            events = [json.loads(line) for line in f.read_text().splitlines() if line.strip()]
+            start = next((e for e in events if e['type'] == 'session_start'), {})
+            end = next((e for e in events if e['type'] == 'session_end'), {})
+            candles = sum(1 for e in events if e['type'] == 'candle_close')
+            rows.append({
+                'Session': f.stem.replace('session_', ''),
+                'Strategy': start.get('strategy', '?'),
+                'Symbols': ', '.join(start.get('symbols', [])),
+                'TF': start.get('timeframe', '?'),
+                'Candles': candles,
+                'Trades': end.get('trades', 'running' if not end else 0),
+                'End Assets': f"HKD {end['account'].get('total_assets', 0):,.0f}" if end.get('account') else '—',
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=280)
+
+        # Equity timeline of the most recent session with data
+        for f in session_files:
+            events = [json.loads(line) for line in f.read_text().splitlines() if line.strip()]
+            closes = [e for e in events if e['type'] == 'candle_close']
+            if len(closes) >= 2:
+                eq_df = pd.DataFrame(closes)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=eq_df['timestamp'], y=eq_df['equity'],
+                                         mode='lines+markers', line=dict(color='dodgerblue', width=2)))
+                fig.update_layout(title=f'Equity — session {f.stem.replace("session_", "")}',
+                                  yaxis_title='HKD', height=300, margin=dict(l=0, r=0, t=40, b=0))
+                st.plotly_chart(fig, use_container_width=True)
+                break
+    else:
+        st.info("No live sessions recorded yet. Run `./scripts/run_daily_candidates.sh` during market hours.")
 
 else:
     st.info("👆 Select a **strategy** and adjust parameters on the sidebar, then click **Run Backtest**, **Compare All Strategies**, or **Run Optimization**.")
