@@ -2,9 +2,10 @@
 Fetch daily historical data for ALL configured HK stocks from Moomoo.
 Stores each stock's data into data/<SYMBOL>/1d.parquet
 """
-import sys
 import time
-sys.path.insert(0, 'src')
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
 
 from datetime import datetime, timedelta
 from core.models import Timeframe
