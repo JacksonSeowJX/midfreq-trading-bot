@@ -236,7 +236,38 @@ class LiveTradingEngine:
 
         self._shutdown()
 
+    def _finalize_elapsed_candles(self):
+        """
+        Finalize still-forming candles whose time window has fully elapsed.
+
+        Normally a candle is finalized when the NEXT candle's first push
+        arrives — but after the market closes no further push comes, so the
+        session's last candle (e.g. the 16:00 close) would silently never
+        be evaluated. Called at shutdown.
+        """
+        from datetime import timedelta, timezone
+        spans = {Timeframe.MIN_1: timedelta(minutes=1),
+                 Timeframe.MIN_5: timedelta(minutes=5),
+                 Timeframe.HOUR_1: timedelta(hours=1),
+                 Timeframe.DAY_1: timedelta(days=1)}
+        span = spans.get(self.timeframe)
+        if span is None:
+            return
+        # Candle timestamps follow the provider's convention: HKT wall-clock
+        # values labeled as UTC. Compare against "now" expressed the same way.
+        now = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=timezone.utc)
+        for symbol, candle in list(self._forming.items()):
+            # Moomoo labels candles by window END time, so an elapsed window
+            # means timestamp <= now.
+            ts = candle.timestamp if candle.timestamp.tzinfo else candle.timestamp.replace(tzinfo=timezone.utc)
+            if ts <= now:
+                print(f"  [finalize] {symbol} {candle.timestamp} candle "
+                      f"(window elapsed, no successor push)")
+                self._on_candle_closed(symbol, candle)
+                del self._forming[symbol]
+
     def _shutdown(self):
+        self._finalize_elapsed_candles()
         acc = self.gateway.get_account_info()
         positions = self.gateway.get_positions()
         print("\n" + "=" * 60)
