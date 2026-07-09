@@ -66,9 +66,19 @@ This repository provides a modular and extensible framework for fetching, standa
 
 ## Usage
 
-Run the demonstration script to fetch and store data for several stocks:
+Backfill historical data for all configured HK stocks (requires OpenD running):
 ```bash
-python3 src/main.py
+python3 scripts/backfill_data.py
+```
+
+Run the backtesting dashboard:
+```bash
+PYTHONPATH=src streamlit run src/app.py
+```
+
+Run live paper trading (requires OpenD running, HK market hours):
+```bash
+python3 run_live.py --strategy "Z-Score Mean Reversion" --symbols HK.00700 --duration 30
 ```
 
 ## Data Schema
