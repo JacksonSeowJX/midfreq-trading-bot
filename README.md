@@ -34,9 +34,9 @@ Update 4 (10 May 26)
 Update 5 (24 May 26)
 - https://youtu.be/SHOYmgZUYfA
 
-## Mid-Frequency Market Data Service
+## System Overview
 
-This repository provides a modular and extensible framework for fetching, standardizing, and storing historical and live market data for US stocks. It is part of the "Development of a Modular Quantitative Trading Framework for Mid-Frequency Stock Trading" project.
+This repository contains a modular quantitative trading framework for mid-frequency stock trading: market data ingestion (Moomoo/OpenD), Parquet storage, a strategy engine, a realistic backtester with risk management and optimization tooling, and a live paper-trading gateway.
 
 ## Features
 
