@@ -1,0 +1,11 @@
+strategy,symbol,timeframe,windows,avg_train_return_pct,avg_oos_return_pct,oos_consistency_pct,generalizes
+Z-Score Mean Reversion,HK.00005,5m,3,0.2,-0.131,33.3,False
+RSI,HK.00005,5m,3,1.192,-0.302,0.0,False
+Bollinger Bands,HK.00005,5m,3,0.381,-0.126,0.0,False
+SMA Crossover,HK.00005,5m,3,1.108,-0.105,33.3,False
+MACD,HK.00005,5m,3,0.627,-0.106,33.3,False
+Z-Score Mean Reversion,HK.00005,1h,4,0.658,0.029,25.0,False
+RSI,HK.00005,1h,4,1.219,0.0,0.0,False
+Bollinger Bands,HK.00005,1h,4,1.04,0.306,50.0,True
+SMA Crossover,HK.00005,1h,4,0.726,0.162,25.0,False
+MACD,HK.00005,1h,4,0.758,0.217,25.0,False
