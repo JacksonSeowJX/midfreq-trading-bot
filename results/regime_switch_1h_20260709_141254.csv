@@ -1,0 +1,12 @@
+symbol,avg_train_return_pct,avg_oos_return_pct,oos_consistency_pct,latest_params
+HK.00700,1.991,0.922,50.0,"{'regime_lookback': 45, 'er_threshold': 0.5}"
+HK.09618,0.4,0.274,50.0,"{'regime_lookback': 25, 'er_threshold': 0.15}"
+HK.09888,1.365,0.176,75.0,"{'regime_lookback': 30, 'er_threshold': 0.5}"
+HK.01810,0.155,-0.016,0.0,"{'regime_lookback': 30, 'er_threshold': 0.15}"
+HK.00941,0.216,-0.044,0.0,"{'regime_lookback': 25, 'er_threshold': 0.15}"
+HK.02318,0.188,-0.06,0.0,"{'regime_lookback': 15, 'er_threshold': 0.3}"
+HK.00005,0.623,-0.062,25.0,"{'regime_lookback': 35, 'er_threshold': 0.2}"
+HK.03690,0.264,-0.098,0.0,"{'regime_lookback': 25, 'er_threshold': 0.15}"
+HK.01299,0.235,-0.171,25.0,"{'regime_lookback': 15, 'er_threshold': 0.15}"
+HK.01211,0.08,-0.181,50.0,"{'regime_lookback': 45, 'er_threshold': 0.2}"
+HK.09988,0.739,-0.24,25.0,"{'regime_lookback': 25, 'er_threshold': 0.55}"
