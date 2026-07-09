@@ -147,7 +147,7 @@ def grid_search(
     
     for i, params in enumerate(param_grid):
         # Run backtest with this parameter set
-        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=0.001)
+        portfolio = Portfolio(initial_cash=initial_capital)
         bt = Backtester(storage=storage, portfolio=portfolio, 
                        risk_manager=risk_manager, slippage_bps=slippage_bps)
         
@@ -295,7 +295,7 @@ def walk_forward(
         best_traded = False
 
         for params in param_grid:
-            portfolio = Portfolio(initial_cash=initial_capital, commission_rate=0.001)
+            portfolio = Portfolio(initial_cash=initial_capital)
             bt = Backtester(storage=storage, portfolio=portfolio,
                           risk_manager=risk_manager, slippage_bps=slippage_bps)
             
@@ -320,7 +320,7 @@ def walk_forward(
                     best_traded = traded
         
         # ─── Step 2: Validate best params on test data ────────
-        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=0.001)
+        portfolio = Portfolio(initial_cash=initial_capital)
         bt = Backtester(storage=storage, portfolio=portfolio,
                        risk_manager=risk_manager, slippage_bps=slippage_bps)
         

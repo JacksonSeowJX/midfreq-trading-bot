@@ -6,10 +6,15 @@ class Portfolio:
     """
     Simulated portfolio tracking cash, active positions, and trade history.
     """
-    def __init__(self, initial_cash: float = 100000.0, commission_rate: float = 0.001):
+    # All-in HK trading cost per side: broker commission + platform fee
+    # + 0.1% stamp duty + exchange/regulatory levies. Calibrated against
+    # actual Moomoo paper-trading fills (live session 2026-07-09).
+    HK_FEE_RATE = 0.0016
+
+    def __init__(self, initial_cash: float = 100000.0, commission_rate: float = HK_FEE_RATE):
         self.initial_cash = initial_cash
         self.cash = initial_cash
-        self.commission_rate = commission_rate  # E.g. 0.1% per trade
+        self.commission_rate = commission_rate  # per-side, as fraction of trade value
         
         # Format: { 'HK.00700': {'qty': 1000, 'entry_price': 480.0} }
         self.positions: Dict[str, Dict[str, float]] = {}

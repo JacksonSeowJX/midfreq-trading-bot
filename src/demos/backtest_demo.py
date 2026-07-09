@@ -10,7 +10,7 @@ def main():
     
     # Initialize Core Components
     storage = DataStorage()
-    portfolio = Portfolio(initial_cash=100000.0, commission_rate=0.001)
+    portfolio = Portfolio(initial_cash=100000.0)
     backtester = Backtester(storage=storage, portfolio=portfolio)
     
     # We will test Tencent on the 1-minute historical dataset we already downloaded

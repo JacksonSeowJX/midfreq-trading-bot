@@ -36,7 +36,7 @@ class LivePortfolio(Portfolio):
     broker state so strategies and the RiskManager work unchanged.
     """
 
-    def __init__(self, gateway: OrderGateway, commission_rate: float = 0.001):
+    def __init__(self, gateway: OrderGateway, commission_rate: float = Portfolio.HK_FEE_RATE):
         acc = gateway.get_account_info()
         initial_cash = acc.get('total_assets', 0.0) or acc.get('cash', 0.0)
         super().__init__(initial_cash=initial_cash, commission_rate=commission_rate)
