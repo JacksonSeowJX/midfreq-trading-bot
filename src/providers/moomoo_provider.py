@@ -61,25 +61,39 @@ class MoomooProvider(BaseDataProvider):
         start_str = start_date.strftime('%Y-%m-%d')
         end_str = end_date.strftime('%Y-%m-%d')
 
-        ret, data, _ = ctx.request_history_kline(
-            symbol,
-            start=start_str,
-            end=end_str,
-            ktype=kl_type,
-            max_count=1000
-        )
+        # Moomoo returns at most `max_count` candles per call and provides a
+        # page_req_key to continue — loop until all pages are fetched.
+        pages = []
+        page_req_key = None
+        while True:
+            ret, data, page_req_key = ctx.request_history_kline(
+                symbol,
+                start=start_str,
+                end=end_str,
+                ktype=kl_type,
+                max_count=1000,
+                page_req_key=page_req_key
+            )
 
-        if ret != RET_OK:
-            print(f"Error fetching historical data: {data}")
+            if ret != RET_OK:
+                print(f"Error fetching historical data: {data}")
+                break
+
+            pages.append(data)
+            if page_req_key is None:
+                break
+
+        if not pages:
             return pd.DataFrame()
 
         # Standardize columns to our OHLCV schema
-        df = data.rename(columns={
+        df = pd.concat(pages, ignore_index=True).rename(columns={
             'time_key': 'timestamp',
         })
 
         df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
         df.set_index('timestamp', inplace=True)
+        df = df[~df.index.duplicated(keep='last')].sort_index()
         return df[['open', 'high', 'low', 'close', 'volume']]
 
 
@@ -147,6 +161,18 @@ class MoomooProvider(BaseDataProvider):
         return result
 
 
+    def get_lot_sizes(self, symbols: list) -> dict:
+        """
+        Get the board lot size for each symbol (HK orders must be lot multiples).
+        Returns { symbol: lot_size }.
+        """
+        ctx = self._get_context()
+        ret, data = ctx.get_market_snapshot(symbols)
+        if ret != RET_OK:
+            print(f"Error fetching lot sizes: {data}")
+            return {}
+        return {row['code']: int(row['lot_size']) for _, row in data.iterrows()}
+
     def get_latest_candle(self, symbol: str, timeframe: Timeframe) -> Optional[Candle]:
         df = self.get_historical_data(
             symbol, timeframe,
@@ -212,3 +238,55 @@ class MoomooProvider(BaseDataProvider):
             print(f"Streaming subscription error: {err}")
         else:
             print(f"Started live {timeframe.value} candle streaming for {symbol}")
+
+    def start_live_streaming_multi(
+        self,
+        symbols: list,
+        timeframe: Timeframe,
+        callback: Callable[[str, Candle], None]
+    ):
+        """
+        Subscribe to live K-line pushes for MULTIPLE symbols with one handler.
+
+        Note: OpenD pushes an update every time the current (still-forming)
+        candle changes — the callback receives every update, and the caller
+        is responsible for detecting candle completion (a new timestamp
+        means the previous candle closed).
+
+        callback receives (symbol, candle).
+        """
+        ctx = self._get_context()
+        kl_type = self._kl_type_map.get(timeframe, KLType.K_1M)
+        kl_sub_map = {
+            KLType.K_1M: SubType.K_1M,
+            KLType.K_5M: SubType.K_5M,
+            KLType.K_60M: SubType.K_60M,
+            KLType.K_DAY: SubType.K_DAY,
+        }
+        sub_type = kl_sub_map.get(kl_type, SubType.K_1M)
+
+        class MultiCandleHandler(CurKlineHandlerBase):
+            def on_recv_rsp(self, rsp_pb):
+                ret_code, data = super().on_recv_rsp(rsp_pb)
+                if ret_code != RET_OK:
+                    return ret_code, data
+
+                for _, row in data.iterrows():
+                    candle = Candle(
+                        timestamp=pd.to_datetime(row['time_key'], utc=True),
+                        open=row['open'],
+                        high=row['high'],
+                        low=row['low'],
+                        close=row['close'],
+                        volume=row['volume']
+                    )
+                    callback(row['code'], candle)
+                return ret_code, data
+
+        ctx.set_handler(MultiCandleHandler())
+
+        ret, err = ctx.subscribe(symbols, [sub_type])
+        if ret != RET_OK:
+            print(f"Streaming subscription error: {err}")
+        else:
+            print(f"Started live {timeframe.value} candle streaming for {len(symbols)} symbols: {symbols}")
