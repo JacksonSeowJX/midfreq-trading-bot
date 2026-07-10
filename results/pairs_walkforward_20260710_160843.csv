@@ -1,0 +1,6 @@
+pair,adf_p_unit_spread,avg_train_return_pct,avg_oos_return_pct,oos_consistency_pct,generalizes
+HK.00941/HK.09618,0.033,0.141,-0.152,0.0,False
+HK.00700/HK.03690,0.0517,2.83,-0.496,25.0,False
+HK.09988/HK.03690,0.0738,1.537,-0.015,25.0,False
+HK.09988/HK.01810,0.0879,1.095,0.102,25.0,False
+HK.01299/HK.02318,0.0881,0.255,-0.003,25.0,False
