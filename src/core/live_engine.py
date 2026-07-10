@@ -127,7 +127,14 @@ class LiveTradingEngine:
 
         self._log_dir = Path(session_log_dir)
         self._log_dir.mkdir(exist_ok=True)
-        self._session_file = self._log_dir / f"session_{datetime.now():%Y%m%d_%H%M%S}.jsonl"
+        # Strategy name + PID + per-process counter in the filename —
+        # parallel sessions launched in the same second must not share a log
+        import os
+        LiveTradingEngine._session_seq = getattr(LiveTradingEngine, '_session_seq', 0) + 1
+        strat_slug = strategy_class.__name__.lower()
+        self._session_file = self._log_dir / (
+            f"session_{datetime.now():%Y%m%d_%H%M%S}_{strat_slug}"
+            f"_{os.getpid()}_{LiveTradingEngine._session_seq}.jsonl")
 
     def _warm_up(self, candles: int = 60):
         """
