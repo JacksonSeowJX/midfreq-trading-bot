@@ -697,7 +697,9 @@ class RegimeSwitchStrategy(BaseStrategy):
         self.bb_period = bb_period
         self.num_std = num_std
         self.history: Dict[str, list] = {}
-        self.regime: Dict[str, str] = {}  # symbol -> 'TREND' | 'RANGE'
+        self.regime: Dict[str, str] = {}  # symbol -> 'TREND' | 'RANGE' | 'FLAT'
+        # How much price history to retain (subclasses may need more)
+        self._history_keep = max(self.slow, self.bb_period, self.regime_lookback) + 2
 
     def on_start(self):
         print(f"Starting Regime Switch Strategy (ER lookback: {self.regime_lookback}, "
@@ -712,6 +714,17 @@ class RegimeSwitchStrategy(BaseStrategy):
         path = sum(abs(window[i] - window[i - 1]) for i in range(1, len(window)))
         return (net_move / path) if path > 0 else 0.0
 
+    def _classify_regime(self, symbol: str, prices: list) -> Optional[str]:
+        """
+        Classify the current market regime for a symbol.
+        Returns 'TREND', 'RANGE', 'FLAT' (stand aside), or None (not enough data).
+        Subclasses can override this with alternative regime models.
+        """
+        er = self._efficiency_ratio(prices)
+        if er is None:
+            return None
+        return 'TREND' if er >= self.er_threshold else 'RANGE'
+
     def on_data(self, symbol: str, candle: Candle):
         if self._check_risk_exits(symbol, candle):
             return
@@ -720,14 +733,12 @@ class RegimeSwitchStrategy(BaseStrategy):
 
         prices = self.history.setdefault(symbol, [])
         prices.append(candle.close)
-        max_keep = max(self.slow, self.bb_period, self.regime_lookback) + 2
-        if len(prices) > max_keep:
+        if len(prices) > self._history_keep:
             prices.pop(0)
 
-        er = self._efficiency_ratio(prices)
-        if er is None:
+        regime = self._classify_regime(symbol, prices)
+        if regime is None:
             return
-        regime = 'TREND' if er >= self.er_threshold else 'RANGE'
 
         # Regime flip while holding -> flatten, let the new leg start clean
         prev_regime = self.regime.get(symbol)
@@ -743,8 +754,9 @@ class RegimeSwitchStrategy(BaseStrategy):
 
         if regime == 'TREND':
             self._trend_leg(symbol, candle, prices, current_position)
-        else:
+        elif regime == 'RANGE':
             self._range_leg(symbol, candle, prices, current_position)
+        # 'FLAT': deliberately stand aside
 
     def _trend_leg(self, symbol: str, candle: Candle, prices: list, position: float):
         if len(prices) <= self.slow:
@@ -786,6 +798,112 @@ class RegimeSwitchStrategy(BaseStrategy):
                                          candle.timestamp, exit_reason='signal')
             if self.risk_manager:
                 self.risk_manager.clear_position(symbol)
+
+
+class HMMRegimeSwitchStrategy(RegimeSwitchStrategy):
+    """
+    Regime switching driven by a Gaussian Hidden Markov Model instead of a
+    hand-tuned Efficiency Ratio threshold.
+
+    An HMM assumes the market moves between hidden states, each emitting
+    log-returns with its own mean (drift) and variance (volatility). The
+    model AND the state sequence are learned unsupervised from the data —
+    no per-stock threshold tuning.
+
+    State -> trading style mapping (from each state's fitted statistics):
+        |drift| / volatility >= trend_score  ->  TREND  (SMA crossover leg)
+        otherwise                            ->  RANGE  (Bollinger leg)
+        highest-volatility state (3+ states) ->  FLAT   (stand aside)
+
+    The model is refit every `refit_every` candles on a trailing window of
+    `fit_window` closes, using only past data (no lookahead). Until enough
+    history exists, falls back to the Efficiency Ratio rule.
+    """
+    def __init__(self, portfolio: Portfolio,
+                 n_states: int = 2, trend_score: float = 0.06,
+                 refit_every: int = 60, fit_window: int = 300,
+                 fast_period: int = 5, slow_period: int = 20,
+                 bb_period: int = 14, num_std: float = 2.5,
+                 risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, fast_period=fast_period, slow_period=slow_period,
+                         bb_period=bb_period, num_std=num_std, risk_manager=risk_manager)
+        self.params.update(n_states=n_states, trend_score=trend_score,
+                           refit_every=refit_every, fit_window=fit_window)
+        self.n_states = n_states
+        self.trend_score = trend_score
+        self.refit_every = refit_every
+        self.fit_window = fit_window
+        self._history_keep = max(self._history_keep, fit_window + 2)
+        self._models: Dict[str, Any] = {}          # symbol -> fitted GaussianHMM
+        self._state_regime: Dict[str, dict] = {}   # symbol -> {state: 'TREND'|'RANGE'|'FLAT'}
+        self._since_fit: Dict[str, int] = {}
+
+    def on_start(self):
+        print(f"Starting HMM Regime Switch (states: {self.n_states}, "
+              f"trend score: {self.trend_score}, refit every {self.refit_every} | "
+              f"trend: SMA {self.fast}/{self.slow} | range: BB {self.bb_period}/{self.num_std}σ)")
+
+    def _fit_model(self, symbol: str, prices: list):
+        import numpy as np
+        import warnings
+        import logging
+        from hmmlearn.hmm import GaussianHMM
+        logging.getLogger('hmmlearn').setLevel(logging.ERROR)  # EM oscillation noise
+
+        closes = np.asarray(prices[-self.fit_window:], dtype=float)
+        returns = np.diff(np.log(closes)).reshape(-1, 1)
+        if len(returns) < self.n_states * 10:
+            return
+
+        model = GaussianHMM(n_components=self.n_states, covariance_type='diag',
+                            n_iter=100, random_state=42)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            try:
+                model.fit(returns)
+            except Exception:
+                return
+
+        # Map each hidden state to a trading style from its fitted stats
+        mus = model.means_.flatten()
+        sigmas = np.sqrt(model.covars_.reshape(self.n_states, -1)[:, 0])
+        regime_map = {}
+        for s in range(self.n_states):
+            score = abs(mus[s]) / sigmas[s] if sigmas[s] > 0 else 0.0
+            regime_map[s] = 'TREND' if score >= self.trend_score else 'RANGE'
+        if self.n_states >= 3:
+            regime_map[int(sigmas.argmax())] = 'FLAT'  # crisis state: stand aside
+
+        self._models[symbol] = model
+        self._state_regime[symbol] = regime_map
+
+    def _classify_regime(self, symbol: str, prices: list) -> Optional[str]:
+        # Not enough history for a stable fit yet -> Efficiency Ratio fallback
+        if len(prices) < max(self.fit_window // 2, 60):
+            return super()._classify_regime(symbol, prices)
+
+        count = self._since_fit.get(symbol, self.refit_every)  # fit on first call
+        if count >= self.refit_every or symbol not in self._models:
+            self._fit_model(symbol, prices)
+            self._since_fit[symbol] = 0
+        else:
+            self._since_fit[symbol] = count + 1
+
+        model = self._models.get(symbol)
+        if model is None:
+            return super()._classify_regime(symbol, prices)
+
+        import numpy as np
+        import warnings
+        closes = np.asarray(prices[-min(len(prices), self.fit_window):], dtype=float)
+        returns = np.diff(np.log(closes)).reshape(-1, 1)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            try:
+                current_state = int(model.predict(returns)[-1])
+            except Exception:
+                return super()._classify_regime(symbol, prices)
+        return self._state_regime[symbol].get(current_state, 'RANGE')
 
 
 STRATEGY_REGISTRY = {
@@ -846,6 +964,13 @@ STRATEGY_REGISTRY = {
         "params": {
             "regime_lookback": {"label": "Regime Lookback (candles)", "min": 10, "max": 50, "default": 20, "step": 5},
             "er_threshold":    {"label": "Trend Threshold (Efficiency Ratio)", "min": 0.15, "max": 0.60, "default": 0.30, "step": 0.05},
+        }
+    },
+    "HMM Regime Switch": {
+        "class": HMMRegimeSwitchStrategy,
+        "params": {
+            "n_states":    {"label": "Hidden States", "min": 2, "max": 3, "default": 2, "step": 1},
+            "trend_score": {"label": "Trend Score Threshold (|drift|/vol)", "min": 0.02, "max": 0.10, "default": 0.06, "step": 0.04},
         }
     },
 }

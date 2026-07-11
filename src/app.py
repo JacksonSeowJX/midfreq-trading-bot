@@ -330,6 +330,7 @@ PLOT_FUNCTIONS = {
     "Pairs Trading": plot_pairs,
     "Ensemble Voting": plot_ensemble,
     "Regime Switch": plot_regime,
+    "HMM Regime Switch": plot_ensemble,  # plain price chart; states live in the model
 }
 
 
