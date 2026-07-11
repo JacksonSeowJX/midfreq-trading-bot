@@ -139,3 +139,16 @@ class MoomooPaperGateway(OrderGateway):
         if ret != RET_OK:
             return []
         return data.to_dict('records')
+
+    def list_recent_orders(self, days: int = 14) -> List[Dict[str, Any]]:
+        """Query order history over the last `days` days (for display)."""
+        from datetime import timedelta
+        ctx = self._get_context()
+        end = datetime.now()
+        start = end - timedelta(days=days)
+        ret, data = ctx.history_order_list_query(
+            trd_env=TrdEnv.SIMULATE,
+            start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'))
+        if ret != RET_OK:
+            return []
+        return data.to_dict('records')

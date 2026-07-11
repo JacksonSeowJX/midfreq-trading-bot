@@ -714,7 +714,7 @@ elif run_live_view:
         gw = MoomooPaperGateway()
         acc = gw.get_account_info()
         positions = gw.get_positions()
-        orders = gw.list_today_orders()
+        orders = gw.list_recent_orders(days=14)
         gw.close()
 
         col1, col2, col3, col4 = st.columns(4)
@@ -738,12 +738,12 @@ elif run_live_view:
             ]), use_container_width=True)
 
         if orders:
-            st.markdown("#### Today's Orders")
+            st.markdown("#### Recent Orders (14 days)")
             odf = pd.DataFrame(orders)
             cols = [c for c in ['code', 'trd_side', 'qty', 'price', 'order_status', 'create_time'] if c in odf.columns]
             st.dataframe(odf[cols], use_container_width=True, height=220)
         else:
-            st.info("No orders today.")
+            st.info("No orders in the last 14 days.")
     except Exception as e:
         st.warning(f"OpenD not reachable — broker state unavailable ({e}). Session history below.")
 
