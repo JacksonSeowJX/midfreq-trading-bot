@@ -37,6 +37,10 @@ Update 5 (24 May 26)
 Update 6 (7 Jun 26)
 - https://youtu.be/QmzwcWnmRn0
 
+Update 7 (21 Jun 26)
+
+Update 8 (5 Jul 26)
+
 ## System Overview
 
 This repository contains a modular quantitative trading framework for mid-frequency stock trading: market data ingestion (Moomoo/OpenD), Parquet storage, a strategy engine, a realistic backtester with risk management and optimization tooling, and a live paper-trading gateway.
