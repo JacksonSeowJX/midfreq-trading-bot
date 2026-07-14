@@ -77,12 +77,54 @@ class TestLivePortfolio:
         p.execute_trade('A', True, 300, 50.0, T0)
         assert gw.orders == []
 
-    def test_adopts_existing_broker_positions(self):
+    def test_does_not_adopt_unowned_broker_positions(self):
+        # Broker holdings are the aggregate of ALL strategies — without a
+        # state file proving ownership, this portfolio must claim nothing.
         class GatewayWithPosition(FakeGateway):
             def get_positions(self):
                 return {'A': {'qty': 200.0, 'entry_price': 45.0}}
         p = LivePortfolio(GatewayWithPosition())
-        assert p.get_position_qty('A') == 200.0
+        assert p.get_position_qty('A') == 0
+
+    def test_state_file_round_trip(self, tmp_path):
+        class GatewayWithPosition(FakeGateway):
+            def get_positions(self):
+                return {'A': {'qty': 100.0, 'entry_price': 50.0}}
+        state = tmp_path / 'state_test.json'
+
+        p1 = LivePortfolio(FakeGateway(), state_file=state)
+        p1.positions['A'] = {'qty': 100.0, 'entry_price': 50.0}
+        p1._peak_prices['A'] = 55.0
+        p1.save_state()
+
+        p2 = LivePortfolio(GatewayWithPosition(), state_file=state)
+        assert p2.get_position_qty('A') == 100.0
+        assert p2.get_entry_price('A') == 50.0
+        assert p2.get_peak_price('A') == 55.0
+
+    def test_resume_capped_at_broker_quantity(self, tmp_path):
+        # If the broker holds fewer shares than our state claims (e.g. a
+        # manual sale), resume only what actually exists.
+        class GatewayPartial(FakeGateway):
+            def get_positions(self):
+                return {'A': {'qty': 40.0, 'entry_price': 50.0}}
+        state = tmp_path / 'state_test.json'
+        p1 = LivePortfolio(FakeGateway(), state_file=state)
+        p1.positions['A'] = {'qty': 100.0, 'entry_price': 50.0}
+        p1.save_state()
+
+        p2 = LivePortfolio(GatewayPartial(), state_file=state)
+        assert p2.get_position_qty('A') == 40.0
+
+    def test_sync_shrinks_but_never_grows_claims(self):
+        class GatewayRich(FakeGateway):
+            def get_positions(self):
+                return {'A': {'qty': 200.0, 'entry_price': 45.0}}
+        p = LivePortfolio(GatewayRich())
+        p.positions['A'] = {'qty': 100.0, 'entry_price': 50.0}
+        p.sync_with_broker()
+        # Broker has 200 (ours + another strategy's) — claim must stay 100
+        assert p.get_position_qty('A') == 100.0
 
 
 class TestCandleLifecycle:
