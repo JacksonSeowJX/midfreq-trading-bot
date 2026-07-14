@@ -34,9 +34,16 @@ class LivePortfolio(Portfolio):
 
     Local bookkeeping (positions, trade log, peak prices) mirrors the
     broker state so strategies and the RiskManager work unchanged.
+
+    Multiple strategies share ONE paper account, so this portfolio must
+    only claim the positions THIS strategy opened. Ownership is persisted
+    to a per-strategy state file at session end and reloaded on startup —
+    never inferred from the broker's aggregate holdings (which include
+    other strategies' shares).
     """
 
-    def __init__(self, gateway: OrderGateway, commission_rate: float = Portfolio.HK_FEE_RATE):
+    def __init__(self, gateway: OrderGateway, commission_rate: float = Portfolio.HK_FEE_RATE,
+                 state_file: Optional[Path] = None):
         acc = gateway.get_account_info()
         initial_cash = acc.get('total_assets', 0.0) or acc.get('cash', 0.0)
         super().__init__(initial_cash=initial_cash, commission_rate=commission_rate)
@@ -47,11 +54,37 @@ class LivePortfolio(Portfolio):
         self.warming_up = False
         # HK board lots: orders must be multiples of the symbol's lot size
         self.lot_sizes: Dict[str, int] = {}
+        self.state_file = state_file
 
-        # Adopt any existing broker positions so the strategy knows about them
-        for symbol, pos in gateway.get_positions().items():
-            self.positions[symbol] = dict(pos)
-            self._peak_prices[symbol] = pos['entry_price']
+        # Resume THIS strategy's own positions from its state file
+        if state_file is not None and state_file.exists():
+            state = json.loads(state_file.read_text())
+            broker_pos = gateway.get_positions()
+            for symbol, pos in state.get('positions', {}).items():
+                broker_qty = broker_pos.get(symbol, {}).get('qty', 0)
+                qty = min(pos['qty'], broker_qty)
+                if qty < pos['qty']:
+                    print(f"  [resume] {symbol}: state says {pos['qty']} but broker "
+                          f"holds {broker_qty} — resuming with {qty}")
+                if qty > 0:
+                    self.positions[symbol] = {'qty': qty, 'entry_price': pos['entry_price']}
+            for symbol, peak in state.get('peak_prices', {}).items():
+                if symbol in self.positions:
+                    self._peak_prices[symbol] = peak
+            if self.positions:
+                print(f"  [resume] restored positions: "
+                      f"{ {s: p['qty'] for s, p in self.positions.items()} }")
+
+    def save_state(self):
+        """Persist this strategy's positions for the next session."""
+        if self.state_file is None:
+            return
+        self.state_file.write_text(json.dumps({
+            'saved_at': str(datetime.now()),
+            'positions': self.positions,
+            'peak_prices': {s: p for s, p in self._peak_prices.items()
+                            if s in self.positions},
+        }, indent=1))
 
     def execute_trade(self, symbol: str, is_buy: bool, qty: float, price: float,
                       timestamp: datetime, exit_reason: Optional[str] = None):
@@ -83,20 +116,26 @@ class LivePortfolio(Portfolio):
               f"(order {result['order_id']}{', ' + exit_reason if exit_reason else ''})")
 
     def sync_with_broker(self):
-        """Re-align local cash/positions with the broker's records."""
+        """
+        Sanity-check local claims against the broker. The broker's holdings
+        are the AGGREGATE across all strategies sharing the account, so we
+        only shrink local claims (our shares can't exceed what the broker
+        holds) — we never adopt the surplus, which belongs to other sessions.
+        """
         acc = self.gateway.get_account_info()
         if acc:
             self.cash = acc['cash']
         broker_pos = self.gateway.get_positions()
-        for symbol, pos in broker_pos.items():
-            local_qty = self.get_position_qty(symbol)
-            if local_qty != pos['qty']:
-                print(f"  [sync] {symbol}: local qty {local_qty} -> broker qty {pos['qty']}")
-                self.positions[symbol] = dict(pos)
         for symbol in list(self.positions.keys()):
-            if symbol not in broker_pos:
-                print(f"  [sync] {symbol}: no longer held at broker, removing locally")
-                del self.positions[symbol]
+            local_qty = self.get_position_qty(symbol)
+            broker_qty = broker_pos.get(symbol, {}).get('qty', 0)
+            if broker_qty < local_qty:
+                print(f"  [sync] {symbol}: claimed {local_qty} but broker holds "
+                      f"{broker_qty} — shrinking claim")
+                if broker_qty <= 0:
+                    del self.positions[symbol]
+                else:
+                    self.positions[symbol]['qty'] = broker_qty
 
 
 class LiveTradingEngine:
@@ -116,7 +155,13 @@ class LiveTradingEngine:
         self.symbols = symbols
         self.timeframe = timeframe
 
-        self.portfolio = LivePortfolio(gateway)
+        log_dir = Path(session_log_dir)
+        log_dir.mkdir(exist_ok=True)
+        strat_slug = strategy_class.__name__.lower()
+        # Per-strategy position ownership persists across sessions here
+        state_file = log_dir / f"state_{strat_slug}.json"
+
+        self.portfolio = LivePortfolio(gateway, state_file=state_file)
         self.strategy = strategy_class(self.portfolio, risk_manager=risk_manager,
                                        **strategy_params)
 
@@ -125,13 +170,11 @@ class LiveTradingEngine:
         self._candles_processed = 0
         self._started_at: Optional[datetime] = None
 
-        self._log_dir = Path(session_log_dir)
-        self._log_dir.mkdir(exist_ok=True)
+        self._log_dir = log_dir
         # Strategy name + PID + per-process counter in the filename —
         # parallel sessions launched in the same second must not share a log
         import os
         LiveTradingEngine._session_seq = getattr(LiveTradingEngine, '_session_seq', 0) + 1
-        strat_slug = strategy_class.__name__.lower()
         self._session_file = self._log_dir / (
             f"session_{datetime.now():%Y%m%d_%H%M%S}_{strat_slug}"
             f"_{os.getpid()}_{LiveTradingEngine._session_seq}.jsonl")
@@ -275,6 +318,7 @@ class LiveTradingEngine:
 
     def _shutdown(self):
         self._finalize_elapsed_candles()
+        self.portfolio.save_state()
         acc = self.gateway.get_account_info()
         positions = self.gateway.get_positions()
         print("\n" + "=" * 60)
