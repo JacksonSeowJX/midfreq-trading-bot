@@ -712,8 +712,8 @@ elif run_live_view:
     try:
         from core.order_gateway import MoomooPaperGateway
         gw = MoomooPaperGateway()
-        acc = gw.get_account_info()
-        positions = gw.get_positions()
+        acc = gw.get_account_info() or {}
+        positions = gw.get_positions() or {}
         orders = gw.list_recent_orders(days=14)
         gw.close()
 

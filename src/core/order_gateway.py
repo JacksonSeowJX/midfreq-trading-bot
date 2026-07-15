@@ -29,13 +29,20 @@ class OrderGateway(ABC):
         ...
 
     @abstractmethod
-    def get_positions(self) -> Dict[str, Dict[str, float]]:
-        """Returns { symbol: {'qty': float, 'entry_price': float} }"""
+    def get_positions(self) -> Optional[Dict[str, Dict[str, float]]]:
+        """
+        Returns { symbol: {'qty': float, 'entry_price': float} }.
+        Returns None if the query FAILED — callers must treat None as
+        "no information", never as "no positions".
+        """
         ...
 
     @abstractmethod
-    def get_account_info(self) -> Dict[str, float]:
-        """Returns {'cash': float, 'total_assets': float, 'market_value': float}"""
+    def get_account_info(self) -> Optional[Dict[str, float]]:
+        """
+        Returns {'cash': float, 'total_assets': float, 'market_value': float}.
+        Returns None if the query failed.
+        """
         ...
 
 
@@ -103,12 +110,15 @@ class MoomooPaperGateway(OrderGateway):
         self.order_log.append(result)
         return result
 
-    def get_positions(self) -> Dict[str, Dict[str, float]]:
+    def get_positions(self) -> Optional[Dict[str, Dict[str, float]]]:
         ctx = self._get_context()
         ret, data = ctx.position_list_query(trd_env=TrdEnv.SIMULATE)
         if ret != RET_OK:
+            # None = query failed = "no information". NEVER return {} here:
+            # callers would interpret it as "account holds nothing" and
+            # wrongly drop their position claims (2026-07-15 incident).
             print(f"  [!] Position query failed: {data}")
-            return {}
+            return None
 
         positions = {}
         for _, row in data.iterrows():
@@ -119,12 +129,12 @@ class MoomooPaperGateway(OrderGateway):
                 }
         return positions
 
-    def get_account_info(self) -> Dict[str, float]:
+    def get_account_info(self) -> Optional[Dict[str, float]]:
         ctx = self._get_context()
         ret, data = ctx.accinfo_query(trd_env=TrdEnv.SIMULATE)
         if ret != RET_OK:
             print(f"  [!] Account query failed: {data}")
-            return {}
+            return None
         row = data.iloc[0]
         return {
             'cash': float(row['cash']),

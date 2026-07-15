@@ -126,6 +126,29 @@ class TestLivePortfolio:
         # Broker has 200 (ours + another strategy's) — claim must stay 100
         assert p.get_position_qty('A') == 100.0
 
+    def test_sync_query_failure_leaves_claims_untouched(self):
+        # A failed query (None) is "no information" — NOT "holds nothing".
+        # Regression test for the 2026-07-15 claim-wipe incident.
+        class GatewayFlaky(FakeGateway):
+            def get_positions(self):
+                return None
+        p = LivePortfolio(GatewayFlaky())
+        p.positions['A'] = {'qty': 100.0, 'entry_price': 50.0}
+        p.sync_with_broker()
+        assert p.get_position_qty('A') == 100.0
+
+    def test_resume_trusts_state_when_broker_unreachable(self, tmp_path):
+        class GatewayDown(FakeGateway):
+            def get_positions(self):
+                return None
+        state = tmp_path / 'state_test.json'
+        p1 = LivePortfolio(FakeGateway(), state_file=state)
+        p1.positions['A'] = {'qty': 100.0, 'entry_price': 50.0}
+        p1.save_state()
+
+        p2 = LivePortfolio(GatewayDown(), state_file=state)
+        assert p2.get_position_qty('A') == 100.0
+
 
 class TestCandleLifecycle:
     def test_newer_timestamp_finalizes_previous_candle(self):
