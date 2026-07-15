@@ -44,7 +44,7 @@ class LivePortfolio(Portfolio):
 
     def __init__(self, gateway: OrderGateway, commission_rate: float = Portfolio.HK_FEE_RATE,
                  state_file: Optional[Path] = None):
-        acc = gateway.get_account_info()
+        acc = gateway.get_account_info() or {}
         initial_cash = acc.get('total_assets', 0.0) or acc.get('cash', 0.0)
         super().__init__(initial_cash=initial_cash, commission_rate=commission_rate)
         self.cash = acc.get('cash', initial_cash)
@@ -59,13 +59,18 @@ class LivePortfolio(Portfolio):
         # Resume THIS strategy's own positions from its state file
         if state_file is not None and state_file.exists():
             state = json.loads(state_file.read_text())
-            broker_pos = gateway.get_positions()
+            broker_pos = self._query_positions_with_retry()
             for symbol, pos in state.get('positions', {}).items():
-                broker_qty = broker_pos.get(symbol, {}).get('qty', 0)
-                qty = min(pos['qty'], broker_qty)
-                if qty < pos['qty']:
-                    print(f"  [resume] {symbol}: state says {pos['qty']} but broker "
-                          f"holds {broker_qty} — resuming with {qty}")
+                if broker_pos is None:
+                    # Broker unreachable: trust our own ledger rather than
+                    # dropping claims (query failure is not "holds nothing")
+                    qty = pos['qty']
+                else:
+                    broker_qty = broker_pos.get(symbol, {}).get('qty', 0)
+                    qty = min(pos['qty'], broker_qty)
+                    if qty < pos['qty']:
+                        print(f"  [resume] {symbol}: state says {pos['qty']} but broker "
+                              f"holds {broker_qty} — resuming with {qty}")
                 if qty > 0:
                     self.positions[symbol] = {'qty': qty, 'entry_price': pos['entry_price']}
             for symbol, peak in state.get('peak_prices', {}).items():
@@ -74,6 +79,17 @@ class LivePortfolio(Portfolio):
             if self.positions:
                 print(f"  [resume] restored positions: "
                       f"{ {s: p['qty'] for s, p in self.positions.items()} }")
+
+    def _query_positions_with_retry(self, attempts: int = 3, wait_s: float = 2.0):
+        """Position query with retries. Returns None if all attempts fail."""
+        import time as _time
+        for i in range(attempts):
+            pos = self.gateway.get_positions()
+            if pos is not None:
+                return pos
+            if i < attempts - 1:
+                _time.sleep(wait_s)
+        return None
 
     def save_state(self):
         """Persist this strategy's positions for the next session."""
@@ -126,6 +142,12 @@ class LivePortfolio(Portfolio):
         if acc:
             self.cash = acc['cash']
         broker_pos = self.gateway.get_positions()
+        if broker_pos is None:
+            # Query failed — no information. Leave all claims untouched.
+            # (Treating failure as "holds nothing" wiped legitimate claims
+            # and caused duplicate buying on 2026-07-15.)
+            print("  [sync] position query failed — skipping reconciliation")
+            return
         for symbol in list(self.positions.keys()):
             local_qty = self.get_position_qty(symbol)
             broker_qty = broker_pos.get(symbol, {}).get('qty', 0)
@@ -243,7 +265,7 @@ class LiveTradingEngine:
         Start streaming and trading. Blocks until duration expires or Ctrl-C.
         """
         self._started_at = datetime.now()
-        acc = self.gateway.get_account_info()
+        acc = self.gateway.get_account_info() or {}
         print("=" * 60)
         print(f"LIVE PAPER TRADING — {self.strategy.__class__.__name__}")
         print(f"Symbols: {self.symbols} | Timeframe: {self.timeframe.value}")
@@ -319,8 +341,8 @@ class LiveTradingEngine:
     def _shutdown(self):
         self._finalize_elapsed_candles()
         self.portfolio.save_state()
-        acc = self.gateway.get_account_info()
-        positions = self.gateway.get_positions()
+        acc = self.gateway.get_account_info() or {}
+        positions = self.gateway.get_positions() or {}
         print("\n" + "=" * 60)
         print("SESSION SUMMARY")
         print("=" * 60)
