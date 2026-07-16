@@ -700,6 +700,10 @@ class RegimeSwitchStrategy(BaseStrategy):
         self.regime: Dict[str, str] = {}  # symbol -> 'TREND' | 'RANGE' | 'FLAT'
         # How much price history to retain (subclasses may need more)
         self._history_keep = max(self.slow, self.bb_period, self.regime_lookback) + 2
+        # Hysteresis: a NEW regime must persist this many consecutive candles
+        # before we commit to it (1 = switch immediately, original behavior)
+        self.min_dwell = 1
+        self._pending_regime: Dict[str, tuple] = {}  # symbol -> (candidate, count)
 
     def on_start(self):
         print(f"Starting Regime Switch Strategy (ER lookback: {self.regime_lookback}, "
@@ -739,6 +743,18 @@ class RegimeSwitchStrategy(BaseStrategy):
         regime = self._classify_regime(symbol, prices)
         if regime is None:
             return
+
+        # Hysteresis: only commit to a regime change after it has persisted
+        # for min_dwell consecutive candles (suppresses classifier flicker)
+        committed = self.regime.get(symbol)
+        if committed is not None and regime != committed and self.min_dwell > 1:
+            cand, count = self._pending_regime.get(symbol, (None, 0))
+            count = count + 1 if cand == regime else 1
+            self._pending_regime[symbol] = (regime, count)
+            if count < self.min_dwell:
+                regime = committed  # not confirmed yet — stay the course
+        else:
+            self._pending_regime.pop(symbol, None)
 
         # Regime flip while holding -> flatten, let the new leg start clean
         prev_regime = self.regime.get(symbol)
@@ -822,17 +838,21 @@ class HMMRegimeSwitchStrategy(RegimeSwitchStrategy):
     def __init__(self, portfolio: Portfolio,
                  n_states: int = 2, trend_score: float = 0.06,
                  refit_every: int = 60, fit_window: int = 300,
+                 min_dwell: int = 1, vol_feature: int = 0,
                  fast_period: int = 5, slow_period: int = 20,
                  bb_period: int = 14, num_std: float = 2.5,
                  risk_manager: Optional[RiskManager] = None):
         super().__init__(portfolio, fast_period=fast_period, slow_period=slow_period,
                          bb_period=bb_period, num_std=num_std, risk_manager=risk_manager)
         self.params.update(n_states=n_states, trend_score=trend_score,
-                           refit_every=refit_every, fit_window=fit_window)
+                           refit_every=refit_every, fit_window=fit_window,
+                           min_dwell=min_dwell, vol_feature=vol_feature)
         self.n_states = n_states
         self.trend_score = trend_score
         self.refit_every = refit_every
         self.fit_window = fit_window
+        self.min_dwell = int(min_dwell)          # hysteresis (base class applies it)
+        self.vol_feature = bool(vol_feature)     # 2-D emissions: (return, |return|)
         self._history_keep = max(self._history_keep, fit_window + 2)
         self._models: Dict[str, Any] = {}          # symbol -> fitted GaussianHMM
         self._state_regime: Dict[str, dict] = {}   # symbol -> {state: 'TREND'|'RANGE'|'FLAT'}
@@ -850,9 +870,8 @@ class HMMRegimeSwitchStrategy(RegimeSwitchStrategy):
         from hmmlearn.hmm import GaussianHMM
         logging.getLogger('hmmlearn').setLevel(logging.ERROR)  # EM oscillation noise
 
-        closes = np.asarray(prices[-self.fit_window:], dtype=float)
-        returns = np.diff(np.log(closes)).reshape(-1, 1)
-        if len(returns) < self.n_states * 10:
+        feats = self._features(prices[-self.fit_window:])
+        if feats is None or len(feats) < self.n_states * 10:
             return
 
         model = GaussianHMM(n_components=self.n_states, covariance_type='diag',
@@ -860,12 +879,13 @@ class HMMRegimeSwitchStrategy(RegimeSwitchStrategy):
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             try:
-                model.fit(returns)
+                model.fit(feats)
             except Exception:
                 return
 
-        # Map each hidden state to a trading style from its fitted stats
-        mus = model.means_.flatten()
+        # Map each hidden state to a trading style from its fitted stats on
+        # the RETURN dimension (dimension 0 regardless of feature count)
+        mus = model.means_[:, 0]
         sigmas = np.sqrt(model.covars_.reshape(self.n_states, -1)[:, 0])
         regime_map = {}
         for s in range(self.n_states):
@@ -893,17 +913,30 @@ class HMMRegimeSwitchStrategy(RegimeSwitchStrategy):
         if model is None:
             return super()._classify_regime(symbol, prices)
 
-        import numpy as np
         import warnings
-        closes = np.asarray(prices[-min(len(prices), self.fit_window):], dtype=float)
-        returns = np.diff(np.log(closes)).reshape(-1, 1)
+        feats = self._features(prices[-min(len(prices), self.fit_window):])
+        if feats is None:
+            return super()._classify_regime(symbol, prices)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             try:
-                current_state = int(model.predict(returns)[-1])
+                current_state = int(model.predict(feats)[-1])
             except Exception:
                 return super()._classify_regime(symbol, prices)
         return self._state_regime[symbol].get(current_state, 'RANGE')
+
+    def _features(self, closes_list):
+        """Emission features: log-returns, optionally paired with |return|
+        (a per-candle volatility proxy) so states can separate calm from
+        turbulent periods, not just up-drift from down-drift."""
+        import numpy as np
+        closes = np.asarray(closes_list, dtype=float)
+        if len(closes) < 3:
+            return None
+        returns = np.diff(np.log(closes))
+        if self.vol_feature:
+            return np.column_stack([returns, np.abs(returns)])
+        return returns.reshape(-1, 1)
 
 
 STRATEGY_REGISTRY = {
@@ -971,6 +1004,8 @@ STRATEGY_REGISTRY = {
         "params": {
             "n_states":    {"label": "Hidden States", "min": 2, "max": 3, "default": 2, "step": 1},
             "trend_score": {"label": "Trend Score Threshold (|drift|/vol)", "min": 0.02, "max": 0.10, "default": 0.06, "step": 0.04},
+            "min_dwell":   {"label": "Regime Dwell (candles to confirm)", "min": 1, "max": 3, "default": 1, "step": 2},
+            "vol_feature": {"label": "Volatility Feature (0=off, 1=on)", "min": 0, "max": 1, "default": 0, "step": 1},
         }
     },
 }

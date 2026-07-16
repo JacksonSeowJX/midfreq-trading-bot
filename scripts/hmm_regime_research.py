@@ -49,7 +49,7 @@ def main():
             res = walk_forward(
                 strategy_name=strat, symbols=[sym], timeframe=Timeframe.HOUR_1,
                 start_date=start, end_date=end, storage=storage,
-                n_splits=4, train_pct=0.7, objective='sharpe_ratio',
+                n_splits=3, train_pct=0.7, objective='sharpe_ratio',
                 slippage_bps=SLIPPAGE_BPS,
             )
             s = res.get('summary', {})
