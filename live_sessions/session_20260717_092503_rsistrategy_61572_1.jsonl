@@ -1,0 +1,8 @@
+{"type": "session_start", "timestamp": "2026-07-17 09:25:03.853045", "strategy": "RSIStrategy", "symbols": ["HK.09888"], "timeframe": "1h", "account": {"cash": 956898.223, "total_assets": 1001698.223, "market_value": 44800.0}}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-17 10:30:00+00:00", "close": 107.0, "equity": 988998.223}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-17 11:30:00+00:00", "close": 106.0, "equity": 988698.223}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-17 12:00:00+00:00", "close": 106.6, "equity": 988878.223}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-17 14:00:00+00:00", "close": 105.7, "equity": 988608.223}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-17 15:00:00+00:00", "close": 106.1, "equity": 988728.223}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-17 16:00:00+00:00", "close": 106.6, "equity": 988878.223}
+{"type": "session_end", "timestamp": "2026-07-17 16:00:04.239676", "candles_processed": 6, "trades": 0, "account": {"cash": 956898.223, "total_assets": 999378.223, "market_value": 42480.0}, "positions": {"HK.09888": {"qty": 400.0, "entry_price": 107.25}}}
