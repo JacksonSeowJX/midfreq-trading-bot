@@ -28,12 +28,18 @@ class FakeGateway:
         return {'ok': True, 'order_id': len(self.orders), 'message': 'submitted'}
 
 
-def make_engine(gateway=None, timeframe=Timeframe.HOUR_1):
+def make_engine(gateway=None, timeframe=Timeframe.HOUR_1, session_log_dir=None):
     info = STRATEGY_REGISTRY['Bollinger Bands']
     defaults = {k: v['default'] for k, v in info['params'].items()}
+    # session_log_dir defaults to "live_sessions" relative to CWD — tests
+    # MUST override this or they pollute the real production log folder
+    # with junk session files every time the suite runs (found 2026-07-22).
+    if session_log_dir is None:
+        raise ValueError("make_engine() requires an explicit session_log_dir (use tmp_path)")
     return LiveTradingEngine(provider=None, gateway=gateway or FakeGateway(),
                              strategy_class=info['class'], symbols=['HK.09888'],
-                             timeframe=timeframe, **defaults)
+                             timeframe=timeframe, session_log_dir=str(session_log_dir),
+                             **defaults)
 
 
 def candle(ts, close=100.0):
@@ -151,36 +157,36 @@ class TestLivePortfolio:
 
 
 class TestCandleLifecycle:
-    def test_newer_timestamp_finalizes_previous_candle(self):
-        eng = make_engine()
+    def test_newer_timestamp_finalizes_previous_candle(self, tmp_path):
+        eng = make_engine(session_log_dir=tmp_path)
         eng._on_candle_update('HK.09888', candle(T0))
         assert eng._candles_processed == 0  # still forming
         eng._on_candle_update('HK.09888', candle(T0 + timedelta(hours=1)))
         assert eng._candles_processed == 1
 
-    def test_same_timestamp_update_does_not_finalize(self):
-        eng = make_engine()
+    def test_same_timestamp_update_does_not_finalize(self, tmp_path):
+        eng = make_engine(session_log_dir=tmp_path)
         eng._on_candle_update('HK.09888', candle(T0, close=100))
         eng._on_candle_update('HK.09888', candle(T0, close=101))
         assert eng._candles_processed == 0
 
-    def test_shutdown_finalizes_elapsed_forming_candle(self):
-        eng = make_engine()
+    def test_shutdown_finalizes_elapsed_forming_candle(self, tmp_path):
+        eng = make_engine(session_log_dir=tmp_path)
         hkt_now = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=timezone.utc)
         eng._forming = {'HK.09888': candle(hkt_now - timedelta(minutes=5))}
         eng._finalize_elapsed_candles()
         assert eng._candles_processed == 1
         assert eng._forming == {}
 
-    def test_shutdown_keeps_unelapsed_candle(self):
-        eng = make_engine()
+    def test_shutdown_keeps_unelapsed_candle(self, tmp_path):
+        eng = make_engine(session_log_dir=tmp_path)
         hkt_now = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=timezone.utc)
         eng._forming = {'HK.09888': candle(hkt_now + timedelta(minutes=30))}
         eng._finalize_elapsed_candles()
         assert eng._candles_processed == 0
         assert 'HK.09888' in eng._forming
 
-    def test_parallel_sessions_get_distinct_log_files(self):
-        e1 = make_engine()
-        e2 = make_engine()
+    def test_parallel_sessions_get_distinct_log_files(self, tmp_path):
+        e1 = make_engine(session_log_dir=tmp_path)
+        e2 = make_engine(session_log_dir=tmp_path)
         assert e1._session_file != e2._session_file
