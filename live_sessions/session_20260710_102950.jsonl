@@ -1,0 +1,24 @@
+{"type": "session_start", "timestamp": "2026-07-10 10:29:50.580097", "strategy": "RSIStrategy", "symbols": ["HK.09888"], "timeframe": "1h", "account": {"cash": 999927.296, "total_assets": 999927.296, "market_value": 0.0}}
+{"type": "session_start", "timestamp": "2026-07-10 10:29:50.580098", "strategy": "BollingerBandsStrategy", "symbols": ["HK.09888"], "timeframe": "1h", "account": {"cash": 999927.296, "total_assets": 999927.296, "market_value": 0.0}}
+{"type": "session_start", "timestamp": "2026-07-10 10:29:50.580119", "strategy": "RegimeSwitchStrategy", "symbols": ["HK.00700"], "timeframe": "1h", "account": {"cash": 999927.296, "total_assets": 999927.296, "market_value": 0.0}}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 10:30:00+00:00", "close": 117.8, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 10:30:00+00:00", "close": 117.8, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-07-10 10:30:00+00:00", "close": 466.0, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-07-10 11:30:00+00:00", "close": 469.8, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 11:30:00+00:00", "close": 118.2, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 11:30:00+00:00", "close": 118.2, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-07-10 12:00:00+00:00", "close": 467.2, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 12:00:00+00:00", "close": 118.0, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 12:00:00+00:00", "close": 118.0, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-07-10 14:00:00+00:00", "close": 460.6, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 14:00:00+00:00", "close": 116.2, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 14:00:00+00:00", "close": 116.2, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-07-10 15:00:00+00:00", "close": 462.8, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 15:00:00+00:00", "close": 116.2, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 15:00:00+00:00", "close": 116.2, "equity": 999927.296}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 16:00:00+00:00", "close": 115.2, "equity": 999927.296}
+{"type": "session_end", "timestamp": "2026-07-10 16:01:51.311414", "candles_processed": 6, "trades": 0, "account": {"cash": 999927.296, "total_assets": 999927.296, "market_value": 0.0}, "positions": {}}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-07-10 16:00:00+00:00", "close": 115.2, "equity": 999927.296}
+{"type": "session_end", "timestamp": "2026-07-10 16:01:51.403027", "candles_processed": 6, "trades": 0, "account": {"cash": 999927.296, "total_assets": 999927.296, "market_value": 0.0}, "positions": {}}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-07-10 16:00:00+00:00", "close": 459.0, "equity": 999927.296}
+{"type": "session_end", "timestamp": "2026-07-10 16:01:51.587595", "candles_processed": 6, "trades": 0, "account": {"cash": 999927.296, "total_assets": 999927.296, "market_value": 0.0}, "positions": {}}
