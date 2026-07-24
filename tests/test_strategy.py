@@ -7,7 +7,7 @@ from core.models import Candle
 from core.portfolio import Portfolio
 from core.strategy import (
     STRATEGY_REGISTRY, MovingAverageCrossover, RegimeSwitchStrategy,
-    CrossSectionalReversal,
+    CrossSectionalReversal, MLDirectionClassifier,
 )
 
 T0 = datetime(2026, 1, 5, 10, 0)
@@ -136,6 +136,53 @@ class TestCrossSectionalReversal:
         feed_cross_section(s, closes)
         assert p.get_position_qty('B') == 0
         assert len(s.history['B']) > 0  # still tracked despite never trading
+
+
+class TestMLDirectionClassifier:
+    def test_feature_row_is_causal(self):
+        """The feature at index i must be identical regardless of what
+        prices exist AFTER i — the single most important correctness
+        property for a no-lookahead predictive strategy."""
+        p = Portfolio()
+        s = MLDirectionClassifier(p)
+        prices = [100 + (i % 7) * 1.3 for i in range(30)]
+        feats_full = s._feature_row(prices, 15)
+        feats_truncated = s._feature_row(prices[:20], 15)
+        assert feats_full == feats_truncated
+
+    def test_feature_row_none_with_insufficient_history(self):
+        p = Portfolio()
+        s = MLDirectionClassifier(p)
+        assert s._feature_row([100.0] * 5, 3) is None
+
+    def test_fit_skipped_when_only_one_outcome_class(self):
+        # Strictly increasing prices -> "next candle higher" is always
+        # true -> only one class ever occurs -> fit must be skipped, not
+        # crash on a degenerate single-class logistic regression.
+        p = Portfolio()
+        s = MLDirectionClassifier(p, fit_window=50)
+        prices = [100 + i for i in range(60)]
+        s._fit_model('A', prices)
+        assert 'A' not in s._models
+
+    def test_fits_with_enough_varied_history(self):
+        p = Portfolio(initial_cash=1e6)
+        s = MLDirectionClassifier(p, fit_window=100, refit_every=20)
+        import random
+        rng = random.Random(0)
+        price, closes = 100.0, []
+        for _ in range(150):
+            price *= 1 + rng.uniform(-0.012, 0.012)
+            closes.append(price)
+        feed(s, 'A', closes)
+        assert 'A' in s._models
+        assert 'A' in s._scalers
+
+    def test_no_trade_before_first_fit(self):
+        p = Portfolio(initial_cash=1e6)
+        s = MLDirectionClassifier(p, fit_window=100)
+        feed(s, 'A', [100 + i * 0.1 for i in range(30)])  # too short to fit
+        assert p.trade_history == []
 
 
 class TestRegistry:

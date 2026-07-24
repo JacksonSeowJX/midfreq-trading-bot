@@ -1046,6 +1046,146 @@ class CrossSectionalReversal(BaseStrategy):
                         self.risk_manager.register_entry(symbol, c.close)
 
 
+class MLDirectionClassifier(BaseStrategy):
+    """
+    Supervised-learning direction predictor.
+
+    Every other strategy encodes a HAND-WRITTEN rule: "if RSI < 30, buy."
+    This one lets a model LEARN the rule instead. At each candle it
+    builds a feature vector describing the recent past — return over the
+    last 1/5/10 candles, RSI, the Efficiency Ratio (same one the regime
+    strategies use), and realized volatility — and a logistic regression
+    model predicts the probability that the NEXT candle closes higher.
+
+    Long-only, matching every other strategy here: buy when predicted
+    up-probability clears buy_threshold, sell when it falls below
+    sell_threshold while holding.
+
+    No lookahead: the model is refit every `refit_every` candles on a
+    trailing `fit_window` of history, and every training example's label
+    only uses information available at the time (feature at candle i,
+    label = whether candle i+1 closed higher — both strictly in the past
+    relative to the candle being predicted right now). Falls back to no
+    signal until there's enough history for a first fit.
+    """
+    def __init__(self, portfolio: Portfolio,
+                 fit_window: int = 300, refit_every: int = 60,
+                 buy_threshold: float = 0.58, sell_threshold: float = 0.48,
+                 risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, fit_window=fit_window,
+                         refit_every=refit_every, buy_threshold=buy_threshold,
+                         sell_threshold=sell_threshold)
+        self.fit_window = fit_window
+        self.refit_every = refit_every
+        self.buy_threshold = buy_threshold
+        self.sell_threshold = sell_threshold
+        self.history: Dict[str, list] = {}
+        self._models: Dict[str, Any] = {}
+        self._scalers: Dict[str, Any] = {}
+        self._since_fit: Dict[str, int] = {}
+        self._history_keep = fit_window + 15
+
+    def on_start(self):
+        print(f"Starting ML Direction Classifier (fit window: {self.fit_window}, "
+              f"refit every {self.refit_every}, buy >= {self.buy_threshold}, "
+              f"sell < {self.sell_threshold})")
+
+    def _feature_row(self, prices: list, i: int) -> Optional[list]:
+        """Feature vector using only prices[..i] — nothing after i."""
+        if i < 11:
+            return None
+        window = prices[:i + 1]
+        ret_1 = window[-1] / window[-2] - 1.0
+        ret_5 = window[-1] / window[-6] - 1.0
+        ret_10 = window[-1] / window[-11] - 1.0
+
+        deltas = [window[j] - window[j - 1] for j in range(len(window) - 14, len(window))]
+        gains = [d for d in deltas if d > 0]
+        losses = [-d for d in deltas if d < 0]
+        avg_gain = sum(gains) / 14 if gains else 0.0
+        avg_loss = sum(losses) / 14 if losses else 0.0
+        rsi = 100.0 if avg_loss == 0 else 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+
+        er_window = window[-11:]
+        net_move = abs(er_window[-1] - er_window[0])
+        path = sum(abs(er_window[j] - er_window[j - 1]) for j in range(1, len(er_window)))
+        efficiency = (net_move / path) if path > 0 else 0.0
+
+        rets = [window[j] / window[j - 1] - 1.0 for j in range(len(window) - 10, len(window))]
+        mean_r = sum(rets) / len(rets)
+        vol = (sum((r - mean_r) ** 2 for r in rets) / len(rets)) ** 0.5
+
+        return [ret_1, ret_5, ret_10, rsi, efficiency, vol]
+
+    def _fit_model(self, symbol: str, prices: list):
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+
+        window = prices[-self.fit_window:]
+        X, y = [], []
+        for i in range(11, len(window) - 1):
+            feats = self._feature_row(window, i)
+            if feats is None:
+                continue
+            X.append(feats)
+            y.append(1 if window[i + 1] > window[i] else 0)
+
+        if len(X) < 30 or len(set(y)) < 2:
+            return  # not enough data, or only one class ever occurred
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        model = LogisticRegression(max_iter=500, C=1.0)
+        model.fit(X_scaled, y)
+
+        self._models[symbol] = model
+        self._scalers[symbol] = scaler
+
+    def on_data(self, symbol: str, candle: Candle):
+        if self._check_risk_exits(symbol, candle):
+            return
+        if self._is_halted(candle.close):
+            return
+
+        prices = self.history.setdefault(symbol, [])
+        prices.append(candle.close)
+        if len(prices) > self._history_keep:
+            prices.pop(0)
+
+        if len(prices) < max(self.fit_window // 2, 60):
+            return  # not enough history for a stable first fit
+
+        count = self._since_fit.get(symbol, self.refit_every)
+        if count >= self.refit_every or symbol not in self._models:
+            self._fit_model(symbol, prices)
+            self._since_fit[symbol] = 0
+        else:
+            self._since_fit[symbol] = count + 1
+
+        model = self._models.get(symbol)
+        scaler = self._scalers.get(symbol)
+        if model is None:
+            return
+
+        feats = self._feature_row(prices, len(prices) - 1)
+        if feats is None:
+            return
+        prob_up = model.predict_proba(scaler.transform([feats]))[0][1]
+
+        current_position = self.portfolio.get_position_qty(symbol)
+        if prob_up >= self.buy_threshold and current_position == 0:
+            qty = self._get_trade_qty(symbol, candle.close)
+            if qty > 0:
+                self.portfolio.execute_trade(symbol, True, qty, candle.close, candle.timestamp)
+                if self.risk_manager:
+                    self.risk_manager.register_entry(symbol, candle.close)
+        elif prob_up < self.sell_threshold and current_position > 0:
+            self.portfolio.execute_trade(symbol, False, current_position, candle.close,
+                                         candle.timestamp, exit_reason='signal')
+            if self.risk_manager:
+                self.risk_manager.clear_position(symbol)
+
+
 STRATEGY_REGISTRY = {
     "SMA Crossover": {
         "class": MovingAverageCrossover,
@@ -1121,6 +1261,14 @@ STRATEGY_REGISTRY = {
             "lookback":         {"label": "Lookback (candles)", "min": 5, "max": 30, "default": 10, "step": 5},
             "top_n":            {"label": "Basket Size (# laggards held)", "min": 1, "max": 4, "default": 2, "step": 1},
             "rebalance_every":  {"label": "Rebalance Every N Candles", "min": 1, "max": 24, "default": 6, "step": 6},
+        }
+    },
+    "ML Direction Classifier": {
+        "class": MLDirectionClassifier,
+        "params": {
+            "refit_every":    {"label": "Refit Every N Candles", "min": 20, "max": 100, "default": 60, "step": 40},
+            "buy_threshold":  {"label": "Buy Probability Threshold", "min": 0.52, "max": 0.65, "default": 0.58, "step": 0.13},
+            "sell_threshold": {"label": "Sell Probability Threshold", "min": 0.35, "max": 0.50, "default": 0.48, "step": 0.15},
         }
     },
 }

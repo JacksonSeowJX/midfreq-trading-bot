@@ -332,6 +332,7 @@ PLOT_FUNCTIONS = {
     "Regime Switch": plot_regime,
     "HMM Regime Switch": plot_ensemble,  # plain price chart; states live in the model
     "Cross-Sectional Reversal": plot_ensemble,  # single-symbol UI can't show the ranking; needs 2+ symbols to trade at all
+    "ML Direction Classifier": plot_ensemble,  # plain price chart; the model's features aren't a chartable indicator overlay
 }
 
 
