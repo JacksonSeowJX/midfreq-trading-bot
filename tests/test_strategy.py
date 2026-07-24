@@ -7,6 +7,7 @@ from core.models import Candle
 from core.portfolio import Portfolio
 from core.strategy import (
     STRATEGY_REGISTRY, MovingAverageCrossover, RegimeSwitchStrategy,
+    CrossSectionalReversal,
 )
 
 T0 = datetime(2026, 1, 5, 10, 0)
@@ -17,6 +18,18 @@ def feed(strategy, symbol, closes):
         strategy.on_data(symbol, Candle(
             timestamp=T0 + timedelta(hours=i),
             open=c, high=c * 1.01, low=c * 0.99, close=c, volume=1000))
+
+
+def feed_cross_section(strategy, closes_by_symbol):
+    """Feed multiple symbols' candles interleaved by shared timestamp,
+    matching how the real event stream orders same-timestamp candles."""
+    n = len(next(iter(closes_by_symbol.values())))
+    for i in range(n):
+        ts = T0 + timedelta(hours=i)
+        for symbol, closes in closes_by_symbol.items():
+            c = closes[i]
+            strategy.on_data(symbol, Candle(
+                timestamp=ts, open=c, high=c * 1.01, low=c * 0.99, close=c, volume=1000))
 
 
 class TestSMACrossover:
@@ -76,6 +89,53 @@ class TestRegimeSwitch:
         assert s.regime.get('A') == 'RANGE'
         exit_reasons = [t.get('exit_reason') for t in p.trade_history if t['action'] == 'SELL']
         assert 'regime_change' in exit_reasons
+
+
+class TestCrossSectionalReversal:
+    def test_buys_the_relative_laggard(self):
+        p = Portfolio(initial_cash=1e6)
+        s = CrossSectionalReversal(p, lookback=5, top_n=1)
+        # A rallies, B is flat, C crashes -> C is the clear relative laggard
+        closes = {
+            'A': [100 + i * 2 for i in range(8)],
+            'B': [100.0] * 8,
+            'C': [100 - i * 3 for i in range(8)],
+        }
+        feed_cross_section(s, closes)
+        assert p.get_position_qty('C') > 0
+        assert p.get_position_qty('A') == 0
+        assert p.get_position_qty('B') == 0
+
+    def test_sells_when_no_longer_a_laggard(self):
+        p = Portfolio(initial_cash=1e6)
+        s = CrossSectionalReversal(p, lookback=5, top_n=1)
+        closes = {
+            'A': [100 + i * 2 for i in range(8)],
+            'B': [100.0] * 8,
+            # C crashes first (bought as laggard), then rallies hardest
+            # (no longer a laggard) -> should be sold on rebalance
+            'C': [100 - i * 3 for i in range(4)] + [88 + i * 10 for i in range(4)],
+        }
+        feed_cross_section(s, closes)
+        assert p.get_position_qty('C') == 0
+
+    def test_no_trade_with_fewer_symbols_than_basket_size(self):
+        p = Portfolio(initial_cash=1e6)
+        s = CrossSectionalReversal(p, lookback=5, top_n=3)  # basket bigger than universe
+        closes = {'A': [100 - i for i in range(8)], 'B': [100 + i for i in range(8)]}
+        feed_cross_section(s, closes)
+        assert p.trade_history == []
+
+    def test_history_grows_even_when_never_held(self):
+        p = Portfolio(initial_cash=1e6)
+        s = CrossSectionalReversal(p, lookback=5, top_n=1)
+        closes = {
+            'A': [100 - i * 3 for i in range(8)],   # always the laggard, always bought
+            'B': [100.0] * 8,                        # never a laggard, never bought
+        }
+        feed_cross_section(s, closes)
+        assert p.get_position_qty('B') == 0
+        assert len(s.history['B']) > 0  # still tracked despite never trading
 
 
 class TestRegistry:

@@ -331,6 +331,7 @@ PLOT_FUNCTIONS = {
     "Ensemble Voting": plot_ensemble,
     "Regime Switch": plot_regime,
     "HMM Regime Switch": plot_ensemble,  # plain price chart; states live in the model
+    "Cross-Sectional Reversal": plot_ensemble,  # single-symbol UI can't show the ranking; needs 2+ symbols to trade at all
 }
 
 

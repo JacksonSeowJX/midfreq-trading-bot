@@ -939,6 +939,113 @@ class HMMRegimeSwitchStrategy(RegimeSwitchStrategy):
         return returns.reshape(-1, 1)
 
 
+class CrossSectionalReversal(BaseStrategy):
+    """
+    Cross-sectional (relative) mean reversion.
+
+    Every other strategy in this file asks "is this stock cheap versus
+    ITS OWN history?" This one asks a different question: "is this stock
+    cheap versus the REST OF THE UNIVERSE, right now?" It ranks every
+    symbol in the backtest by recent return and buys the bottom `top_n`
+    laggards — betting today's relative underperformers catch up to the
+    group, not necessarily to their own past levels.
+
+    Requires multiple symbols passed to the backtester (the whole
+    universe, not one or two stocks) — it has nothing to rank against
+    otherwise. Not wired into the Streamlit dashboard, which only ever
+    passes 1-2 symbols to a backtest; validated via research scripts.
+
+    Mechanics: candles from different symbols sharing the same timestamp
+    arrive back-to-back in the event stream (see Backtester). This
+    strategy buffers them into a "cross-section" and rebalances the whole
+    basket the moment a new timestamp appears — selling anything that
+    fell out of the bottom `top_n`, buying anything that newly entered it.
+
+    Rebalancing every single candle churns the basket constantly and
+    pays the round-trip fee over and over for little edge — the same
+    failure mode that killed 5-minute single-stock strategies in the
+    110-combo study. `rebalance_every` controls how many cross-sections
+    pass between actual rebalances (1 = every candle, matching real
+    factor strategies that rebalance daily/weekly rather than every tick).
+    """
+    def __init__(self, portfolio: Portfolio, lookback: int = 10, top_n: int = 2,
+                 rebalance_every: int = 1, risk_manager: Optional[RiskManager] = None):
+        super().__init__(portfolio, risk_manager=risk_manager, lookback=lookback,
+                         top_n=top_n, rebalance_every=rebalance_every)
+        self.lookback = lookback
+        self.top_n = top_n
+        self.rebalance_every = max(1, rebalance_every)
+        self.history: Dict[str, list] = {}
+        self.pending: Dict[str, Candle] = {}
+        self.current_ts = None
+        self._cross_section_count = 0
+
+    def on_start(self):
+        print(f"Starting Cross-Sectional Reversal (Lookback: {self.lookback}, Top N: {self.top_n}, "
+              f"Rebalance every: {self.rebalance_every})")
+
+    def on_data(self, symbol: str, candle: Candle):
+        # A new timestamp means the previous cross-section is complete.
+        if self.current_ts is not None and candle.timestamp != self.current_ts:
+            self._cross_section_count += 1
+            if self._cross_section_count % self.rebalance_every == 0:
+                self._rebalance()
+            self.pending = {}
+        self.current_ts = candle.timestamp
+        self.pending[symbol] = candle
+
+        # History must stay current for EVERY symbol regardless of
+        # position status — a symbol not held today may be tomorrow's
+        # laggard, so its price series can't be allowed to skip candles.
+        prices = self.history.setdefault(symbol, [])
+        prices.append(candle.close)
+        if len(prices) > self.lookback + 2:
+            prices.pop(0)
+
+        if self._check_risk_exits(symbol, candle):
+            return
+
+    def _rebalance(self):
+        if self._is_halted(next(iter(self.pending.values())).close):
+            return
+
+        scores = {}
+        for symbol, candle in self.pending.items():
+            prices = self.history.get(symbol, [])
+            if len(prices) <= self.lookback:
+                continue
+            past = prices[-(self.lookback + 1)]
+            if past > 0:
+                scores[symbol] = (candle.close / past) - 1.0  # recent return
+
+        if len(scores) < self.top_n:
+            return
+
+        ranked = sorted(scores.items(), key=lambda kv: kv[1])  # ascending: worst first
+        laggards = {s for s, _ in ranked[:self.top_n]}
+
+        # Sell anything held that fell out of the laggard basket
+        for symbol in list(self.portfolio.positions.keys()):
+            if symbol in self.pending and symbol not in laggards:
+                qty = self.portfolio.get_position_qty(symbol)
+                if qty > 0:
+                    c = self.pending[symbol]
+                    self.portfolio.execute_trade(symbol, False, qty, c.close, c.timestamp,
+                                                 exit_reason='rebalance')
+                    if self.risk_manager:
+                        self.risk_manager.clear_position(symbol)
+
+        # Buy new laggards not already held
+        for symbol in laggards:
+            if self.portfolio.get_position_qty(symbol) == 0:
+                c = self.pending[symbol]
+                qty = self._get_trade_qty(symbol, c.close)
+                if qty > 0:
+                    self.portfolio.execute_trade(symbol, True, qty, c.close, c.timestamp)
+                    if self.risk_manager:
+                        self.risk_manager.register_entry(symbol, c.close)
+
+
 STRATEGY_REGISTRY = {
     "SMA Crossover": {
         "class": MovingAverageCrossover,
@@ -1006,6 +1113,14 @@ STRATEGY_REGISTRY = {
             "trend_score": {"label": "Trend Score Threshold (|drift|/vol)", "min": 0.02, "max": 0.10, "default": 0.06, "step": 0.04},
             "min_dwell":   {"label": "Regime Dwell (candles to confirm)", "min": 1, "max": 3, "default": 1, "step": 2},
             "vol_feature": {"label": "Volatility Feature (0=off, 1=on)", "min": 0, "max": 1, "default": 0, "step": 1},
+        }
+    },
+    "Cross-Sectional Reversal": {
+        "class": CrossSectionalReversal,
+        "params": {
+            "lookback":         {"label": "Lookback (candles)", "min": 5, "max": 30, "default": 10, "step": 5},
+            "top_n":            {"label": "Basket Size (# laggards held)", "min": 1, "max": 4, "default": 2, "step": 1},
+            "rebalance_every":  {"label": "Rebalance Every N Candles", "min": 1, "max": 24, "default": 6, "step": 6},
         }
     },
 }
