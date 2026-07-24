@@ -1,0 +1,12 @@
+symbol,avg_train_return_pct,avg_oos_return_pct,oos_consistency_pct,generalizes,latest_params
+HK.00700,-0.364,-2.616,33.3,False,"{'refit_every': 100, 'buy_threshold': 0.65, 'sell_threshold': 0.5}"
+HK.00005,0.831,-0.158,0.0,False,"{'refit_every': 20, 'buy_threshold': 0.65, 'sell_threshold': 0.5}"
+HK.09988,1.762,-0.492,33.3,False,"{'refit_every': 20, 'buy_threshold': 0.52, 'sell_threshold': 0.35}"
+HK.03690,-0.406,-0.012,0.0,False,"{'refit_every': 60, 'buy_threshold': 0.52, 'sell_threshold': 0.5}"
+HK.01299,-0.609,0.222,100.0,True,"{'refit_every': 100, 'buy_threshold': 0.52, 'sell_threshold': 0.35}"
+HK.00941,0.062,-0.081,0.0,False,"{'refit_every': 100, 'buy_threshold': 0.65, 'sell_threshold': 0.35}"
+HK.02318,0.139,0.051,33.3,False,"{'refit_every': 100, 'buy_threshold': 0.65, 'sell_threshold': 0.35}"
+HK.01211,0.628,0.224,33.3,False,"{'refit_every': 20, 'buy_threshold': 0.52, 'sell_threshold': 0.35}"
+HK.01810,0.17,-0.134,33.3,False,"{'refit_every': 100, 'buy_threshold': 0.65, 'sell_threshold': 0.35}"
+HK.09618,-0.096,-0.368,33.3,False,"{'refit_every': 100, 'buy_threshold': 0.65, 'sell_threshold': 0.5}"
+HK.09888,1.54,-0.578,33.3,False,"{'refit_every': 100, 'buy_threshold': 0.65, 'sell_threshold': 0.5}"
