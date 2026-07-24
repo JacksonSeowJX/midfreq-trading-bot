@@ -9,6 +9,7 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.dml import MSO_LINE_DASH_STYLE
 from pathlib import Path
 import sys
 
@@ -104,42 +105,48 @@ add_bracket_tl(slide, 0.5, 0.3, size=0.8, thickness=0.1)
 add_text(slide, 0.8, 0.5, 11.5, 0.7, "Moving Off My Laptop", font_size=30, color=DARK, bold=True)
 add_divider(slide, 0.8, 1.15, 4)
 
-add_card(slide, 0.8, 1.5, 5.6, 3.3)
-tf = add_text(slide, 1.1, 1.7, 5.0, 0.5, "The Setup", font_size=20, color=DARK, bold=True)
+add_card(slide, 0.8, 1.5, 5.6, 2.7)
+tf = add_text(slide, 1.1, 1.65, 5.0, 0.5, "The Setup", font_size=20, color=DARK, bold=True)
 add_para(tf, "")
-add_para(tf, "Small cloud server (Google Cloud, Singapore)", font_size=15, color=DARK)
-add_para(tf, "running the broker gateway and the bot", font_size=15, color=DARK)
+add_para(tf, "Small cloud server (Google Cloud, Singapore)", font_size=14, color=DARK)
+add_para(tf, "running the broker gateway and the bot", font_size=14, color=DARK)
 add_para(tf, "")
-add_para(tf, "Every market morning, on its own:", font_size=15, color=DARK, bold=True)
-add_para(tf, "1.  Pull the latest code", font_size=14, color=MID)
-add_para(tf, "2.  Run the test suite — bad code never trades", font_size=14, color=MID)
-add_para(tf, "3.  Trade until the market closes", font_size=14, color=MID)
-add_para(tf, "4.  Save the day's results", font_size=14, color=MID)
+add_para(tf, "Every market morning, on its own:", font_size=14, color=DARK, bold=True)
+add_para(tf, "1. Pull latest code   2. Run tests   3. Trade   4. Save results", font_size=13, color=MID)
 
-add_card(slide, 6.7, 1.5, 5.9, 3.3)
-tf = add_text(slide, 7.0, 1.7, 5.3, 0.5, "Two Bugs Only Deployment Could Find", font_size=18, color=DARK, bold=True)
+add_card(slide, 6.7, 1.5, 5.9, 2.7)
+tf = add_text(slide, 7.0, 1.65, 5.3, 0.5, "Two Bugs Only Deployment Could Find", font_size=17, color=DARK, bold=True)
 add_para(tf, "")
-add_para(tf, "Clock bug: the server's schedule used the wrong", font_size=14, color=DARK)
-add_para(tf, "time zone — the first morning's trading ran late.", font_size=14, color=DARK)
+add_para(tf, "Clock bug: the server's schedule used the wrong", font_size=13, color=DARK)
+add_para(tf, "time zone — the first morning's trading ran late.", font_size=13, color=DARK)
 add_para(tf, "")
-add_para(tf, "Shared-account bug: two strategies trading the", font_size=14, color=DARK)
-add_para(tf, "same paper account briefly confused whose shares", font_size=14, color=DARK)
-add_para(tf, "were whose after a network hiccup.", font_size=14, color=DARK)
+add_para(tf, "Shared-account bug: two strategies trading the", font_size=13, color=DARK)
+add_para(tf, "same paper account briefly confused whose shares", font_size=13, color=DARK)
+add_para(tf, "were whose after a network hiccup.", font_size=13, color=DARK)
 add_para(tf, "")
-add_para(tf, "Both fixed, both now covered by tests.", font_size=14, color=ACCENT_GREEN, bold=True)
+add_para(tf, "Both fixed, both now covered by tests.", font_size=13, color=ACCENT_GREEN, bold=True)
 
-add_card(slide, 0.8, 5.0, 11.8, 2.2)
-tf = add_text(slide, 1.1, 5.15, 11.3, 0.4, "From manual to unattended", font_size=16, color=DARK, bold=True)
+add_card(slide, 0.8, 4.4, 5.6, 2.7)
+tf = add_text(slide, 1.1, 4.55, 5.0, 0.4, "From manual to unattended", font_size=15, color=DARK, bold=True)
 img = CHART_DIR / 'chart_u7_timeline.png'
 if img.exists():
-    slide.shapes.add_picture(str(img), Inches(3.2), Inches(5.55), width=Inches(7.0))
+    slide.shapes.add_picture(str(img), Inches(0.95), Inches(5.05), width=Inches(5.3))
+
+# Placeholder: paste your own GCP Billing screenshot here in PowerPoint
+ph = add_card(slide, 6.7, 4.4, 5.9, 2.7, RGBColor(0xF5, 0xF2, 0xEC))
+ph.line.dash_style = MSO_LINE_DASH_STYLE.DASH
+tf = add_text(slide, 7.0, 4.55, 5.3, 0.4, "This costs real money — mine", font_size=15, color=DARK, bold=True)
+add_para(tf, "")
+add_para(tf, "[ Paste GCP Billing → Budgets screenshot here ]", font_size=13, color=DIM)
+add_para(tf, "")
+add_para(tf, "Personal account, ~US$16/month, budget-capped", font_size=13, color=MID)
 
 
 # ==================== SLIDE 3: THE TRACK RECORD ====================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide)
 add_bracket_tl(slide, 0.5, 0.3, size=0.8, thickness=0.1)
-add_text(slide, 0.8, 0.5, 12, 0.7, "A Real Position, Watched Live", font_size=30, color=DARK, bold=True)
+add_text(slide, 0.8, 0.5, 12, 0.7, "A Real Trade, Followed to the End", font_size=30, color=DARK, bold=True)
 add_divider(slide, 0.8, 1.15, 4)
 
 add_card(slide, 0.8, 1.5, 5.3, 4.3)
@@ -149,23 +156,24 @@ add_para(tf, "14 Jul: Baidu dropped sharply. Our mean-reversion", font_size=14, 
 add_para(tf, "strategies bought, exactly as their rules say.", font_size=14, color=DARK)
 add_para(tf, "")
 add_para(tf, "16 Jul: price recovered above entry — a real", font_size=14, color=DARK)
-add_para(tf, "paper profit, briefly over +5%.", font_size=14, color=DARK)
+add_para(tf, "paper profit, briefly over +4%. The sell rule", font_size=14, color=DARK)
+add_para(tf, "never triggered, so the bot kept holding.", font_size=14, color=DARK)
 add_para(tf, "")
-add_para(tf, "But the sell rule never triggered, so the bot", font_size=14, color=DARK)
-add_para(tf, "kept holding — and the price has since drifted", font_size=14, color=DARK)
-add_para(tf, "back down.", font_size=14, color=DARK)
+add_para(tf, "24 Jul: price fell through the stop-loss level.", font_size=14, color=DARK)
+add_para(tf, "The bot sold automatically — no hesitation,", font_size=14, color=DARK)
+add_para(tf, "no override.", font_size=14, color=DARK)
 add_para(tf, "")
-add_para(tf, "The position is still open today.", font_size=15, color=ACCENT_AMBER, bold=True)
+add_para(tf, "A complete, rules-only round trip.", font_size=15, color=ACCENT_GREEN, bold=True)
 
-img = CHART_DIR / 'chart_u7_baidu.png'
+img = CHART_DIR / 'chart_u7_rsi_stoploss.png'
 if img.exists():
     slide.shapes.add_picture(str(img), Inches(6.4), Inches(1.6), width=Inches(6.5))
-add_text(slide, 6.4, 5.3, 6.4, 0.5, "The bot followed its rules the whole way — no panic, no override",
+add_text(slide, 6.4, 5.5, 6.4, 0.5, "Rising line = held; dashed = after the automatic exit",
          font_size=14, color=DIM)
 
 add_card(slide, 0.8, 6.1, 11.8, 1.0)
-tf = add_text(slide, 1.1, 6.25, 11.3, 0.5, "This is the point of watching it live: a real strategy, doing exactly what its", font_size=14, color=DARK, bold=True)
-add_para(tf, "backtest said it would — including sitting through a paper profit it didn't lock in.", font_size=14, color=MID, space_before=Pt(2))
+tf = add_text(slide, 1.1, 6.25, 11.3, 0.5, "This is the point of watching it live: the strategy did exactly what its backtest said it", font_size=14, color=DARK, bold=True)
+add_para(tf, "would — held through a paper profit it didn't lock in, then cut the loss the moment its rule said to.", font_size=14, color=MID, space_before=Pt(2))
 
 
 # ==================== SLIDE 4: SUMMARY & NEXT ====================
@@ -182,7 +190,7 @@ add_para(tf, "✅   A test gate runs before every trading day — broken code ca
 add_para(tf, "")
 add_para(tf, "✅   Two real bugs found and fixed while going live, both now tested", font_size=17, color=DARK)
 add_para(tf, "")
-add_para(tf, "✅   A live position is playing out exactly as its rules intended", font_size=17, color=DARK)
+add_para(tf, "✅   A full trade played out live — held a profit, then cut a loss, both by the rules", font_size=17, color=DARK)
 
 add_card(slide, 2.0, 5.0, 9.5, 1.3)
 tf = add_text(slide, 2.3, 5.15, 9, 0.5, "🎯  Next: A Smarter Way to Read the Market", font_size=18, color=ACCENT_GREEN, bold=True)
