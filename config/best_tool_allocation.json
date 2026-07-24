@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-07-25 01:04:04.985271",
+  "settings": {
+    "n_splits": 3,
+    "train_pct": 0.7,
+    "slippage_bps": 5.0,
+    "objective": "sharpe_ratio",
+    "min_consistency_pct": 50.0
+  },
+  "allocation": {
+    "HK.00700": null,
+    "HK.00005": null,
+    "HK.09988": null,
+    "HK.03690": "Regime Switch",
+    "HK.01299": "ML Direction Classifier",
+    "HK.00941": null,
+    "HK.02318": null,
+    "HK.01211": null,
+    "HK.01810": null,
+    "HK.09618": null,
+    "HK.09888": null
+  }
+}
