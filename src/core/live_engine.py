@@ -59,6 +59,7 @@ class LivePortfolio(Portfolio):
         # Resume THIS strategy's own positions from its state file
         if state_file is not None and state_file.exists():
             state = json.loads(state_file.read_text())
+            print(f"  [resume] raw state on disk: {state.get('positions', {})}")
             broker_pos = self._query_positions_with_retry()
             for symbol, pos in state.get('positions', {}).items():
                 if broker_pos is None:
@@ -92,9 +93,31 @@ class LivePortfolio(Portfolio):
         return None
 
     def save_state(self):
-        """Persist this strategy's positions for the next session."""
+        """
+        Persist this strategy's positions for the next session.
+
+        Sanity check first: an existing position's entry_price should never
+        change except through a BUY this session (visible in trade_history).
+        If it did, something outside execute_trade() mutated self.positions —
+        log it loudly rather than silently persist bad data (regression
+        guard for the 2026-07-23 unexplained drift: Bollinger's own state
+        went from 100 @ 106.9 to 400 @ 107.25 with zero trades that day).
+        """
         if self.state_file is None:
             return
+        if self.state_file.exists():
+            try:
+                prior = json.loads(self.state_file.read_text()).get('positions', {})
+            except Exception:
+                prior = {}
+            buys_this_session = {t['symbol'] for t in self.trade_history if t['action'] == 'BUY'}
+            for symbol, pos in self.positions.items():
+                old = prior.get(symbol)
+                if old and old['entry_price'] != pos['entry_price'] and symbol not in buys_this_session:
+                    print(f"  [!!] STATE ANOMALY: {symbol} entry_price changed "
+                          f"{old['entry_price']} -> {pos['entry_price']} (qty {old['qty']} -> "
+                          f"{pos['qty']}) with NO buy this session. trade_history: "
+                          f"{self.trade_history}")
         self.state_file.write_text(json.dumps({
             'saved_at': str(datetime.now()),
             'positions': self.positions,
