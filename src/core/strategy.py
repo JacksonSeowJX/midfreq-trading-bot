@@ -1069,7 +1069,7 @@ class MLDirectionClassifier(BaseStrategy):
     signal until there's enough history for a first fit.
     """
     def __init__(self, portfolio: Portfolio,
-                 fit_window: int = 300, refit_every: int = 60,
+                 fit_window: int = 120, refit_every: int = 60,
                  buy_threshold: float = 0.58, sell_threshold: float = 0.48,
                  risk_manager: Optional[RiskManager] = None):
         super().__init__(portfolio, risk_manager=risk_manager, fit_window=fit_window,
