@@ -13,3 +13,4 @@ live_sessions/
 .DS_Store
 .claude/
 !results/*.csv
+.venv/
