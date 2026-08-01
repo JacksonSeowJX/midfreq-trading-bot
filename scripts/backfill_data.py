@@ -28,9 +28,13 @@ from core.config import ConfigLoader
 from providers.moomoo_provider import MoomooProvider
 
 # (timeframe, how far back)
+# HOUR_1: Moomoo actually provides 3 years cleanly (verified 2026-08-02 —
+# all 11 symbols return exactly 1093 days with no gaps); the original
+# 365-day pull was needlessly conservative and left 2/3 of the available
+# history unused, giving too few independent walk-forward windows.
 BACKFILL_PLAN = [
     (Timeframe.DAY_1, timedelta(days=3 * 365)),
-    (Timeframe.HOUR_1, timedelta(days=365)),
+    (Timeframe.HOUR_1, timedelta(days=3 * 365)),
     (Timeframe.MIN_5, timedelta(days=182)),
     (Timeframe.MIN_1, timedelta(days=30)),
 ]
