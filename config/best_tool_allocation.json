@@ -1,15 +1,16 @@
 {
-  "generated_at": "2026-07-31 18:57:04.375174",
-  "method": "robust \u2014 requires agreement across 2 independent walk-forward configs",
+  "generated_at": "2026-08-02 05:41:16.705650",
+  "method": "robust v2 \u2014 3yr history, agreement across 9-window and 15-window configs",
+  "history_days": 1095,
   "configs": [
     {
-      "name": "A (3 windows)",
-      "n_splits": 3,
+      "name": "A (9 windows, ~121d each)",
+      "n_splits": 9,
       "train_pct": 0.7
     },
     {
-      "name": "B (5 windows)",
-      "n_splits": 5,
+      "name": "B (15 windows, ~73d each)",
+      "n_splits": 15,
       "train_pct": 0.7
     }
   ],
