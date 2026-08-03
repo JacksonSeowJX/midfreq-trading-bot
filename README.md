@@ -40,9 +40,10 @@ Update 6 (7 Jun 26)
 Update 7 (21 Jun 26)
 - https://youtu.be/SCY3jmu6lNo
 
-Update 8 (5 Jul 26)
+Update 8 (24 Jul 26)
+- https://youtu.be/x9YsrLUa8CE
 
-Update 9 (18 Jul 26)
+Update 9 (1 Aug 26)
 
 ## System Overview
 
