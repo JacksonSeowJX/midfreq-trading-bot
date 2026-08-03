@@ -40,6 +40,8 @@ def main():
                     help='Session length in minutes (default: until Ctrl-C)')
     ap.add_argument('--stop-loss', type=float, default=3.0,
                     help='Fixed stop-loss %% (0 disables)')
+    ap.add_argument('--take-profit', type=float, default=0.0,
+                    help='Fixed take-profit %% (0 disables)')
     ap.add_argument('--max-drawdown', type=float, default=10.0,
                     help='Circuit breaker halt at this drawdown %%')
     ap.add_argument('--qty', type=int, default=100,
@@ -72,6 +74,7 @@ def main():
 
     risk_manager = RiskManager(
         stop_loss_pct=(args.stop_loss / 100.0) if args.stop_loss > 0 else None,
+        take_profit_pct=(args.take_profit / 100.0) if args.take_profit > 0 else None,
         max_drawdown_pct=args.max_drawdown / 100.0,
         position_sizer=create_position_sizer(SizingMethod.FIXED_QUANTITY, qty=args.qty),
     )

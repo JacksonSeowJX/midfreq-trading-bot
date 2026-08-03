@@ -37,11 +37,11 @@ fi
 echo "Launching daily candidates for ${DURATION} minutes (logs: $LOG_DIR/console_*_${STAMP}.log)"
 
 $PY -u run_live.py --strategy "Bollinger Bands" --symbols HK.09888 --timeframe 1h \
-    --duration "$DURATION" --qty 100 --stop-loss 3 --params bb_period=14 num_std=2.5 \
+    --duration "$DURATION" --qty 100 --stop-loss 3 --take-profit 5 --params bb_period=14 num_std=2.5 \
     > "$LOG_DIR/console_bollinger_09888_${STAMP}.log" 2>&1 &
 
 $PY -u run_live.py --strategy "RSI" --symbols HK.09888 --timeframe 1h \
-    --duration "$DURATION" --qty 100 --stop-loss 3 --params rsi_period=18 oversold=29 overbought=84 \
+    --duration "$DURATION" --qty 100 --stop-loss 3 --take-profit 5 --params rsi_period=18 oversold=29 overbought=84 \
     > "$LOG_DIR/console_rsi_09888_${STAMP}.log" 2>&1 &
 
 $PY -u run_live.py --strategy "Regime Switch" --symbols HK.00700 --timeframe 1h \
