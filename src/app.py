@@ -191,6 +191,10 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("📡 Live Paper Trading")
 run_live_view = st.sidebar.button("Show Live Account & Sessions", use_container_width=True)
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Research Studies")
+run_research_view = st.sidebar.button("Browse Research Results", use_container_width=True)
+
 
 # ─── Chart Plotting Functions ───────────────────────────────────────
 
@@ -788,6 +792,98 @@ elif run_live_view:
                 break
     else:
         st.info("No live sessions recorded yet. Run `./scripts/run_daily_candidates.sh` during market hours.")
+
+elif run_research_view:
+    # ─── Research Studies Viewer ────────────────────────────────────
+    import json
+    st.markdown("### 📊 Research Studies — Validation Results")
+
+    # Headline: current allocation verdict, if it exists
+    alloc_path = Path(__file__).parent.parent / 'config' / 'best_tool_allocation.json'
+    if alloc_path.exists():
+        alloc = json.loads(alloc_path.read_text())
+        allocation = alloc.get('allocation', {})
+        assigned = {k: v for k, v in allocation.items() if v}
+        st.markdown("#### Current Allocation Verdict")
+        st.caption(f"Method: {alloc.get('method', 'n/a')}  •  Generated: {alloc.get('generated_at', 'n/a')}")
+        if assigned:
+            st.success(f"{len(assigned)}/{len(allocation)} symbols have a validated tool assigned:")
+            st.dataframe(pd.DataFrame([{'symbol': k, 'assigned_tool': v} for k, v in assigned.items()]),
+                        use_container_width=True)
+        else:
+            st.warning(f"0/{len(allocation)} symbols cleared the validation bar — no tool is currently "
+                      "trusted enough to assign on any symbol under this study's methodology.")
+        st.markdown("---")
+
+    results_dir = Path(__file__).parent.parent / 'results'
+    csv_files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
+
+    if not csv_files:
+        st.info("No research results found in results/. Run one of the scripts/*_research.py studies first.")
+    else:
+        import re
+        FRIENDLY_NAMES = {
+            'best_tool_new_stocks_allocation': '🆕 Allocation — New Sectors',
+            'best_tool_new_stocks_full': '🆕 Full Comparison — New Sectors',
+            'best_tool_robust_v2_allocation': '✅ Allocation — Robust, 3yr Data (current)',
+            'best_tool_robust_v2_full': '✅ Full Comparison — Robust, 3yr Data (current)',
+            'best_tool_robust_allocation': 'Allocation — Robust, 1yr Data (superseded)',
+            'best_tool_robust_full': 'Full Comparison — Robust, 1yr Data (superseded)',
+            'best_tool_allocation': 'Allocation — Single Config (superseded)',
+            'best_tool_full': 'Full Comparison — Single Config (superseded)',
+            'fixed_split_combo_summary': '🔀 Fixed-Split 50/50 Combo — Summary',
+            'fixed_split_combo_windows': '🔀 Fixed-Split 50/50 Combo — Per-Window Detail',
+            'ml_classifier': '🤖 ML Direction Classifier — Walk-Forward',
+            'cross_sectional_walkforward': '📈 Cross-Sectional Reversal — Walk-Forward',
+            'model_selector_windows': '❌ Adaptive Selector — Per-Window (failed)',
+            'model_selector_summary': '❌ Adaptive Selector — Summary (failed)',
+            'hmm_regime': '🧠 HMM vs Rule — Head-to-Head',
+            'hmm_forced_3state': '🧠 HMM Forced 3-State Test',
+            'pairs_walkforward': '👥 Pairs Trading — Walk-Forward',
+            'pairs_scan': '👥 Pairs Trading — Cointegration Scan',
+            'regime_switch_1h': 'Regime Switch — 1h Scan',
+        }
+
+        def label_for(path):
+            stem = path.stem
+            m = re.match(r'^(.*?)_(\d{8}(_\d{6})?)$', stem)
+            prefix = m.group(1) if m else stem
+            friendly = FRIENDLY_NAMES.get(prefix, prefix.replace('_', ' ').title())
+            return friendly, prefix
+
+        show_all = st.checkbox("Show all raw result files (including early exploration runs)", value=False)
+
+        if show_all:
+            options = [(f"{f.name}", f) for f in csv_files]
+        else:
+            seen = {}
+            for f in csv_files:
+                _, prefix = label_for(f)
+                if prefix not in seen:
+                    seen[prefix] = f
+            options = [(label_for(f)[0], f) for f in seen.values()]
+            options.sort(key=lambda x: x[0])
+
+        choice_label = st.selectbox("Select a study", [o[0] for o in options])
+        chosen_file = dict(options)[choice_label]
+
+        df_view = pd.read_csv(chosen_file)
+        st.caption(f"File: `{chosen_file.name}`  •  {len(df_view)} rows")
+        st.dataframe(df_view, use_container_width=True, height=400)
+
+        numeric_cols = [c for c in df_view.columns if 'oos' in c.lower() or 'return' in c.lower()]
+        cat_cols = [c for c in df_view.columns if c.lower() in ('symbol', 'strategy', 'assigned')]
+        if numeric_cols and cat_cols:
+            x_col, y_col = cat_cols[0], numeric_cols[0]
+            plot_df = df_view.dropna(subset=[y_col])
+            if not plot_df.empty and pd.api.types.is_numeric_dtype(plot_df[y_col]):
+                st.markdown(f"#### Quick view: {y_col} by {x_col}")
+                colors = ['#2E7D32' if v > 0 else '#C62828' for v in plot_df[y_col]]
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=plot_df[x_col].astype(str), y=plot_df[y_col], marker_color=colors))
+                fig.add_hline(y=0, line_dash="dot", line_color="gray")
+                fig.update_layout(height=350, margin=dict(l=0, r=0, t=20, b=0), yaxis_title=y_col)
+                st.plotly_chart(fig, use_container_width=True)
 
 else:
     st.info("👆 Select a **strategy** and adjust parameters on the sidebar, then click **Run Backtest**, **Compare All Strategies**, or **Run Optimization**.")
