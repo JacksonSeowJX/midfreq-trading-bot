@@ -1,0 +1,25 @@
+symbol,strategy,config_a_oos,config_a_consistency,config_b_oos,config_b_consistency,robust
+HK.01398,Regime Switch,-0.004,22.2,-0.001,6.7,False
+HK.01398,HMM Regime Switch,-0.002,22.2,-0.001,0.0,False
+HK.01398,ML Direction Classifier,-0.002,33.3,0.001,40.0,False
+HK.00939,Regime Switch,0.002,33.3,0.0,33.3,False
+HK.00939,HMM Regime Switch,0.001,44.4,-0.001,26.7,False
+HK.00939,ML Direction Classifier,-0.004,11.1,0.001,40.0,False
+HK.00883,Regime Switch,-0.001,44.4,-0.02,13.3,False
+HK.00883,HMM Regime Switch,-0.01,33.3,-0.017,6.7,False
+HK.00883,ML Direction Classifier,-0.021,33.3,-0.01,20.0,False
+HK.00016,Regime Switch,-0.143,0.0,-0.062,13.3,False
+HK.00016,HMM Regime Switch,-0.087,0.0,-0.035,20.0,False
+HK.00016,ML Direction Classifier,0.135,33.3,0.033,46.7,False
+HK.00027,Regime Switch,-0.007,33.3,-0.045,13.3,False
+HK.00027,HMM Regime Switch,-0.023,22.2,-0.006,20.0,False
+HK.00027,ML Direction Classifier,-0.005,44.4,-0.073,26.7,False
+HK.00388,Regime Switch,0.111,33.3,-0.44,6.7,False
+HK.00388,HMM Regime Switch,0.016,33.3,-0.313,6.7,False
+HK.00388,ML Direction Classifier,-0.008,44.4,-0.321,46.7,False
+HK.02020,Regime Switch,-0.163,0.0,-0.066,0.0,False
+HK.02020,HMM Regime Switch,-0.003,22.2,-0.011,0.0,False
+HK.02020,ML Direction Classifier,-0.175,44.4,-0.053,40.0,False
+HK.09999,Regime Switch,-0.309,44.4,-0.05,13.3,False
+HK.09999,HMM Regime Switch,-0.066,33.3,-0.017,26.7,False
+HK.09999,ML Direction Classifier,-0.451,22.2,-0.469,20.0,False
