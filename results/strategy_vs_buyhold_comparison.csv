@@ -1,0 +1,5 @@
+strategy,mean_oos_pct,symbols_positive,n_symbols
+HMM Regime Switch,-0.061,1,19
+Regime Switch,-0.09,2,19
+ML Direction Classifier,-0.189,1,19
+Buy & Hold,-1.114,6,19
