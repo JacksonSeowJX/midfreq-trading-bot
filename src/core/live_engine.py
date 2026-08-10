@@ -58,7 +58,14 @@ class LivePortfolio(Portfolio):
 
         # Resume THIS strategy's own positions from its state file
         if state_file is not None and state_file.exists():
-            state = json.loads(state_file.read_text())
+            try:
+                state = json.loads(state_file.read_text())
+            except json.JSONDecodeError as e:
+                raise RuntimeError(
+                    f"CRITICAL: state file {state_file} is not valid JSON ({e}). "
+                    "Refusing to start with an unreadable position ledger — fix or "
+                    "restore the file from git history before retrying."
+                ) from e
             print(f"  [resume] raw state on disk: {state.get('positions', {})}")
             broker_pos = self._query_positions_with_retry()
             for symbol, pos in state.get('positions', {}).items():
