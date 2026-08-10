@@ -17,7 +17,7 @@ the null result has a concrete anchor: did these stocks even go up
 during the periods our strategies were tested on?
 
 Usage:
-    python3 scripts/buy_hold_benchmark.py
+    python3 scripts/buy_hold_benchmark.py [market]   # market defaults to HK
 """
 import sys
 import time
@@ -64,9 +64,10 @@ def buy_hold_return(df, test_start, test_end):
 
 
 def main():
+    market = sys.argv[1] if len(sys.argv) > 1 else "HK"
     storage = DataStorage()
     config = ConfigLoader()
-    symbols = config.get_live_symbols(market="HK")
+    symbols = config.get_live_symbols(market=market) or config.get_all_symbols(market=market)
 
     end = datetime.now()
     start = end - timedelta(days=HISTORY_DAYS)
@@ -95,7 +96,7 @@ def main():
 
     df_out = pd.DataFrame(rows)
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    out = Path(__file__).resolve().parent.parent / 'results' / f'buy_hold_benchmark_{stamp}.csv'
+    out = Path(__file__).resolve().parent.parent / 'results' / f'buy_hold_benchmark_{market.lower()}_{stamp}.csv'
     df_out.to_csv(out, index=False)
 
     print(f"\nDone in {(time.time()-t0)/60:.1f} min — saved {out}\n")
