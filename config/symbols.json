@@ -27,12 +27,23 @@
     },
     "US": {
       "provider": "moomoo",
-      "status": "planned",
+      "status": "backtest-only",
       "symbols": [
         "US.AAPL",
-        "US.TSLA",
         "US.MSFT",
-        "US.NVDA"
+        "US.NVDA",
+        "US.TSLA",
+        "US.GOOGL",
+        "US.AMZN",
+        "US.META",
+        "US.JPM",
+        "US.V",
+        "US.XOM",
+        "US.JNJ",
+        "US.PFE",
+        "US.PG",
+        "US.WMT",
+        "US.CAT"
       ]
     }
   }
