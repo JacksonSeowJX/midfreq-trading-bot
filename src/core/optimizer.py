@@ -219,15 +219,16 @@ def walk_forward(
     slippage_bps: float = 0.0,
     top_n_params: int = 20,
     progress_callback: Optional[Callable[[float, str], None]] = None,
+    commission_rate: float = Portfolio.HK_FEE_RATE,
 ) -> Dict[str, Any]:
     """
     Walk-forward optimization with rolling train/test windows.
-    
+
     Process:
       1. Divide the data into n_splits rolling windows
       2. For each window: optimize on train portion, validate on test portion
       3. Report consistency of results across windows
-    
+
     Args:
         strategy_name: Name from STRATEGY_REGISTRY
         symbols: List of stock symbols
@@ -243,6 +244,9 @@ def walk_forward(
         slippage_bps: Slippage in basis points
         top_n_params: Number of top parameter sets to test from grid search
         progress_callback: Called with (progress_float, status_string)
+        commission_rate: Per-side commission as a fraction of trade value
+            (defaults to the calibrated HK all-in rate; pass 0.0 for a
+            gross, cost-free comparison)
         
     Returns:
         Dict with 'windows' (list of WalkForwardWindow), 'summary' metrics,
@@ -295,10 +299,10 @@ def walk_forward(
         best_traded = False
 
         for params in param_grid:
-            portfolio = Portfolio(initial_cash=initial_capital)
+            portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
             bt = Backtester(storage=storage, portfolio=portfolio,
                           risk_manager=risk_manager, slippage_bps=slippage_bps)
-            
+
             f_buf = io.StringIO()
             with contextlib.redirect_stdout(f_buf):
                 try:
@@ -320,7 +324,7 @@ def walk_forward(
                     best_traded = traded
         
         # ─── Step 2: Validate best params on test data ────────
-        portfolio = Portfolio(initial_cash=initial_capital)
+        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
         bt = Backtester(storage=storage, portfolio=portfolio,
                        risk_manager=risk_manager, slippage_bps=slippage_bps)
         
