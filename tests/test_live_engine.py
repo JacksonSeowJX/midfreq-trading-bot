@@ -155,6 +155,30 @@ class TestLivePortfolio:
         p2 = LivePortfolio(GatewayDown(), state_file=state)
         assert p2.get_position_qty('A') == 100.0
 
+    def test_on_trade_fires_with_fill_details_on_accepted_order(self):
+        events = []
+        p = LivePortfolio(FakeGateway(), on_trade=events.append)
+        p.execute_trade('A', True, 100, 50.0, T0)
+        assert len(events) == 1
+        assert events[0] == {
+            'type': 'trade', 'timestamp': str(T0), 'symbol': 'A',
+            'side': 'BUY', 'qty': 100, 'price': 50.0,
+            'order_id': 1, 'exit_reason': None,
+        }
+
+    def test_on_trade_does_not_fire_on_broker_rejection(self):
+        events = []
+        p = LivePortfolio(FakeGateway(reject=True), on_trade=events.append)
+        p.execute_trade('A', True, 100, 50.0, T0)
+        assert events == []
+
+    def test_on_trade_does_not_fire_during_warmup(self):
+        events = []
+        p = LivePortfolio(FakeGateway(), on_trade=events.append)
+        p.warming_up = True
+        p.execute_trade('A', True, 100, 50.0, T0)
+        assert events == []
+
 
 class TestCandleLifecycle:
     def test_newer_timestamp_finalizes_previous_candle(self, tmp_path):
@@ -190,3 +214,15 @@ class TestCandleLifecycle:
         e1 = make_engine(session_log_dir=tmp_path)
         e2 = make_engine(session_log_dir=tmp_path)
         assert e1._session_file != e2._session_file
+
+    def test_engine_trade_is_written_to_session_log(self, tmp_path):
+        import json
+        eng = make_engine(session_log_dir=tmp_path)
+        eng.portfolio.execute_trade('HK.09888', True, 100, 50.0, T0)
+        lines = [json.loads(l) for l in eng._session_file.read_text().splitlines()]
+        trades = [l for l in lines if l['type'] == 'trade']
+        assert len(trades) == 1
+        assert trades[0]['symbol'] == 'HK.09888'
+        assert trades[0]['side'] == 'BUY'
+        assert trades[0]['qty'] == 100
+        assert trades[0]['price'] == 50.0

@@ -17,7 +17,7 @@ backtester).
 """
 import time
 import json
-from typing import Dict, Any, Optional, Type
+from typing import Dict, Any, Optional, Type, Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -43,7 +43,8 @@ class LivePortfolio(Portfolio):
     """
 
     def __init__(self, gateway: OrderGateway, commission_rate: float = Portfolio.HK_FEE_RATE,
-                 state_file: Optional[Path] = None):
+                 state_file: Optional[Path] = None,
+                 on_trade: Optional[Callable[[Dict[str, Any]], None]] = None):
         acc = gateway.get_account_info() or {}
         initial_cash = acc.get('total_assets', 0.0) or acc.get('cash', 0.0)
         super().__init__(initial_cash=initial_cash, commission_rate=commission_rate)
@@ -55,6 +56,7 @@ class LivePortfolio(Portfolio):
         # HK board lots: orders must be multiples of the symbol's lot size
         self.lot_sizes: Dict[str, int] = {}
         self.state_file = state_file
+        self.on_trade = on_trade
 
         # Resume THIS strategy's own positions from its state file
         if state_file is not None and state_file.exists():
@@ -161,6 +163,13 @@ class LivePortfolio(Portfolio):
         print(f"[{timestamp}] {'BUY' if is_buy else 'SELL'} {qty} {symbol} @ {price} "
               f"(order {result['order_id']}{', ' + exit_reason if exit_reason else ''})")
 
+        if self.on_trade:
+            self.on_trade({
+                'type': 'trade', 'timestamp': str(timestamp), 'symbol': symbol,
+                'side': 'BUY' if is_buy else 'SELL', 'qty': qty, 'price': price,
+                'order_id': result['order_id'], 'exit_reason': exit_reason,
+            })
+
     def sync_with_broker(self):
         """
         Sanity-check local claims against the broker. The broker's holdings
@@ -213,10 +222,6 @@ class LiveTradingEngine:
         # Per-strategy position ownership persists across sessions here
         state_file = log_dir / f"state_{strat_slug}.json"
 
-        self.portfolio = LivePortfolio(gateway, state_file=state_file)
-        self.strategy = strategy_class(self.portfolio, risk_manager=risk_manager,
-                                       **strategy_params)
-
         # Last-seen (still forming) candle per symbol
         self._forming: Dict[str, Candle] = {}
         self._candles_processed = 0
@@ -230,6 +235,10 @@ class LiveTradingEngine:
         self._session_file = self._log_dir / (
             f"session_{datetime.now():%Y%m%d_%H%M%S}_{strat_slug}"
             f"_{os.getpid()}_{LiveTradingEngine._session_seq}.jsonl")
+
+        self.portfolio = LivePortfolio(gateway, state_file=state_file, on_trade=self._log_event)
+        self.strategy = strategy_class(self.portfolio, risk_manager=risk_manager,
+                                       **strategy_params)
 
     def _warm_up(self, candles: int = 60):
         """
