@@ -150,7 +150,39 @@ tf = add_text(slide, 1.1, 6.25, 11.3, 0.5, "A single test on 11 stocks looked pr
 add_para(tf, "agree dropped that to zero, and it stayed at zero after tripling the data and testing 8 new stocks in different sectors. Combined: 0 out of 57.", font_size=14, color=MID, space_before=Pt(2))
 
 
-# ==================== SLIDE 4: SUMMARY & NEXT ====================
+# ==================== SLIDE 4: STRESS-TESTING FURTHER ====================
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+set_slide_bg(slide)
+add_bracket_tl(slide, 0.5, 0.3, size=0.8, thickness=0.1)
+add_text(slide, 0.8, 0.5, 12, 0.7, "Two More Ways It Could Have Been Wrong", font_size=28, color=DARK, bold=True)
+add_divider(slide, 0.8, 1.15, 4)
+
+img = CHART_DIR / 'chart_u9v2_stress_funnel.png'
+if img.exists():
+    slide.shapes.add_picture(str(img), Inches(1.5), Inches(1.5), width=Inches(10.3))
+
+add_card(slide, 0.8, 6.15, 11.8, 1.15)
+tf = add_text(slide, 1.1, 6.25, 11.3, 0.5, "Maybe trading costs were hiding a real signal, and maybe HK was just an unlucky market to pick.", font_size=14, color=DARK, bold=True)
+add_para(tf, "Stripped out all fees and slippage, and separately tested 15 US large caps across six sectors. Neither changed the answer.", font_size=14, color=MID, space_before=Pt(2))
+
+
+# ==================== SLIDE 5: WHAT WOULD HAVE MADE MONEY ====================
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+set_slide_bg(slide)
+add_bracket_tl(slide, 0.5, 0.3, size=0.8, thickness=0.1)
+add_text(slide, 0.8, 0.5, 12, 0.7, "So What Would Have Actually Made Money?", font_size=27, color=DARK, bold=True)
+add_divider(slide, 0.8, 1.15, 4)
+
+img = CHART_DIR / 'chart_u9v2_buyhold.png'
+if img.exists():
+    slide.shapes.add_picture(str(img), Inches(2.0), Inches(1.5), width=Inches(9.3))
+
+add_card(slide, 0.8, 6.15, 11.8, 1.15)
+tf = add_text(slide, 1.1, 6.25, 11.3, 0.5, "Simply holding the stocks, no trading at all. HK was falling, so avoiding it by trading looked like skill;", font_size=14, color=DARK, bold=True)
+add_para(tf, "US was rising, so the same behaviour cost money instead. The strategies track the market's direction, not any edge of their own.", font_size=14, color=MID, space_before=Pt(2))
+
+
+# ==================== SLIDE 6: SUMMARY & NEXT ====================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide)
 add_bracket_tl(slide, 1.5, 0.7, size=2.0, thickness=0.15)
@@ -160,17 +192,17 @@ add_text(slide, 2.5, 1.1, 8.5, 0.7, "SUMMARY", font_size=32, color=DARK, bold=Tr
 
 tf = add_text(slide, 2.0, 2.1, 9.5, 0.5, "✅   Four strategy families and two combination methods tested head to head", font_size=17, color=DARK)
 add_para(tf, "")
-add_para(tf, "✅   Validation extended to 3 years of data and 8 stocks in new sectors, same result", font_size=17, color=DARK)
+add_para(tf, "✅   Held up after removing all costs, tripling the data, and testing a second market entirely", font_size=17, color=DARK)
 add_para(tf, "")
-add_para(tf, "✅   Corrected an earlier claim of mine after testing it directly: the model's most flexible", font_size=17, color=DARK)
-add_para(tf, "       setting doesn't help either", font_size=17, color=DARK, space_before=Pt(0))
+add_para(tf, "✅   Buy-and-hold beat every strategy on the market that was rising — the strategies were", font_size=17, color=DARK)
+add_para(tf, "       tracking market direction, not finding a real edge", font_size=17, color=DARK, space_before=Pt(0))
 add_para(tf, "")
 add_para(tf, "✅   Take-profit now live on the roster, and every study is browsable from the dashboard", font_size=17, color=DARK)
 
 add_card(slide, 2.0, 5.15, 9.5, 1.3)
 tf = add_text(slide, 2.3, 5.3, 9, 0.5, "🎯  Next: Writing This Up Honestly", font_size=18, color=ACCENT_GREEN, bold=True)
-add_para(tf, "A validated null result is still a result. The engineering built to reach it, live deployment,", font_size=14, color=MID)
-add_para(tf, "risk management, and rigorous testing, is what the final report will stand on.", font_size=14, color=MID, space_before=Pt(2))
+add_para(tf, "A validated null result is still a result, and a more honest one than a lucky-looking backtest.", font_size=14, color=MID)
+add_para(tf, "The engineering, deployment, and validation discipline built to reach it is what the report will stand on.", font_size=14, color=MID, space_before=Pt(2))
 
 add_text(slide, 2.5, 6.7, 8.5, 0.6, "Thank You", font_size=26, color=BRACKET, bold=True, alignment=PP_ALIGN.CENTER)
 
