@@ -1,5 +1,12 @@
 {
- "saved_at": "2026-08-11 16:00:04.150278",
- "positions": {},
- "peak_prices": {}
+ "saved_at": "2026-08-12 16:00:04.632164",
+ "positions": {
+  "HK.09888": {
+   "qty": 100,
+   "entry_price": 102.6
+  }
+ },
+ "peak_prices": {
+  "HK.09888": 102.6
+ }
 }
