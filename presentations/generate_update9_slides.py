@@ -131,7 +131,7 @@ add_text(slide, 6.5, 5.55, 6.2, 0.5, "Mean out-of-sample return, same 11 stocks,
 
 add_card(slide, 0.8, 6.15, 11.8, 1.0)
 tf = add_text(slide, 1.1, 6.3, 11.3, 0.5, "Neither combination attempt fixed the underlying problem.", font_size=14, color=DARK, bold=True)
-add_para(tf, "The adaptive selector picked based on training performance, but training performance didn't predict the out-of-sample winner.", font_size=14, color=MID, space_before=Pt(2))
+add_para(tf, "The adaptive selector picked based on training performance, but training performance didn't predict which one actually won later.", font_size=14, color=MID, space_before=Pt(2))
 
 
 # ==================== SLIDE 3: HOW SURE ARE WE ====================
@@ -194,7 +194,7 @@ tf = add_text(slide, 2.0, 2.1, 9.5, 0.5, "✅   Four strategy families and two c
 add_para(tf, "")
 add_para(tf, "✅   Held up after removing all costs, tripling the data, and testing a second market entirely", font_size=17, color=DARK)
 add_para(tf, "")
-add_para(tf, "✅   Buy-and-hold beat every strategy on the market that was rising — the strategies were", font_size=17, color=DARK)
+add_para(tf, "✅   Buy-and-hold beat every strategy on the market that was rising, showing the strategies were", font_size=17, color=DARK)
 add_para(tf, "       tracking market direction, not finding a real edge", font_size=17, color=DARK, space_before=Pt(0))
 add_para(tf, "")
 add_para(tf, "✅   Take-profit now live on the roster, and every study is browsable from the dashboard", font_size=17, color=DARK)
