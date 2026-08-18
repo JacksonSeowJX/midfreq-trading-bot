@@ -1,0 +1,8 @@
+{"type": "session_start", "timestamp": "2026-08-18 09:25:03.618401", "strategy": "RegimeSwitchStrategy", "symbols": ["HK.00700"], "timeframe": "1h", "account": {"cash": 987560.988, "total_assets": 997590.988, "market_value": 10030.0}}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-08-18 10:30:00+00:00", "close": 438.8, "equity": 987560.988}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-08-18 11:30:00+00:00", "close": 438.2, "equity": 987560.988}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-08-18 12:00:00+00:00", "close": 438.4, "equity": 987560.988}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-08-18 14:00:00+00:00", "close": 443.8, "equity": 987560.988}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-08-18 15:00:00+00:00", "close": 443.4, "equity": 987560.988}
+{"type": "candle_close", "symbol": "HK.00700", "timestamp": "2026-08-18 16:00:00+00:00", "close": 443.4, "equity": 987560.988}
+{"type": "session_end", "timestamp": "2026-08-18 16:00:03.792385", "candles_processed": 6, "trades": 0, "account": {"cash": 987560.988, "total_assets": 997670.988, "market_value": 10110.0}, "positions": {"HK.09888": {"qty": 100.0, "entry_price": 105.9}}}
