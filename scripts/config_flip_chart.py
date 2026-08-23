@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-OUT = '/private/tmp/claude-501/-Users-jacksonetherchainstake-FYP-midfreq-trading-bot/0b818b2d-42d1-463d-b03d-d3c7e3778636/scratchpad/config_flip.png'
+OUT = Path(__file__).resolve().parent.parent / 'results' / 'charts' / 'config_flip.png'
 
 SURFACE = '#EDE8E0'
 INK = '#2D2D2D'
