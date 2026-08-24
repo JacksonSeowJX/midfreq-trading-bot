@@ -37,19 +37,22 @@ from core.storage import DataStorage
 from core.config import ConfigLoader
 from core.optimizer import walk_forward
 
-N_SPLITS = 4
+N_SPLITS = 9          # matches fixed_split_combo_research.py (~121-day windows, 3yr data)
 TRAIN_PCT = 0.7
 SLIPPAGE_BPS = 5.0
 OBJECTIVE = 'sharpe_ratio'
+HISTORY_DAYS = 3 * 365
+ORIGINAL_11 = ['HK.00700', 'HK.00005', 'HK.09988', 'HK.03690', 'HK.01299',
+               'HK.00941', 'HK.02318', 'HK.01211', 'HK.01810', 'HK.09618', 'HK.09888']
 
 
 def main():
     storage = DataStorage()
     config = ConfigLoader()
-    symbols = config.get_live_symbols(market="HK")
+    symbols = ORIGINAL_11
 
     end = datetime.now()
-    start = end - timedelta(days=365)
+    start = end - timedelta(days=HISTORY_DAYS)
 
     window_rows = []
     summary_rows = []
