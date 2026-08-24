@@ -195,6 +195,24 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("📊 Research Studies")
 run_research_view = st.sidebar.button("Browse Research Results", use_container_width=True)
 
+# st.button() only returns True on the single rerun immediately after a click —
+# any widget interaction INSIDE a button-triggered view (e.g. the study dropdown
+# below) triggers a fresh rerun where the button is False again, silently
+# dropping back to the default screen. Persist the active view across reruns
+# instead of trusting the raw button return values directly.
+if 'active_view' not in st.session_state:
+    st.session_state.active_view = None
+if run_sim:
+    st.session_state.active_view = 'backtest'
+if run_compare:
+    st.session_state.active_view = 'compare'
+if run_optimize:
+    st.session_state.active_view = 'optimize'
+if run_live_view:
+    st.session_state.active_view = 'live'
+if run_research_view:
+    st.session_state.active_view = 'research'
+
 
 # ─── Chart Plotting Functions ───────────────────────────────────────
 
@@ -356,7 +374,7 @@ def plot_equity_curve(equity_data):
 
 # ─── Main Execution ────────────────────────────────────────────────
 
-if run_sim:
+if st.session_state.active_view == 'backtest':
     with st.spinner(f'Running {selected_strategy} on {symbol}...'):
         portfolio = Portfolio(initial_cash=initial_capital)
         risk_mgr = build_risk_manager()
@@ -483,7 +501,7 @@ if run_sim:
         else:
             st.warning(f"No historical Parquet data found for {symbol} on {selected_tf_label}. Please run data collector first.")
 
-elif run_compare:
+elif st.session_state.active_view == 'compare':
     # ─── Strategy Comparison Mode ──────────────────────────────────
     st.markdown("### ⚡ Strategy Comparison")
     st.markdown(f"Running all strategies on **{symbol}** ({selected_tf_label})...")
@@ -567,7 +585,7 @@ elif run_compare:
     else:
         st.warning("No results to compare. Ensure data exists for the selected symbol and timeframe.")
 
-elif run_optimize:
+elif st.session_state.active_view == 'optimize':
     # ─── Strategy Optimization Mode ────────────────────────────────
     sim_symbols = [symbol, pair_symbol] if selected_strategy == "Pairs Trading" and pair_symbol else [symbol]
     risk_mgr = build_risk_manager()
@@ -710,7 +728,7 @@ elif run_optimize:
             st.caption("If out-of-sample returns are consistently much worse than in-sample (train) returns, "
                        "the strategy is likely overfitting to historical noise rather than a real edge.")
 
-elif run_live_view:
+elif st.session_state.active_view == 'live':
     # ─── Live Paper Trading View ───────────────────────────────────
     st.markdown("### 📡 Live Paper Trading — Account & Session History")
 
@@ -793,7 +811,7 @@ elif run_live_view:
     else:
         st.info("No live sessions recorded yet. Run `./scripts/run_daily_candidates.sh` during market hours.")
 
-elif run_research_view:
+elif st.session_state.active_view == 'research':
     # ─── Research Studies Viewer ────────────────────────────────────
     import json
     st.markdown("### 📊 Research Studies — Validation Results")
