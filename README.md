@@ -43,7 +43,10 @@ Update 7 (21 Jun 26)
 Update 8 (24 Jul 26)
 - https://youtu.be/x9YsrLUa8CE
 
-Update 9 (1 Aug 26)
+Update 9 (7 Aug 26)
+- https://youtu.be/LFCGzhBQoSA
+
+Update 10 (21 Aug 26) 
 
 ## System Overview
 
