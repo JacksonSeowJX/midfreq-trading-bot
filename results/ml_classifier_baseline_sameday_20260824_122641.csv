@@ -1,0 +1,16 @@
+symbol,config_a_oos,config_a_consistency,config_b_oos,config_b_consistency,robust
+US.AAPL,-0.412,55.6,-0.105,33.3,False
+US.MSFT,0.175,44.4,-0.536,26.7,False
+US.NVDA,-0.575,22.2,0.043,60.0,False
+US.TSLA,-0.267,44.4,-0.188,40.0,False
+US.GOOGL,0.224,55.6,0.047,53.3,True
+US.AMZN,-0.416,55.6,0.375,53.3,False
+US.META,0.358,55.6,-0.677,53.3,False
+US.JPM,-0.521,22.2,-0.052,60.0,False
+US.V,-0.574,22.2,-0.084,46.7,False
+US.XOM,-0.342,11.1,0.003,40.0,False
+US.JNJ,-0.35,11.1,-0.123,26.7,False
+US.PFE,0.007,44.4,-0.034,20.0,False
+US.PG,-0.37,22.2,-0.179,13.3,False
+US.WMT,-0.048,33.3,-0.059,33.3,False
+US.CAT,0.144,33.3,-0.367,53.3,False
