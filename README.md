@@ -19,6 +19,9 @@ The system is designed with modular components including a market data service, 
 
 ## Video Updates (YouTube)
 
+To see all videos
+- https://studio.youtube.com/channel/UCWvIDtAKkT7eFPqhEd4aaAA/videos/upload?filter=%5B%5D&sort=%7B%22columnType%22%3A%22date%22%2C%22sortOrder%22%3A%22DESCENDING%22%7D
+
 Update 1 (29 Mar 26)
 - https://studio.youtube.com/video/G-v-z53wfnk/edit
   
@@ -46,7 +49,13 @@ Update 8 (24 Jul 26)
 Update 9 (7 Aug 26)
 - https://youtu.be/LFCGzhBQoSA
 
-Update 10 (21 Aug 26) 
+Update 10 (21 Aug 26)
+- https://youtu.be/pcb1sQdeAgk
+
+Update 11 (4 Sep 26)
+- https://youtu.be/oteaBkMB7T4
+
+Update 12
 
 ## System Overview
 
