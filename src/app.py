@@ -354,7 +354,9 @@ PLOT_FUNCTIONS = {
     "Regime Switch": plot_regime,
     "HMM Regime Switch": plot_ensemble,  # plain price chart; states live in the model
     "Cross-Sectional Reversal": plot_ensemble,  # single-symbol UI can't show the ranking; needs 2+ symbols to trade at all
+    "Cross-Sectional Momentum": plot_ensemble,  # same limitation as Cross-Sectional Reversal
     "ML Direction Classifier": plot_ensemble,  # plain price chart; the model's features aren't a chartable indicator overlay
+    "Buy & Hold + Risk Overlay": plot_ensemble,  # plain price chart; entries aren't signal-driven so there's no indicator overlay
 }
 
 
@@ -852,7 +854,15 @@ elif st.session_state.active_view == 'research':
             'fixed_split_combo_summary': '🔀 Fixed-Split 50/50 Combo — Summary',
             'fixed_split_combo_windows': '🔀 Fixed-Split 50/50 Combo — Per-Window Detail',
             'ml_classifier': '🤖 ML Direction Classifier — Walk-Forward',
-            'cross_sectional_walkforward': '📈 Cross-Sectional Reversal — Walk-Forward',
+            'cross_sectional_walkforward': '📈 Cross-Sectional Reversal — Walk-Forward (superseded)',
+            'cross_sectional_robust': '📈 Cross-Sectional Reversal — Robust, HK 19 / US 15',
+            'cross_sectional_sp100': '📈 Cross-Sectional Reversal — Robust, US S&P 100',
+            'cross_sectional_hsi': '📈 Cross-Sectional Reversal — Robust, HK Hang Seng Index',
+            'cross_sectional_momentum_robust': '🚀 Cross-Sectional Momentum — Robust, HK 19 / US 15',
+            'cross_sectional_corrected': '⭐ Cross-Sectional CORRECTED — both directions, S&P 100 + Hang Seng (current)',
+            'cross_sectional_cost_sensitivity': '💰 Cross-Sectional — Cost Sensitivity of the S&P 100 result',
+            'cross_sectional_momentum_broad': '🚀 Cross-Sectional Momentum — Broad universes (superseded)',
+            'buy_hold_risk_overlay_robust': '🛡️ Buy & Hold + Risk Overlay — Robust, HK 19 / US 15',
             'model_selector_windows': '❌ Adaptive Selector — Per-Window (failed)',
             'model_selector_summary': '❌ Adaptive Selector — Summary (failed)',
             'hmm_regime': '🧠 HMM vs Rule — Head-to-Head',
