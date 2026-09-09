@@ -273,11 +273,25 @@ def walk_forward(
     
     windows: List[WalkForwardWindow] = []
     oos_returns = []  # Out-of-sample returns
-    
+    skipped_windows = []  # windows with too little data to constitute a test
+
     import io, contextlib
-    
+
+    # Latest candle actually available across the requested symbols. A test
+    # segment reaching past this isn't a test, it's a stub: the final
+    # 15-window segment once had 35 candles against a lookback of up to 30,
+    # so the strategy never warmed up, traded nothing, returned exactly
+    # 0.0%, and that was counted as a genuine flat window in both the mean
+    # and the consistency figure.
+    _last_available = None
+    for _sym in symbols:
+        _df = storage.load_data(_sym.replace('.', '_'), timeframe.value)
+        if not _df.empty:
+            _end = _df.index.max().to_pydatetime().replace(tzinfo=None)
+            _last_available = _end if _last_available is None else max(_last_available, _end)
+
     total_steps = n_splits
-    
+
     for w in range(n_splits):
         if progress_callback:
             progress_callback(w / total_steps, f"Window {w+1}/{n_splits}")
@@ -291,7 +305,26 @@ def walk_forward(
         train_end = w_start + timedelta(days=train_days)
         test_start = train_end
         test_end = w_end
-        
+
+        # Skip windows whose test segment is mostly or entirely past the end
+        # of the available data, rather than scoring the stub as a result.
+        if _last_available is not None and test_start < _last_available < test_end:
+            covered = (_last_available - test_start).days
+            total = max(1, (test_end - test_start).days)
+            if covered / total < 0.5:
+                skipped_windows.append({
+                    'window_id': w + 1, 'test_start': test_start, 'test_end': test_end,
+                    'reason': f'only {covered}/{total} days of the test segment have data',
+                })
+                continue
+        elif _last_available is not None and test_start >= _last_available:
+            skipped_windows.append({
+                'window_id': w + 1, 'test_start': test_start, 'test_end': test_end,
+                'reason': 'test segment begins after the last available candle',
+            })
+            continue
+
+
         # ─── Step 1: Grid search on training data ─────────────
         best_obj = float('-inf')
         best_params = {}
@@ -308,7 +341,8 @@ def walk_forward(
                 try:
                     metrics = bt.run(
                         strategy_class, symbols=symbols, timeframe=timeframe,
-                        start_date=train_start, end_date=train_end, **params
+                        start_date=train_start, end_date=train_end,
+                        end_inclusive=False, **params
                     )
                 except Exception:
                     metrics = {}
@@ -376,6 +410,7 @@ def walk_forward(
         'total_windows': len(oos_returns),
         'oos_returns': oos_returns,
         'train_returns': train_returns,
+        'skipped_windows': skipped_windows,
     }
     
     return {

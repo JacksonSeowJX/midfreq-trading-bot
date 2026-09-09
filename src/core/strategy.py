@@ -1022,11 +1022,20 @@ class CrossSectionalReversal(BaseStrategy):
             return
 
         ranked = sorted(scores.items(), key=lambda kv: kv[1])  # ascending: worst first
-        laggards = {s for s, _ in ranked[:self.top_n]}
+        # Ordered list, NOT a set. Python randomizes string hashing per
+        # process, so iterating a set of symbols gave a different buy
+        # order on every run. Combined with the cash check in
+        # Portfolio.execute_trade (which rejects a buy it can't afford),
+        # that made which stocks got bought depend on the hash seed, and
+        # the whole study non-reproducible: the same config on the same
+        # data returned +2.06% under PYTHONHASHSEED=1 and +1.65% under
+        # PYTHONHASHSEED=2. Rank order is the deterministic choice.
+        basket = self._select_basket(ranked)
+        basket_members = set(basket)
 
-        # Sell anything held that fell out of the laggard basket
+        # Sell anything held that fell out of the basket
         for symbol in list(self.portfolio.positions.keys()):
-            if symbol in self.pending and symbol not in laggards:
+            if symbol in self.pending and symbol not in basket_members:
                 qty = self.portfolio.get_position_qty(symbol)
                 if qty > 0:
                     c = self.pending[symbol]
@@ -1035,15 +1044,70 @@ class CrossSectionalReversal(BaseStrategy):
                     if self.risk_manager:
                         self.risk_manager.clear_position(symbol)
 
-        # Buy new laggards not already held
-        for symbol in laggards:
+        # Buy new basket members not already held, in rank order
+        budget = self._position_budget()
+        for symbol in basket:
             if self.portfolio.get_position_qty(symbol) == 0:
                 c = self.pending[symbol]
-                qty = self._get_trade_qty(symbol, c.close)
+                qty = self._basket_qty(symbol, c.close, budget)
                 if qty > 0:
                     self.portfolio.execute_trade(symbol, True, qty, c.close, c.timestamp)
                     if self.risk_manager:
                         self.risk_manager.register_entry(symbol, c.close)
+
+    def _position_budget(self) -> float:
+        """
+        Capital to allocate per basket position, equal-weighted by VALUE.
+
+        The inherited default (a flat 100 shares regardless of price) is
+        wrong for a ranking strategy: on the S&P 100 that ranged from
+        $2,529 of exposure for a $25 stock to $125,540 for a $1,255 one,
+        so the basket's return was dominated by whichever name happened
+        to have the highest share price rather than by the ranking. Three
+        names cost more than the entire account and were silently
+        rejected. Equal-dollar weighting is the standard construction for
+        cross-sectional strategies.
+        """
+        equity = self.portfolio.cash
+        for sym, pos in self.portfolio.positions.items():
+            candle = self.pending.get(sym)
+            if candle is not None:
+                equity += pos['qty'] * candle.close
+        return equity / max(1, self.top_n)
+
+    def _basket_qty(self, symbol: str, price: float, budget: float) -> int:
+        if self.risk_manager:
+            return self._get_trade_qty(symbol, price)
+        if price <= 0:
+            return 0
+        # Size against the price actually paid, not the raw close: slippage
+        # marks the buy up and commission is charged on top, so sizing off
+        # `price` alone overshoots the budget and the order gets rejected.
+        cost_mult = (1.0 + getattr(self.portfolio, 'slippage_mult', 0.0)) * \
+                    (1.0 + self.portfolio.commission_rate)
+        return int(budget / (price * cost_mult))
+
+    def _select_basket(self, ranked):
+        """Reversal: buy the bottom `top_n` (worst recent performers)."""
+        return [s for s, _ in ranked[:self.top_n]]
+
+
+class CrossSectionalMomentum(CrossSectionalReversal):
+    """
+    Cross-sectional momentum: same mechanics as CrossSectionalReversal
+    (rank the whole universe by recent return, rebalance into a basket),
+    but buys the opposite end, the top `top_n` recent LEADERS, betting
+    today's relative outperformers keep outperforming rather than
+    reverting to the group.
+    """
+    def on_start(self):
+        print(f"Starting Cross-Sectional Momentum (Lookback: {self.lookback}, Top N: {self.top_n}, "
+              f"Rebalance every: {self.rebalance_every})")
+
+    def _select_basket(self, ranked):
+        # Best performers first, so buy order is deterministic and mirrors
+        # reversal's "strongest signal first" ordering.
+        return [s for s, _ in reversed(ranked[-self.top_n:])]
 
 
 class MLDirectionClassifier(BaseStrategy):
@@ -1186,6 +1250,43 @@ class MLDirectionClassifier(BaseStrategy):
                 self.risk_manager.clear_position(symbol)
 
 
+class BuyAndHoldRiskOverlay(BaseStrategy):
+    """
+    Buys once at the first available candle and holds, exiting only via
+    a fixed stop-loss or trailing stop, never on a generated trading
+    signal, and never re-entering after a stop-out. Tests whether the
+    existing risk-management infrastructure (stop_loss_pct,
+    trailing_stop_pct) can improve on unconditional buy-and-hold, rather
+    than trying to time entries and exits with a predictive signal.
+    """
+    def __init__(self, portfolio: Portfolio, stop_loss_pct: float = 0.0,
+                 trailing_stop_pct: float = 0.0, risk_manager: Optional[RiskManager] = None,
+                 **kwargs):
+        overlay = RiskManager(
+            stop_loss_pct=stop_loss_pct if stop_loss_pct > 0 else None,
+            trailing_stop_pct=trailing_stop_pct if trailing_stop_pct > 0 else None,
+        )
+        super().__init__(portfolio, risk_manager=overlay,
+                          stop_loss_pct=stop_loss_pct, trailing_stop_pct=trailing_stop_pct)
+        self._done: Dict[str, bool] = {}
+
+    def on_data(self, symbol: str, candle: Candle):
+        if self._check_risk_exits(symbol, candle):
+            self._done[symbol] = True
+            return
+
+        if self._done.get(symbol):
+            return
+
+        current_position = self.portfolio.get_position_qty(symbol)
+        if current_position == 0:
+            trade_qty = self._get_trade_qty(symbol, candle.close)
+            if trade_qty > 0:
+                self.portfolio.execute_trade(symbol, True, trade_qty, candle.close, candle.timestamp)
+                self.risk_manager.register_entry(symbol, candle.close)
+            self._done[symbol] = True
+
+
 STRATEGY_REGISTRY = {
     "SMA Crossover": {
         "class": MovingAverageCrossover,
@@ -1263,12 +1364,27 @@ STRATEGY_REGISTRY = {
             "rebalance_every":  {"label": "Rebalance Every N Candles", "min": 1, "max": 24, "default": 6, "step": 6},
         }
     },
+    "Cross-Sectional Momentum": {
+        "class": CrossSectionalMomentum,
+        "params": {
+            "lookback":         {"label": "Lookback (candles)", "min": 5, "max": 30, "default": 10, "step": 5},
+            "top_n":            {"label": "Basket Size (# leaders held)", "min": 1, "max": 4, "default": 2, "step": 1},
+            "rebalance_every":  {"label": "Rebalance Every N Candles", "min": 1, "max": 24, "default": 6, "step": 6},
+        }
+    },
     "ML Direction Classifier": {
         "class": MLDirectionClassifier,
         "params": {
             "refit_every":    {"label": "Refit Every N Candles", "min": 20, "max": 100, "default": 60, "step": 40},
             "buy_threshold":  {"label": "Buy Probability Threshold", "min": 0.52, "max": 0.65, "default": 0.58, "step": 0.13},
             "sell_threshold": {"label": "Sell Probability Threshold", "min": 0.35, "max": 0.50, "default": 0.48, "step": 0.15},
+        }
+    },
+    "Buy & Hold + Risk Overlay": {
+        "class": BuyAndHoldRiskOverlay,
+        "params": {
+            "stop_loss_pct":     {"label": "Stop-Loss %", "min": 0.02, "max": 0.10, "default": 0.06, "step": 0.02},
+            "trailing_stop_pct": {"label": "Trailing Stop %", "min": 0.03, "max": 0.15, "default": 0.09, "step": 0.03},
         }
     },
 }

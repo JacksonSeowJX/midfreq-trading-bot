@@ -45,3 +45,29 @@ class DataStorage:
             # Drop duplicates by index (assuming index is sorted timestamp)
             combined_df = combined_df[~combined_df.index.duplicated(keep='last')].sort_index()
             self.save_data(combined_df, symbol, timeframe)
+
+    def latest_common_timestamp(self, symbols: list, timeframe: str):
+        """
+        Latest candle timestamp available across ALL of `symbols`, as a naive
+        datetime, or None if nothing is cached.
+
+        Studies previously anchored their window to `datetime.now()`, which
+        made every result depend on the day it was run: the same S&P 100
+        study reported +1.28% on 24 Aug and -2.69% on 8 Sep purely because
+        the trailing 3-year window had slid forward and the tail of it ran
+        past the end of the cached data. Anchoring to the data instead makes
+        a study reproducible for as long as the underlying cache is unchanged.
+
+        The MINIMUM across symbols is used deliberately: a universe-ranking
+        strategy should not be evaluated over a period where only some of its
+        constituents have quotes.
+        """
+        latest = None
+        for symbol in symbols:
+            df = self.load_data(symbol.replace('.', '_'), timeframe)
+            if df.empty:
+                continue
+            end = df.index.max()
+            end = end.to_pydatetime().replace(tzinfo=None)
+            latest = end if latest is None else min(latest, end)
+        return latest

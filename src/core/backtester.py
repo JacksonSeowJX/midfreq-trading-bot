@@ -46,7 +46,12 @@ class Backtester:
         """Wrap portfolio.execute_trade to apply slippage to execution prices."""
         original = self._original_execute_trade
         slippage_mult = self.slippage_bps / 10000.0
-        
+        # Publish it so a strategy sizing a position by value can budget for
+        # the real fill price. Without this, a basket strategy allocating its
+        # full equity share sizes off the raw close, and the buy is then
+        # rejected for insufficient cash once slippage and commission land.
+        self.portfolio.slippage_mult = slippage_mult
+
         def execute_with_slippage(symbol, is_buy, qty, price, timestamp, exit_reason=None):
             if is_buy:
                 adjusted_price = price * (1.0 + slippage_mult)  # Pay more
@@ -74,9 +79,10 @@ class Backtester:
         merged = merged.sort_index(kind='mergesort')
         return merged
 
-    def run(self, strategy_class: Type[BaseStrategy], symbols: list[str], timeframe: Timeframe, 
+    def run(self, strategy_class: Type[BaseStrategy], symbols: list[str], timeframe: Timeframe,
             start_date: datetime = None, end_date: datetime = None,
             progress_callback: Optional[Callable[[float], None]] = None,
+            end_inclusive: bool = True,
             **strategy_params) -> Dict[str, Any]:
         """
         Executes the backtest simulation across multiple symbols.
@@ -88,6 +94,9 @@ class Backtester:
             start_date: Start of backtest period
             end_date: End of backtest period
             progress_callback: Optional function called with progress (0.0 - 1.0)
+            end_inclusive: If True (default), include all candles on end_date.
+                Walk-forward passes False for train segments so that the
+                train/test boundary does not overlap.
             **strategy_params: Parameters passed to the strategy constructor
             
         Returns:
@@ -111,8 +120,16 @@ class Backtester:
             if not df.empty and start_date:
                 df = df[df.index >= pd.to_datetime(start_date, utc=True)]
             if not df.empty and end_date:
-                # Include the entire end_date by adding 1 day
-                df = df[df.index < (pd.to_datetime(end_date, utc=True) + pd.Timedelta(days=1))]
+                # Normally inclusive of end_date's full trading day, which is
+                # what a user running a single backtest expects. Walk-forward
+                # passes end_inclusive=False for its TRAIN segment: because
+                # test_start == train_end, the inclusive form put all of
+                # train_end's candles into both train and test, leaking 2.0%
+                # (9-window) to 4.9% (15-window) of each test set into training.
+                cutoff = pd.to_datetime(end_date, utc=True)
+                if end_inclusive:
+                    cutoff = cutoff + pd.Timedelta(days=1)
+                df = df[df.index < cutoff]
 
             if df.empty:
                 print(f"  [!] Skipped {symbol}: No data found for {timeframe.value} in given date range")
