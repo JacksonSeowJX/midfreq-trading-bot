@@ -71,8 +71,10 @@ def main():
     config = ConfigLoader()
     symbols = config.get_live_symbols(market="HK")
 
-    end = datetime.now()
+    # Anchored to the data rather than the wall clock (audit, 2026-09-08).
+    end = storage.latest_common_timestamp(symbols, Timeframe.HOUR_1.value)
     start = end - timedelta(days=HISTORY_DAYS)
+    print(f"Window anchored to data: {start.date()} -> {end.date()}\n")
 
     rows = []
     t0 = time.time()

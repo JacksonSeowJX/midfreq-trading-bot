@@ -54,8 +54,13 @@ def main():
     config = ConfigLoader()
     symbols = config.get_live_symbols(market="HK")
 
-    end = datetime.now()
+    # Anchored to the data, not the wall clock. Anchoring to datetime.now()
+    # made every study drift as the trailing 3-year window slid forward, so
+    # the same study returned different numbers on different days (audit,
+    # 2026-09-08). The window is now fixed for as long as the cache is.
+    end = storage.latest_common_timestamp(symbols, Timeframe.HOUR_1.value)
     start = end - timedelta(days=HISTORY_DAYS)
+    print(f"Window anchored to data: {start.date()} -> {end.date()}\n")
 
     rows = []
     t0 = time.time()

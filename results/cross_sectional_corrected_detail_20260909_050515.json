@@ -1,0 +1,170 @@
+{
+  "US (S&P 100) | Cross-Sectional Reversal": {
+    "A (9 windows)": {
+      "oos_return": 5.876,
+      "consistency": 55.6,
+      "oos_returns": [
+        5.9774,
+        -5.1315,
+        -0.3237,
+        2.3075,
+        -6.7424,
+        7.6705,
+        -9.8847,
+        14.3042,
+        44.708
+      ],
+      "windows_used": 9,
+      "windows_skipped": 0
+    },
+    "B (15 windows)": {
+      "oos_return": 0.65,
+      "consistency": 66.7,
+      "oos_returns": [
+        0.798,
+        -7.4843,
+        1.9604,
+        10.2614,
+        13.7924,
+        -5.1554,
+        0.0959,
+        2.0752,
+        4.4546,
+        2.7325,
+        1.7524,
+        1.1355,
+        -7.9938,
+        -4.3333,
+        -4.3484
+      ],
+      "windows_used": 15,
+      "windows_skipped": 0
+    }
+  },
+  "US (S&P 100) | Cross-Sectional Momentum": {
+    "A (9 windows)": {
+      "oos_return": -0.235,
+      "consistency": 66.7,
+      "oos_returns": [
+        4.9177,
+        -6.2686,
+        11.9535,
+        2.6427,
+        -13.2521,
+        0.652,
+        -6.0285,
+        1.9726,
+        1.3001
+      ],
+      "windows_used": 9,
+      "windows_skipped": 0
+    },
+    "B (15 windows)": {
+      "oos_return": 4.668,
+      "consistency": 73.3,
+      "oos_returns": [
+        10.8285,
+        3.4941,
+        7.6323,
+        7.3901,
+        4.7941,
+        -8.1992,
+        9.3314,
+        4.8562,
+        14.9036,
+        10.8618,
+        -4.7815,
+        11.0333,
+        -5.7743,
+        9.1339,
+        -5.4845
+      ],
+      "windows_used": 15,
+      "windows_skipped": 0
+    }
+  },
+  "HK (Hang Seng Index) | Cross-Sectional Reversal": {
+    "A (9 windows)": {
+      "oos_return": -1.165,
+      "consistency": 33.3,
+      "oos_returns": [
+        -6.8382,
+        -6.0674,
+        2.6088,
+        -15.1115,
+        -13.8381,
+        26.1144,
+        -2.7127,
+        -0.7031,
+        6.0598
+      ],
+      "windows_used": 9,
+      "windows_skipped": 0
+    },
+    "B (15 windows)": {
+      "oos_return": -3.829,
+      "consistency": 33.3,
+      "oos_returns": [
+        -12.6772,
+        -9.323,
+        -8.2152,
+        -14.3423,
+        19.0889,
+        2.4315,
+        4.2085,
+        -6.7806,
+        -3.0109,
+        5.5971,
+        -13.7922,
+        -1.3066,
+        -14.397,
+        1.01,
+        -5.9187
+      ],
+      "windows_used": 15,
+      "windows_skipped": 0
+    }
+  },
+  "HK (Hang Seng Index) | Cross-Sectional Momentum": {
+    "A (9 windows)": {
+      "oos_return": -7.599,
+      "consistency": 11.1,
+      "oos_returns": [
+        -12.4736,
+        12.5653,
+        -23.1778,
+        -5.6723,
+        -7.7293,
+        -8.6569,
+        -6.428,
+        -8.8323,
+        -7.9856
+      ],
+      "windows_used": 9,
+      "windows_skipped": 0
+    },
+    "B (15 windows)": {
+      "oos_return": -2.666,
+      "consistency": 33.3,
+      "oos_returns": [
+        8.6453,
+        -10.0037,
+        -12.8764,
+        -7.3435,
+        -1.9156,
+        0.6169,
+        6.2477,
+        -10.0775,
+        0.234,
+        -0.0413,
+        -2.946,
+        5.2012,
+        -1.1939,
+        -13.8442,
+        -0.6888
+      ],
+      "windows_used": 15,
+      "windows_skipped": 0
+    }
+  }
+}

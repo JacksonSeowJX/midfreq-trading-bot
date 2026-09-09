@@ -1,0 +1,4 @@
+commission_per_side,label,config_a_oos,config_a_consistency,config_b_oos,config_b_consistency,robust
+0.0,0% (best case),5.876,55.6,0.65,66.7,True
+0.0003,0.03% (US retail estimate),2.326,55.6,-0.645,53.3,False
+0.0016,"0.16% (HK calibrated, pessimistic)",-0.808,33.3,-1.463,40.0,False
