@@ -1,0 +1,8 @@
+{"type": "session_start", "timestamp": "2026-09-11 09:25:03.995377", "strategy": "BollingerBandsStrategy", "symbols": ["HK.09888"], "timeframe": "1h", "account": {"cash": 988922.232, "total_assets": 997837.232, "market_value": 8915.0}}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-09-11 10:30:00+00:00", "close": 89.1, "equity": 988922.232}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-09-11 11:30:00+00:00", "close": 89.0, "equity": 988922.232}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-09-11 12:00:00+00:00", "close": 88.9, "equity": 988922.232}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-09-11 14:00:00+00:00", "close": 89.55, "equity": 988922.232}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-09-11 15:00:00+00:00", "close": 89.5, "equity": 988922.232}
+{"type": "candle_close", "symbol": "HK.09888", "timestamp": "2026-09-11 16:00:00+00:00", "close": 89.2, "equity": 988922.232}
+{"type": "session_end", "timestamp": "2026-09-11 16:00:04.805522", "candles_processed": 6, "trades": 0, "account": {"cash": 988922.232, "total_assets": 997847.232, "market_value": 8925.0}, "positions": {"HK.09888": {"qty": 100.0, "entry_price": 72.0}}}
