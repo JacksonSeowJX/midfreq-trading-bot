@@ -1,0 +1,11 @@
+study,config,n_stocks,train_pct_per_day,oos_pct_per_day,avg_train_return,avg_oos_return,consistency,wf_efficiency_pct
+S&P 100 reversal,A (9 windows),100,0.466135,0.154756,39.155,5.726,55.6,33.2
+S&P 100 reversal,B (15 windows),100,0.420909,0.028723,21.466,0.632,66.7,6.8
+S&P 100 momentum,A (9 windows),100,0.411838,-0.008864,34.594,-0.328,66.7,-2.2
+S&P 100 momentum,B (15 windows),100,0.558263,0.287733,28.471,6.33,73.3,51.5
+Hang Seng reversal,A (9 windows),88,0.341736,-0.031495,28.706,-1.165,33.3,-9.2
+Hang Seng reversal,B (15 windows),88,0.355958,-0.174023,18.154,-3.829,33.3,-48.9
+HK.00700 regime switch,A (9 windows),1,0.029661,-0.005328,2.492,-0.197,22.2,-18.0
+HK.00700 regime switch,B (15 windows),1,0.029084,-0.012871,1.483,-0.283,13.3,-44.3
+HK.00005 ML classifier,A (9 windows),1,0.005006,0.004247,0.421,0.157,66.7,84.8
+HK.00005 ML classifier,B (15 windows),1,0.006019,-0.001248,0.307,-0.027,46.7,-20.7

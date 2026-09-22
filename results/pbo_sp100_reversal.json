@@ -1,0 +1,8 @@
+{
+  "pbo": 0.09523809523809523,
+  "n_trials": 252,
+  "n_configs": 40,
+  "n_subsets": 10,
+  "mean_logit": 1.0525866132365997,
+  "params_tested": 40
+}
