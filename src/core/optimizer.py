@@ -400,7 +400,28 @@ def walk_forward(
     # Check if train and test results are consistent (not overfitting)
     train_returns = [w.train_metrics.get('return_pct', 0.0) for w in windows]
     avg_train_return = sum(train_returns) / len(train_returns) if train_returns else 0.0
-    
+
+    # ─── Walk-Forward Efficiency (Pardo, 2008) ────────────────
+    # Out-of-sample performance as a fraction of in-sample performance.
+    # A strategy that only looks good on the data its parameters were
+    # fitted to is overfitted, and the size of the shortfall grades how
+    # badly. Pardo treats efficiency below roughly 50% as a warning.
+    #
+    # Train and test segments are DIFFERENT LENGTHS (train_pct vs the
+    # remainder), so the raw returns are not comparable: the train figure
+    # is larger partly because it covers more days. Both are converted to
+    # return-per-day before the ratio is taken.
+    _train_days = max(1, int(window_size * train_pct))
+    _test_days = max(1, window_size - _train_days)
+    train_per_day = (avg_train_return / _train_days) if train_returns else 0.0
+    oos_per_day = (avg_oos_return / _test_days) if oos_returns else 0.0
+    if train_per_day > 0:
+        wf_efficiency = oos_per_day / train_per_day
+    else:
+        # Undefined when the strategy did not make money in training:
+        # there is no in-sample performance for the OOS result to decay from.
+        wf_efficiency = None
+
     summary = {
         'n_windows': n_splits,
         'avg_train_return': avg_train_return,
@@ -411,6 +432,9 @@ def walk_forward(
         'oos_returns': oos_returns,
         'train_returns': train_returns,
         'skipped_windows': skipped_windows,
+        'train_return_per_day': train_per_day,
+        'oos_return_per_day': oos_per_day,
+        'wf_efficiency': wf_efficiency,
     }
     
     return {
