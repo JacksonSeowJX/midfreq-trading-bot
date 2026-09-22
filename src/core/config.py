@@ -56,3 +56,47 @@ class ConfigLoader:
             symbols.extend(data.get("symbols", []))
             
         return symbols
+
+    # ─── Universes ────────────────────────────────────────────────
+    # Every study's stock universe is declared in config/symbols.json
+    # rather than hardcoded in the script that happens to use it. The
+    # four universes previously lived in four places (symbols.json for
+    # two of them, plus the SP100 and HSI backfill scripts), which made
+    # "what was tested against what" hard to answer.
+
+    def list_universes(self):
+        """Names of every declared universe."""
+        return list(self.config_data.get("universes", {}).keys())
+
+    def get_universe(self, name: str, with_data_only: bool = False):
+        """
+        Symbols for a named universe (hk_live, us_15, sp100, hsi).
+
+        Universes either carry their own symbol list or point at a
+        market's list via `source`. Pass with_data_only=True to drop
+        symbols that have no cached candles, which is what study
+        scripts actually want.
+        """
+        universes = self.config_data.get("universes", {})
+        if name not in universes:
+            raise KeyError(f"unknown universe {name!r}; have {sorted(universes)}")
+        u = universes[name]
+
+        symbols = u.get("symbols")
+        if symbols is None:
+            market = u.get("market")
+            symbols = self.config_data.get("markets", {}).get(market, {}).get("symbols", [])
+
+        if with_data_only:
+            from pathlib import Path
+            root = Path(__file__).resolve().parent.parent.parent / "data"
+            symbols = [s for s in symbols
+                       if (root / s.replace('.', '_') / '1h.parquet').exists()]
+        return list(symbols)
+
+    def describe_universe(self, name: str) -> dict:
+        """Metadata for a universe: description, provenance, which studies use it."""
+        universes = self.config_data.get("universes", {})
+        if name not in universes:
+            raise KeyError(f"unknown universe {name!r}; have {sorted(universes)}")
+        return dict(universes[name])
