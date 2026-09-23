@@ -36,9 +36,32 @@ config, storage = get_services()
 # --- SIDEBAR (Control Panel) ---
 st.sidebar.header("🕹️ Strategy Control Panel")
 
-# 1. Market & Symbol Selection
-market = st.sidebar.selectbox("Market", ["HK"])
-available_symbols = config.get_live_symbols(market=market)
+# 1. Universe & Symbol Selection
+# Was a hardcoded ["HK"] market dropdown driven by get_live_symbols(), which
+# only returns symbols whose market status is "live" — so the US market
+# (status "backtest-only") had no symbols and the S&P 100, where the project's
+# one passing result lives, was unreachable from the dashboard entirely.
+# Driven off the declared universes in config/symbols.json instead.
+UNIVERSE_LABELS = {
+    'hk_live': 'HK — live roster (19)',
+    'us_15':   'US — 15 large caps (15)',
+    'sp100':   'US — S&P 100 (100)',
+    'hsi':     'HK — Hang Seng Index (88)',
+}
+_universes = config.list_universes()
+_u_opts = [u for u in ['hk_live', 'us_15', 'sp100', 'hsi'] if u in _universes] or _universes
+universe = st.sidebar.selectbox(
+    "Universe", _u_opts, index=0,
+    format_func=lambda u: UNIVERSE_LABELS.get(u, u))
+try:
+    available_symbols = config.get_universe(universe, with_data_only=True)
+    _desc = config.describe_universe(universe)
+    st.sidebar.caption(f"{len(available_symbols)} symbols with cached data · "
+                       f"{str(_desc.get('description', ''))[:70]}")
+except Exception as e:
+    available_symbols = config.get_live_symbols(market="HK")
+    st.sidebar.caption(f"universe lookup failed ({e}); falling back to the HK live roster")
+market = 'US' if universe in ('us_15', 'sp100') else 'HK'
 symbol = st.sidebar.selectbox("Symbol", available_symbols if available_symbols else ["HK.00700"])
 
 # 2. Strategy Selection (dynamic from registry)
@@ -100,7 +123,8 @@ start_date = col1.date_input("Start Date", default_start)
 end_date = col2.date_input("End Date", default_end)
 
 # Initial Capital
-initial_capital = st.sidebar.number_input("Starting Capital (HKD)", min_value=1000.0, value=100000.0, step=10000.0)
+_ccy = "USD" if market == "US" else "HKD"
+initial_capital = st.sidebar.number_input(f"Starting Capital ({_ccy})", min_value=1000.0, value=100000.0, step=10000.0)
 
 st.sidebar.markdown("---")
 
@@ -159,6 +183,19 @@ st.sidebar.subheader("⚙️ Execution Model")
 slippage_bps = st.sidebar.slider("Slippage (basis points)", min_value=0.0, max_value=50.0, value=0.0, step=1.0,
                                   help="Simulated slippage: buys pay more, sells receive less. 1 bps = 0.01%.")
 
+# Portfolio defaults to HK_FEE_RATE (0.16%/side). Every US backtest run from
+# this dashboard was therefore paying Hong Kong stamp duty and levies on US
+# trades, the same defect the 2026-09-08 audit found in the study scripts.
+# Default to the right rate for the selected universe, and let it be changed.
+_DEFAULT_FEE_PCT = 0.160 if market == "HK" else 0.005
+commission_pct = st.sidebar.number_input(
+    f"Commission per side (%) — {market}", min_value=0.0, max_value=1.0,
+    value=_DEFAULT_FEE_PCT, step=0.005, format="%.3f",
+    help="HK 0.160% is broker commission + platform fee + 0.1% stamp duty + levies, built up from "
+         "the published schedule. US 0.005% is moomoo Singapore's flat US$0.99 + 9% GST per order "
+         "expressed as a percentage at the position sizes these studies trade.")
+commission_rate = commission_pct / 100.0
+
 st.sidebar.markdown("---")
 
 # ─── Strategy Optimization Controls ──────────────────────────────
@@ -193,6 +230,8 @@ run_live_view = st.sidebar.button("Show Live Account & Sessions", use_container_
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📊 Research Studies")
+run_overview_view = st.sidebar.button("📋 All Results Overview", use_container_width=True,
+                                      help="Every backtest brought to the two-configuration standard, on one chart.")
 run_research_view = st.sidebar.button("Browse Research Results", use_container_width=True)
 
 # st.button() only returns True on the single rerun immediately after a click —
@@ -212,6 +251,8 @@ if run_live_view:
     st.session_state.active_view = 'live'
 if run_research_view:
     st.session_state.active_view = 'research'
+if run_overview_view:
+    st.session_state.active_view = 'overview'
 
 
 # ─── Chart Plotting Functions ───────────────────────────────────────
@@ -378,7 +419,7 @@ def plot_equity_curve(equity_data):
 
 if st.session_state.active_view == 'backtest':
     with st.spinner(f'Running {selected_strategy} on {symbol}...'):
-        portfolio = Portfolio(initial_cash=initial_capital)
+        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
         risk_mgr = build_risk_manager()
         backtester = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_mgr,
                                 slippage_bps=slippage_bps)
@@ -516,7 +557,7 @@ elif st.session_state.active_view == 'compare':
 
     progress = st.progress(0)
     for i, (strat_name, info) in enumerate(compare_strategies.items()):
-        portfolio = Portfolio(initial_cash=initial_capital)
+        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
         risk_mgr = build_risk_manager()
         bt = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_mgr,
                         slippage_bps=slippage_bps)
@@ -734,8 +775,31 @@ elif st.session_state.active_view == 'live':
     # ─── Live Paper Trading View ───────────────────────────────────
     st.markdown("### 📡 Live Paper Trading — Account & Session History")
 
-    # Broker state (requires OpenD)
+    # Broker state (requires OpenD).
+    #
+    # The moomoo SDK retries a refused connection internally, every 6 seconds,
+    # forever — it never raises, so the except branch below is unreachable and
+    # the whole page hangs when OpenD is not running. Anyone opening this
+    # dashboard without OpenD (which is most people, most of the time) would
+    # just watch it spin. Probe the port first with a short timeout and skip
+    # the broker section entirely if nothing is listening.
+    import socket as _socket
+
+    def _opend_reachable(host='127.0.0.1', port=11111, timeout=1.5):
+        try:
+            with _socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
+    gw = None
+    if not _opend_reachable():
+        st.info("**OpenD is not running**, so live broker state (balance, positions, open orders) "
+                "is unavailable. Start the moomoo OpenD gateway on port 11111 to see it. "
+                "The recorded session history below is read from disk and does not need OpenD.")
     try:
+        if not _opend_reachable():
+            raise RuntimeError("OpenD not reachable")
         from core.order_gateway import MoomooPaperGateway
         gw = MoomooPaperGateway()
         acc = gw.get_account_info() or {}
@@ -770,8 +834,10 @@ elif st.session_state.active_view == 'live':
             st.dataframe(odf[cols], use_container_width=True, height=220)
         else:
             st.info("No orders in the last 14 days.")
+    except RuntimeError:
+        pass          # already explained in the info box above
     except Exception as e:
-        st.warning(f"OpenD not reachable — broker state unavailable ({e}). Session history below.")
+        st.warning(f"Broker state unavailable ({e}). Recorded session history below.")
 
     # Session history from live_sessions/*.jsonl
     import json
@@ -797,21 +863,151 @@ elif st.session_state.active_view == 'live':
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, height=280)
 
-        # Equity timeline of the most recent session with data
+        # Equity across the whole forward test, not just one session. Every
+        # candle_close event carries the account equity at that candle, so
+        # stacking all sessions in time order gives the actual track record.
+        st.markdown("#### Equity Across All Sessions")
+        all_pts = []
         for f in session_files:
             events = [json.loads(line) for line in f.read_text().splitlines() if line.strip()]
-            closes = [e for e in events if e['type'] == 'candle_close']
-            if len(closes) >= 2:
-                eq_df = pd.DataFrame(closes)
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=eq_df['timestamp'], y=eq_df['equity'],
-                                         mode='lines+markers', line=dict(color='dodgerblue', width=2)))
-                fig.update_layout(title=f'Equity — session {f.stem.replace("session_", "")}',
-                                  yaxis_title='HKD', height=300, margin=dict(l=0, r=0, t=40, b=0))
-                st.plotly_chart(fig, use_container_width=True)
-                break
+            start = next((e for e in events if e['type'] == 'session_start'), {})
+            for e in events:
+                if e['type'] == 'candle_close' and e.get('equity') is not None:
+                    all_pts.append({'timestamp': pd.to_datetime(e['timestamp'], utc=True, errors='coerce'),
+                                    'equity': e['equity'], 'symbol': e.get('symbol', '?'),
+                                    'strategy': start.get('strategy', '?'),
+                                    'session': f.stem.replace('session_', '')})
+        eq_all = pd.DataFrame(all_pts).dropna(subset=['timestamp']).sort_values('timestamp')
+
+        if len(eq_all) >= 2:
+            first, last = eq_all.equity.iloc[0], eq_all.equity.iloc[-1]
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Sessions with data", eq_all.session.nunique())
+            m2.metric("Candles recorded", f"{len(eq_all):,}")
+            m3.metric("Equity now", f"HKD {last:,.0f}",
+                      f"{(last - first) / first * 100:+.3f}% since first candle")
+            m4.metric("Span", f"{(eq_all.timestamp.max() - eq_all.timestamp.min()).days} days")
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=eq_all['timestamp'], y=eq_all['equity'], mode='lines',
+                                     line=dict(color='#2a78d6', width=1.8), name='equity',
+                                     hovertext=[f"{r.session}<br>{r.strategy} · {r.symbol}"
+                                                for r in eq_all.itertuples()],
+                                     hovertemplate='%{hovertext}<br>HKD %{y:,.0f}<extra></extra>'))
+            fig.add_hline(y=first, line_dash="dot", line_color="#6B6B63",
+                          annotation_text="first recorded equity", annotation_position="bottom right")
+            fig.update_layout(height=340, yaxis_title='HKD', xaxis_title=None,
+                              margin=dict(l=0, r=0, t=10, b=0), showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption("Every candle close across every recorded session, in time order. Gaps are "
+                       "periods when no session was running.")
+
+            with st.expander("Drill into a single session"):
+                pick = st.selectbox("Session", sorted(eq_all.session.unique(), reverse=True))
+                one = eq_all[eq_all.session == pick]
+                f2 = go.Figure()
+                f2.add_trace(go.Scatter(x=one['timestamp'], y=one['equity'],
+                                        mode='lines+markers', line=dict(color='#eb6834', width=2)))
+                f2.update_layout(height=280, yaxis_title='HKD',
+                                 margin=dict(l=0, r=0, t=10, b=0))
+                st.plotly_chart(f2, use_container_width=True)
+                st.caption(f"{len(one)} candles · {one.strategy.iloc[0]} · {', '.join(sorted(one.symbol.unique()))}")
+        else:
+            st.info("Not enough recorded candles yet to draw an equity curve.")
     else:
         st.info("No live sessions recorded yet. Run `./scripts/run_daily_candidates.sh` during market hours.")
+
+elif st.session_state.active_view == 'overview':
+    # ─── All Results Overview ──────────────────────────────────────
+    # The Research Studies view shows one CSV at a time, so the project's
+    # overall record was never visible in one place. This stacks every
+    # study that reached the two-configuration standard into one table.
+    from core.results_index import load_all, summary
+
+    st.markdown("### 📋 All Results Overview — every backtest against the validation standard")
+
+    show_superseded = st.checkbox("Include superseded runs (pre-audit studies)", value=False)
+    rdf = load_all(current_only=not show_superseded)
+
+    if rdf.empty:
+        st.info("No two-configuration results found in results/.")
+    else:
+        s = summary(rdf)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Results tested", s['total'])
+        c2.metric("Passed the standard", s['passed'], f"{s['pass_rate']:.1f}%")
+        c3.metric("Studies", s['studies'])
+        c4.metric("Strategy families", s['families'])
+
+        st.caption("**The standard:** the same 3 years is split two ways, into 9 windows (config A) and "
+                   "15 windows (config B). A result passes only if BOTH configs have a positive mean "
+                   "out-of-sample return AND at least 50% of their windows profitable.")
+
+        fams = sorted(rdf.family.unique())
+        picked = st.multiselect("Filter by strategy family", fams, default=fams)
+        view_df = rdf[rdf.family.isin(picked)] if picked else rdf
+
+        tab1, tab2, tab3 = st.tabs(["Config A vs Config B", "Pass rate by family", "Full table"])
+
+        with tab1:
+            st.markdown("Both configurations must be positive, so **only the top-right quadrant passes**.")
+            fig = go.Figure()
+            lo = min(view_df.config_a_oos.min(), view_df.config_b_oos.min(), 0) - 1
+            hi = max(view_df.config_a_oos.max(), view_df.config_b_oos.max(), 0) + 1
+            fig.add_shape(type="rect", x0=0, y0=0, x1=hi, y1=hi,
+                          fillcolor="#2E7D32", opacity=0.07, line_width=0, layer="below")
+            for passed, colour, name in ((False, '#C62828', 'failed'), (True, '#2E7D32', 'passed')):
+                g = view_df[view_df.robust == passed]
+                if g.empty:
+                    continue
+                fig.add_trace(go.Scatter(
+                    x=g.config_a_oos, y=g.config_b_oos, mode='markers', name=name,
+                    marker=dict(size=11 if passed else 7, color=colour,
+                                line=dict(width=1.5 if passed else 0, color='#2D2D2D'),
+                                opacity=0.95 if passed else 0.55),
+                    text=[f"{r.strategy} — {r.subject}<br>A {r.config_a_oos:+.2f}% ({r.config_a_consistency:.0f}%)"
+                          f"<br>B {r.config_b_oos:+.2f}% ({r.config_b_consistency:.0f}%)"
+                          for r in g.itertuples()],
+                    hovertemplate='%{text}<extra></extra>'))
+            fig.add_hline(y=0, line_color="#6B6B63", line_width=1)
+            fig.add_vline(x=0, line_color="#6B6B63", line_width=1)
+            fig.add_annotation(x=hi * 0.72, y=hi * 0.92, text="both positive<br>= passes",
+                               showarrow=False, font=dict(color='#2E7D32', size=12))
+            fig.update_layout(height=520, xaxis_title="Config A — mean out-of-sample return per window (%)",
+                              yaxis_title="Config B — mean out-of-sample return per window (%)",
+                              margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation='h', y=1.06))
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption("Hover any point for the strategy, what it was run on, and both configurations' numbers.")
+
+        with tab2:
+            agg = (view_df.groupby('family')
+                   .agg(tested=('robust', 'size'), passed=('robust', 'sum'))
+                   .reset_index())
+            agg['pass_rate'] = agg.passed / agg.tested * 100
+            agg = agg.sort_values('pass_rate', ascending=True)
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(y=agg.family, x=agg.tested, orientation='h',
+                                  name='tested', marker_color='#D8D3CA'))
+            fig2.add_trace(go.Bar(y=agg.family, x=agg.passed, orientation='h',
+                                  name='passed', marker_color='#2E7D32'))
+            fig2.update_layout(barmode='overlay', height=max(320, 46 * len(agg)),
+                               xaxis_title="number of results",
+                               margin=dict(l=0, r=0, t=10, b=0),
+                               legend=dict(orientation='h', y=1.08))
+            st.plotly_chart(fig2, use_container_width=True)
+            st.dataframe(agg[['family', 'tested', 'passed', 'pass_rate']]
+                         .style.format({'pass_rate': '{:.1f}%'}), use_container_width=True)
+
+        with tab3:
+            only_pass = st.checkbox("Show only results that passed", value=False)
+            tbl = view_df[view_df.robust] if only_pass else view_df
+            st.dataframe(
+                tbl[['family', 'strategy', 'subject', 'config_a_oos', 'config_a_consistency',
+                     'config_b_oos', 'config_b_consistency', 'robust', 'file']],
+                use_container_width=True, height=460)
+            st.download_button("Download this table as CSV", tbl.to_csv(index=False),
+                               "all_results_overview.csv", "text/csv")
+
 
 elif st.session_state.active_view == 'research':
     # ─── Research Studies Viewer ────────────────────────────────────
