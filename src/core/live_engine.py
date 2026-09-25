@@ -226,6 +226,7 @@ class LiveTradingEngine:
         # Last-seen (still forming) candle per symbol
         self._forming: Dict[str, Candle] = {}
         self._candles_processed = 0
+        self._closed_candles: Dict[str, list] = {}
         self._started_at: Optional[datetime] = None
 
         self._log_dir = log_dir
@@ -252,11 +253,41 @@ class LiveTradingEngine:
         self.portfolio.warming_up = True
         lookback_days = {Timeframe.MIN_1: 3, Timeframe.MIN_5: 10,
                          Timeframe.HOUR_1: 30, Timeframe.DAY_1: 200}.get(self.timeframe, 5)
+
+        # Warm up from the local parquet cache when it has the candles, and
+        # only fall back to the broker's historical API when it does not.
+        #
+        # That API is metered per distinct symbol — 100 symbols per rolling
+        # 7 days — and warmup touches every symbol in the session. A basket
+        # strategy on 98 names therefore consumed the entire week's quota on
+        # a single session start, which made a daily forward test impossible:
+        # Monday would spend the quota and Tuesday through Friday would warm
+        # up on nothing. The cache holds the same candles and costs nothing.
+        from core.storage import DataStorage
+        _store = DataStorage()
+        _cached = _missed = 0
+
+        def _history(symbol):
+            nonlocal _cached, _missed
+            want_from = datetime.now() - timedelta(days=lookback_days)
+            try:
+                df = _store.load_data(symbol.replace('.', '_'), self.timeframe.value)
+            except Exception:
+                df = None
+            if df is not None and not df.empty:
+                idx = df.index
+                cutoff = want_from.replace(tzinfo=idx.tz) if getattr(idx, 'tz', None) else want_from
+                recent = df[idx >= cutoff]
+                if len(recent) >= candles:
+                    _cached += 1
+                    return recent
+            _missed += 1
+            return self.provider.get_historical_data(
+                symbol, self.timeframe, want_from, datetime.now())
+
         for symbol in self.symbols:
-            df = self.provider.get_historical_data(
-                symbol, self.timeframe,
-                datetime.now() - timedelta(days=lookback_days), datetime.now())
-            if df.empty:
+            df = _history(symbol)
+            if df is None or df.empty:
                 print(f"  [warmup] {symbol}: no history available")
                 continue
             df = df.tail(candles)
@@ -267,7 +298,8 @@ class LiveTradingEngine:
             print(f"  [warmup] {symbol}: {len(df)} candles "
                   f"({str(df.index.min())[:16]} -> {str(df.index.max())[:16]})")
         self.portfolio.warming_up = False
-        print("  [warmup] complete — trading enabled\n")
+        print(f"  [warmup] complete — {_cached} from local cache, {_missed} from the broker "
+              f"(broker history is quota-metered per symbol) — trading enabled\n")
 
     # ─── Candle stream handling ────────────────────────────────────
 
@@ -284,6 +316,14 @@ class LiveTradingEngine:
     def _on_candle_closed(self, symbol: str, candle: Candle):
         self._candles_processed += 1
         self.strategy.on_data(symbol, candle)
+        # Keep the candle so the session can write it back to the local cache
+        # on the way out. Without this the cache only ever advances when
+        # someone spends broker history quota on a backfill, so each day's
+        # warmup primes on data one day older than the last — and a basket
+        # strategy on 98 symbols cannot afford a daily backfill (100 symbols
+        # per rolling 7 days). A live session already has the candles; this
+        # just stops throwing them away.
+        self._closed_candles.setdefault(symbol, []).append(candle)
 
         # Equity snapshot per closed candle
         prices = {s: c.close for s, c in self._forming.items()}
@@ -379,8 +419,35 @@ class LiveTradingEngine:
                 self._on_candle_closed(symbol, candle)
                 del self._forming[symbol]
 
+    def _persist_candles(self):
+        """Write this session's closed candles into the local parquet cache."""
+        if not self._closed_candles:
+            return
+        try:
+            import pandas as pd
+            from core.storage import DataStorage
+            store = DataStorage()
+        except Exception as e:
+            print(f"  [cache] not written ({e})")
+            return
+        written = failed = 0
+        for symbol, candles in self._closed_candles.items():
+            try:
+                df = pd.DataFrame(
+                    [{'open': c.open, 'high': c.high, 'low': c.low,
+                      'close': c.close, 'volume': c.volume} for c in candles],
+                    index=pd.DatetimeIndex([c.timestamp for c in candles], name='timestamp'))
+                store.append_data(df, symbol.replace('.', '_'), self.timeframe.value)
+                written += len(candles)
+            except Exception:
+                failed += 1
+        print(f"  [cache] wrote {written} candles for "
+              f"{len(self._closed_candles) - failed} symbols"
+              + (f", {failed} failed" if failed else ""))
+
     def _shutdown(self):
         self._finalize_elapsed_candles()
+        self._persist_candles()
         self.portfolio.save_state()
         acc = self.gateway.get_account_info() or {}
         positions = self.gateway.get_positions() or {}
