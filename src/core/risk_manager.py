@@ -17,6 +17,7 @@ class SizingMethod(str, Enum):
     FIXED_QUANTITY = "fixed_quantity"
     FIXED_FRACTIONAL = "fixed_fractional"
     KELLY = "kelly"
+    EQUAL_DOLLAR = "equal_dollar"
 
 
 class PositionSizer(ABC):
@@ -315,10 +316,48 @@ class RiskManager:
 
 # ─── Factory ───────────────────────────────────────────────────────
 
+class EqualDollarSizer(PositionSizer):
+    """
+    Split equity evenly across a basket of n positions.
+
+    Basket strategies (CrossSectionalReversal, CrossSectionalMomentum) hold
+    several names at once and the whole premise is that each contributes
+    equally to the result. Sizing them by a fixed share count instead makes
+    dollar exposure track share price: the 2026-09-08 audit found a flat 100
+    shares put $2,529 into T and $125,540 into LLY on the same S&P 100
+    basket, so the basket's return tracked whichever holding happened to be
+    most expensive rather than the ranking the strategy is built on.
+
+    The backtester avoids this by sizing off equity/top_n directly, but only
+    when no risk manager is present — and live trading always has one, for
+    stops and the drawdown circuit breaker. This sizer is how a live basket
+    gets equal-dollar sizing without giving those up.
+    """
+
+    def __init__(self, n_positions: int = 2, cost_buffer: float = 0.004):
+        """
+        Args:
+            n_positions: Basket size, i.e. the strategy's top_n.
+            cost_buffer: Fraction held back for commission and slippage, so
+                the order is not rejected for being marginally unaffordable.
+        """
+        if n_positions < 1:
+            raise ValueError("n_positions must be at least 1")
+        self.n_positions = n_positions
+        self.cost_buffer = cost_buffer
+
+    def calculate_qty(self, equity: float, entry_price: float, **kwargs) -> int:
+        if entry_price <= 0 or equity <= 0:
+            return 0
+        budget = (equity / self.n_positions) * (1.0 - self.cost_buffer)
+        return int(budget / entry_price)
+
+
 SIZER_REGISTRY = {
     SizingMethod.FIXED_QUANTITY: FixedQuantitySizer,
     SizingMethod.FIXED_FRACTIONAL: FixedFractionalSizer,
     SizingMethod.KELLY: KellyCriterionSizer,
+    SizingMethod.EQUAL_DOLLAR: EqualDollarSizer,
 }
 
 
