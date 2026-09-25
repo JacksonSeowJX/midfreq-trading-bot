@@ -210,6 +210,7 @@ class LiveTradingEngine:
                  symbols: list, timeframe: Timeframe = Timeframe.MIN_1,
                  risk_manager: Optional[RiskManager] = None,
                  session_log_dir: str = "live_sessions",
+                 commission_rate: float = Portfolio.HK_FEE_RATE,
                  **strategy_params):
         self.provider = provider
         self.gateway = gateway
@@ -236,7 +237,8 @@ class LiveTradingEngine:
             f"session_{datetime.now():%Y%m%d_%H%M%S}_{strat_slug}"
             f"_{os.getpid()}_{LiveTradingEngine._session_seq}.jsonl")
 
-        self.portfolio = LivePortfolio(gateway, state_file=state_file, on_trade=self._log_event)
+        self.portfolio = LivePortfolio(gateway, commission_rate=commission_rate,
+                                       state_file=state_file, on_trade=self._log_event)
         self.strategy = strategy_class(self.portfolio, risk_manager=risk_manager,
                                        **strategy_params)
 
