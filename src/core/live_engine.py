@@ -56,6 +56,10 @@ class LivePortfolio(Portfolio):
         # backtest it is testing. The broker still holds the full balance; this
         # only limits what this session will deploy.
         self.capital_cap = capital_cap
+        # Rebalance clock carried over from the previous session; the engine
+        # reads this after warmup. 0 when there is no prior state.
+        self.resumed_cross_section_count = 0
+        self.cross_section_count = 0
         if capital_cap is not None:
             initial_cash = min(initial_cash, capital_cap) if initial_cash else capital_cap
         super().__init__(initial_cash=initial_cash, commission_rate=commission_rate)
@@ -84,6 +88,9 @@ class LivePortfolio(Portfolio):
                     "restore the file from git history before retrying."
                 ) from e
             print(f"  [resume] raw state on disk: {state.get('positions', {})}")
+            self.resumed_cross_section_count = int(state.get('cross_section_count', 0) or 0)
+            if self.resumed_cross_section_count:
+                print(f"  [resume] rebalance clock at {self.resumed_cross_section_count} cross-sections")
             broker_pos = self._query_positions_with_retry()
             for symbol, pos in state.get('positions', {}).items():
                 if broker_pos is None:
@@ -147,6 +154,10 @@ class LivePortfolio(Portfolio):
             'positions': self.positions,
             'peak_prices': {s: p for s, p in self._peak_prices.items()
                             if s in self.positions},
+            # Cross-sectional strategies rebalance every N cross-sections, and
+            # N was tuned on a continuous backtest. Live restarts daily, so the
+            # count has to survive the restart or the rebalance never arrives.
+            'cross_section_count': getattr(self, 'cross_section_count', 0),
         }, indent=1))
 
     def execute_trade(self, symbol: str, is_buy: bool, qty: float, price: float,
@@ -267,6 +278,9 @@ class LiveTradingEngine:
         self.portfolio = LivePortfolio(gateway, commission_rate=commission_rate,
                                        state_file=state_file, on_trade=self._log_event,
                                        capital_cap=capital_cap)
+        # Rebalance clock carried over from the previous session, applied after
+        # warmup so replay does not advance it.
+        self._resumed_xs_count = self.portfolio.resumed_cross_section_count
         self.strategy = strategy_class(self.portfolio, risk_manager=risk_manager,
                                        **strategy_params)
 
@@ -312,19 +326,50 @@ class LiveTradingEngine:
             return self.provider.get_historical_data(
                 symbol, self.timeframe, want_from, datetime.now())
 
+        # Feed in TIMESTAMP order across all symbols, not symbol by symbol.
+        #
+        # A cross-sectional strategy treats one timestamp across the whole
+        # universe as a single observation, and detects the boundary by the
+        # timestamp changing. Replaying symbol by symbol walks time forward
+        # for AAPL, then jumps back to the start for ABBV, so every symbol
+        # boundary looks like a new cross-section: warming up 20 symbols x 60
+        # candles drove the counter to 1199 instead of 60 and fired 63
+        # "rebalances" on single-symbol rankings. Harmless only because
+        # trading is disabled here, and wrong in every other respect.
+        frames = {}
         for symbol in self.symbols:
             df = _history(symbol)
             if df is None or df.empty:
                 print(f"  [warmup] {symbol}: no history available")
                 continue
-            df = df.tail(candles)
-            for idx, row in df.iterrows():
-                candle = Candle(timestamp=idx, open=row['open'], high=row['high'],
-                                low=row['low'], close=row['close'], volume=row['volume'])
-                self.strategy.on_data(symbol, candle)
-            print(f"  [warmup] {symbol}: {len(df)} candles "
-                  f"({str(df.index.min())[:16]} -> {str(df.index.max())[:16]})")
+            frames[symbol] = df.tail(candles)
+
+        if frames:
+            all_ts = sorted({ts for df in frames.values() for ts in df.index})
+            for ts in all_ts:
+                for symbol, df in frames.items():
+                    if ts in df.index:
+                        row = df.loc[ts]
+                        self.strategy.on_data(symbol, Candle(
+                            timestamp=ts, open=row['open'], high=row['high'],
+                            low=row['low'], close=row['close'], volume=row['volume']))
+            print(f"  [warmup] {len(frames)} symbols over {len(all_ts)} cross-sections "
+                  f"({str(all_ts[0])[:16]} -> {str(all_ts[-1])[:16]})")
         self.portfolio.warming_up = False
+
+        # Warmup is replay, not market activity, so it must not advance the
+        # rebalance clock. Restore the counter to where the last real session
+        # left it: rebalance_every was grid-searched on a CONTINUOUS backtest,
+        # but live runs as a fresh process per day, so a counter that resets
+        # each morning can never reach a rebalance_every larger than the ~7
+        # hourly candles a US session delivers — the strategy would simply
+        # never trade. Persisting it makes the live cadence match the tested one.
+        if hasattr(self.strategy, '_cross_section_count'):
+            self.strategy._cross_section_count = self._resumed_xs_count
+            print(f"  [warmup] rebalance clock resumed at {self._resumed_xs_count} "
+                  f"cross-sections (rebalance_every="
+                  f"{getattr(self.strategy, 'rebalance_every', '?')})")
+
         print(f"  [warmup] complete — {_cached} from local cache, {_missed} from the broker "
               f"(broker history is quota-metered per symbol) — trading enabled\n")
 
@@ -475,6 +520,10 @@ class LiveTradingEngine:
     def _shutdown(self):
         self._finalize_elapsed_candles()
         self._persist_candles()
+        # Hand the strategy's live rebalance clock to the portfolio so
+        # save_state persists it for tomorrow's session.
+        if hasattr(self.strategy, '_cross_section_count'):
+            self.portfolio.cross_section_count = self.strategy._cross_section_count
         self.portfolio.save_state()
         acc = self.gateway.get_account_info() or {}
         positions = self.gateway.get_positions() or {}
