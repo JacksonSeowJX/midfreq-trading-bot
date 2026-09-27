@@ -44,11 +44,26 @@ class LivePortfolio(Portfolio):
 
     def __init__(self, gateway: OrderGateway, commission_rate: float = Portfolio.HK_FEE_RATE,
                  state_file: Optional[Path] = None,
-                 on_trade: Optional[Callable[[Dict[str, Any]], None]] = None):
+                 on_trade: Optional[Callable[[Dict[str, Any]], None]] = None,
+                 capital_cap: Optional[float] = None):
         acc = gateway.get_account_info() or {}
         initial_cash = acc.get('total_assets', 0.0) or acc.get('cash', 0.0)
+
+        # The paper account holds ~1,000,000 while the validated backtest was
+        # measured on 100,000, so an uncapped session trades the same strategy
+        # at 10x the size the result was established at. capital_cap holds the
+        # session to a stated figure so the forward test is comparable to the
+        # backtest it is testing. The broker still holds the full balance; this
+        # only limits what this session will deploy.
+        self.capital_cap = capital_cap
+        if capital_cap is not None:
+            initial_cash = min(initial_cash, capital_cap) if initial_cash else capital_cap
         super().__init__(initial_cash=initial_cash, commission_rate=commission_rate)
         self.cash = acc.get('cash', initial_cash)
+        if capital_cap is not None:
+            self.cash = min(self.cash, capital_cap)
+            print(f"Capital capped at {capital_cap:,.2f} "
+                  f"(account holds {acc.get('total_assets', 0):,.2f})")
         self.gateway = gateway
         # While True, execute_trade is a no-op — used to warm up strategy
         # indicator state on historical candles without trading on them.
@@ -179,7 +194,17 @@ class LivePortfolio(Portfolio):
         """
         acc = self.gateway.get_account_info()
         if acc:
-            self.cash = acc['cash']
+            # sync adopts the broker's cash, which is the balance across ALL
+            # sessions sharing the account. Under a cap, re-deriving cash as
+            # (cap - what this session already holds) keeps total exposure at
+            # the cap; adopting the raw balance would quietly lift it back to
+            # the full account on the first sync, 5 minutes in.
+            if self.capital_cap is not None:
+                own_mv = sum(pos['qty'] * pos['entry_price']
+                             for pos in self.positions.values())
+                self.cash = max(0.0, min(acc['cash'], self.capital_cap - own_mv))
+            else:
+                self.cash = acc['cash']
         broker_pos = self.gateway.get_positions()
         if broker_pos is None:
             # Query failed — no information. Leave all claims untouched.
@@ -211,6 +236,7 @@ class LiveTradingEngine:
                  risk_manager: Optional[RiskManager] = None,
                  session_log_dir: str = "live_sessions",
                  commission_rate: float = Portfolio.HK_FEE_RATE,
+                 capital_cap: Optional[float] = None,
                  **strategy_params):
         self.provider = provider
         self.gateway = gateway
@@ -239,7 +265,8 @@ class LiveTradingEngine:
             f"_{os.getpid()}_{LiveTradingEngine._session_seq}.jsonl")
 
         self.portfolio = LivePortfolio(gateway, commission_rate=commission_rate,
-                                       state_file=state_file, on_trade=self._log_event)
+                                       state_file=state_file, on_trade=self._log_event,
+                                       capital_cap=capital_cap)
         self.strategy = strategy_class(self.portfolio, risk_manager=risk_manager,
                                        **strategy_params)
 
