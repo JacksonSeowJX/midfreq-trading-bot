@@ -132,5 +132,7 @@
     "US.VZ",
     "US.WFC"
   ],
-  "caveat": "In-sample numbers above are what the search selected on, not a forecast. The validated out-of-sample expectation for this combination is +5.726%/window (config A) and +0.632%/window (config B) at this fee."
+  "caveat": "In-sample numbers above are what the search selected on, not a forecast. The validated out-of-sample expectation for this combination is +5.726%/window (config A) and +0.632%/window (config B) at this fee.",
+  "capital": 100000.0,
+  "capital_rationale": "The paper account holds ~1,000,000 and the engine otherwise inherits that, which would trade this strategy at 10x the size the validated result was measured at. Capped to match the backtest so the forward test is comparable to what it is testing. At 100,000 with top_n=3 each holding is ~33,300, the same as the study."
 }

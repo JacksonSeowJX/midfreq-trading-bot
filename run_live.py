@@ -48,6 +48,10 @@ def main():
                     help='Circuit breaker halt at this drawdown %%')
     ap.add_argument('--qty', type=int, default=100,
                     help='Fixed shares per trade')
+    ap.add_argument('--capital', type=float, default=None,
+                    help='Cap the capital this session will deploy. The engine otherwise '
+                         'inherits the whole paper account balance (~1,000,000), while the '
+                         'validated backtests were measured on 100,000.')
     ap.add_argument('--sizing', default='fixed', choices=['fixed', 'equal-dollar'],
                     help="Position sizing. 'fixed' trades --qty shares of everything. "
                          "'equal-dollar' splits equity evenly across --basket-size positions, "
@@ -121,6 +125,7 @@ def main():
         provider=provider,
         gateway=gateway,
         commission_rate=commission_rate,
+        capital_cap=args.capital,
         strategy_class=info['class'],
         symbols=args.symbols,
         timeframe=TIMEFRAMES[args.timeframe],

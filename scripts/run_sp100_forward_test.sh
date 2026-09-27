@@ -35,11 +35,12 @@ if [ ! -f "$CFG" ]; then
   exit 1
 fi
 
-read -r LOOKBACK TOP_N REBAL NSYM <<<"$($PY - <<'PYEOF'
+read -r LOOKBACK TOP_N REBAL NSYM CAPITAL <<<"$($PY - <<'PYEOF'
 import json
 c = json.load(open('config/sp100_forward_test.json'))
 p = c['params']
-print(p['lookback'], p['top_n'], p['rebalance_every'], len(c['symbols']))
+print(p['lookback'], p['top_n'], p['rebalance_every'], len(c['symbols']),
+      c.get('capital', 100000.0))
 PYEOF
 )"
 
@@ -70,6 +71,7 @@ echo "  symbols        : $NSYM"
 echo "  lookback       : $LOOKBACK candles"
 echo "  basket size    : $TOP_N"
 echo "  rebalance every: $REBAL candles"
+echo "  capital        : $CAPITAL (account holds ~1,000,000; capped to match the backtest)"
 echo "  duration       : ${DURATION} min"
 echo "  log            : $LOG_DIR/console_sp100_reversal_${STAMP}.log"
 echo
@@ -80,6 +82,7 @@ $PY -u run_live.py \
     --timeframe 1h \
     --duration "$DURATION" \
     --sizing equal-dollar --basket-size "$TOP_N" \
+    --capital "$CAPITAL" \
     --stop-loss 5 --max-drawdown 15 \
     --params lookback="$LOOKBACK" top_n="$TOP_N" rebalance_every="$REBAL" \
     2>&1 | tee "$LOG_DIR/console_sp100_reversal_${STAMP}.log"
