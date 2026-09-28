@@ -61,8 +61,28 @@ def _cache_load():
     return {}
 
 
+# Fingerprint of the code that turns inputs into per-window returns. The key
+# above records the INPUTS, but not the code, so a fix to the strategy or the
+# walk-forward engine would otherwise be silently ignored: the cache would
+# keep serving pre-fix numbers because nothing in the key changed. Any edit
+# to these files now changes the key and forces a recompute.
+_CODE_FILES = ['src/core/strategy.py', 'src/core/optimizer.py', 'src/core/backtester.py',
+               'src/core/portfolio.py', 'src/core/risk_manager.py', 'src/core/storage.py']
+
+
+def _code_fingerprint():
+    import hashlib
+    h = hashlib.sha256()
+    for f in _CODE_FILES:
+        h.update((REPO / f).read_bytes())
+    return h.hexdigest()[:12]
+
+
+CODE_FP = _code_fingerprint()
+
+
 def _cache_key(strategy, uni, cname, start, end, fee, n_syms):
-    return f"{strategy}|{uni}|{cname}|{str(start)[:10]}|{str(end)[:10]}|{fee}|{n_syms}"
+    return f"{strategy}|{uni}|{cname}|{str(start)[:10]}|{str(end)[:10]}|{fee}|{n_syms}|{CODE_FP}"
 
 # One candidate per (strategy, universe). Fees follow the market, as
 # established by calibration: HK 0.16%/side built up from the published

@@ -16,12 +16,30 @@ class BaseStrategy:
         """Called once before the strategy begins running data"""
         pass
 
+    def _mark_price(self, symbol: str, pos: dict) -> float:
+        """Latest known price for a held symbol: current candle, else last
+        close in history, else the entry price."""
+        pending = getattr(self, 'pending', None)
+        if isinstance(pending, dict) and symbol in pending:
+            return pending[symbol].close
+        hist = getattr(self, 'history', None)
+        if isinstance(hist, dict) and hist.get(symbol):
+            return hist[symbol][-1]
+        return pos.get('entry_price', 0.0)
+
     def _get_trade_qty(self, symbol: str, price: float) -> int:
         """Calculate trade quantity using risk manager or default to 100."""
         if self.risk_manager:
             stats = self.portfolio.get_trade_stats()
+            # Value each held position at ITS OWN latest price. This used to
+            # multiply every position by `price` — the price of the symbol
+            # being traded — which is harmless with one position at a time but
+            # wrong for baskets: after buying 240 COF at $207, sizing INTC at
+            # $33 counted the COF shares as worth $33 each, so equity read
+            # ~$58k instead of ~$100k and INTC got $29k instead of $50k.
             equity = self.portfolio.cash + sum(
-                p['qty'] * price for p in self.portfolio.positions.values()
+                p['qty'] * (price if sym == symbol else self._mark_price(sym, p))
+                for sym, p in self.portfolio.positions.items()
             )
             return self.risk_manager.calculate_position_size(
                 equity=equity,

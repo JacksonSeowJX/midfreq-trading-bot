@@ -199,3 +199,27 @@ class TestRegistry:
                 for field in ('label', 'min', 'max', 'default', 'step'):
                     assert field in meta, f"{name}.{key} missing {field}"
                 assert meta['min'] <= meta['default'] <= meta['max'], f"{name}.{key}"
+
+
+def test_basket_sizing_values_each_position_at_its_own_price():
+    """Regression: equity used to value every held position at the price of
+    the symbol being bought, so the second leg of a basket was undersized
+    whenever the two legs traded at very different prices."""
+    from core.portfolio import Portfolio
+    from core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+    from core.strategy import CrossSectionalReversal
+    from core.models import Candle
+    from datetime import datetime
+
+    pf = Portfolio(initial_cash=100_000.0, commission_rate=0.0)
+    rm = RiskManager(position_sizer=create_position_sizer(SizingMethod.EQUAL_DOLLAR,
+                                                          n_positions=2, cost_buffer=0.0))
+    s = CrossSectionalReversal(pf, risk_manager=rm, lookback=1, top_n=2, rebalance_every=1)
+    ts = datetime(2026, 1, 1, 10)
+    c = lambda px: Candle(timestamp=ts, open=px, high=px, low=px, close=px, volume=1)
+    s.pending = {'EXP': c(200.0), 'CHEAP': c(20.0)}
+    q1 = s._get_trade_qty('EXP', 200.0)
+    pf.execute_trade('EXP', True, q1, 200.0, ts)
+    q2 = s._get_trade_qty('CHEAP', 20.0)
+    exp_val, cheap_val = q1 * 200.0, q2 * 20.0
+    assert abs(exp_val - cheap_val) / exp_val < 0.01, (exp_val, cheap_val)
