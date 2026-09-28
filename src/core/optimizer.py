@@ -105,6 +105,7 @@ def grid_search(
     slippage_bps: float = 0.0,
     max_combinations: int = 500,
     progress_callback: Optional[Callable[[float, str], None]] = None,
+    commission_rate: float = Portfolio.HK_FEE_RATE,
 ) -> pd.DataFrame:
     """
     Exhaustive grid search over all parameter combinations.
@@ -147,7 +148,10 @@ def grid_search(
     
     for i, params in enumerate(param_grid):
         # Run backtest with this parameter set
-        portfolio = Portfolio(initial_cash=initial_capital)
+        # commission_rate was not a parameter here, so every grid search ran
+        # at Portfolio's HK default (0.16%/side incl. stamp duty) whatever the
+        # market — including US searches launched from the dashboard.
+        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
         bt = Backtester(storage=storage, portfolio=portfolio, 
                        risk_manager=risk_manager, slippage_bps=slippage_bps)
         

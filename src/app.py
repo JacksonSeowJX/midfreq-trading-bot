@@ -107,7 +107,11 @@ timeframe_opts = {
     "1 Hour": Timeframe.HOUR_1,
     "1 Day": Timeframe.DAY_1
 }
-selected_tf_label = st.sidebar.selectbox("Timeframe", list(timeframe_opts.keys()), index=3)
+# Default to 1 Hour: every study in this project runs on hourly candles, and
+# hourly data exists for all 192 symbols while daily exists for only 24, so
+# the old "1 Day" default made Run Backtest fail on any US symbol at first click.
+selected_tf_label = st.sidebar.selectbox("Timeframe", list(timeframe_opts.keys()),
+                                         index=list(timeframe_opts.keys()).index("1 Hour"))
 timeframe = timeframe_opts[selected_tf_label]
 
 st.sidebar.markdown("---")
@@ -417,15 +421,59 @@ def plot_equity_curve(equity_data):
 
 # ─── Main Execution ────────────────────────────────────────────────
 
+def is_basket(name):
+    """Cross-sectional strategies rank a universe against itself."""
+    return name.startswith('Cross-Sectional')
+
+
+def symbols_for(name, one_symbol, pair=None):
+    """What a strategy has to be run on.
+
+    A cross-sectional strategy given one symbol has nothing to rank and
+    places no trades at all, which made the project's headline strategy
+    look inert from the dashboard. Basket strategies get the whole selected
+    universe; pairs trading gets its pair; everything else the one symbol.
+    """
+    if is_basket(name):
+        return list(available_symbols)
+    if name == "Pairs Trading" and pair:
+        return [one_symbol, pair]
+    return [one_symbol]
+
+
+def risk_manager_for(name, params):
+    """Equal-dollar sizing for baskets, the sidebar's sizing otherwise.
+
+    With a risk manager present, CrossSectionalReversal sizes through it, so
+    the sidebar's default "100 shares" would put ~$2,500 into T and ~$125,000
+    into LLY — the unequal sizing the 2026-09-08 audit removed from the
+    studies. Baskets split equity evenly across top_n, keeping the sidebar's
+    stops and drawdown halt.
+    """
+    if not is_basket(name):
+        return build_risk_manager()
+    sizer = create_position_sizer(SizingMethod.EQUAL_DOLLAR, n_positions=int(params.get('top_n', 2)))
+    return RiskManager(
+        stop_loss_pct=stop_loss_pct if enable_stop_loss else None,
+        trailing_stop_pct=trailing_stop_pct if enable_trailing else None,
+        take_profit_pct=take_profit_pct if enable_take_profit else None,
+        max_drawdown_pct=max_drawdown_pct,
+        position_sizer=sizer,
+    )
+
+
 if st.session_state.active_view == 'backtest':
-    with st.spinner(f'Running {selected_strategy} on {symbol}...'):
+    sim_symbols = symbols_for(selected_strategy, symbol, pair_symbol)
+    if is_basket(selected_strategy):
+        st.info(f"**{selected_strategy}** ranks stocks against each other, so it runs on the whole "
+                f"**{UNIVERSE_LABELS.get(universe, universe)}** universe ({len(sim_symbols)} symbols), "
+                f"not only {symbol}. Positions are sized equally by value across the basket of "
+                f"{strategy_params.get('top_n', 2)}. The chart below shows {symbol} for reference only.")
+    with st.spinner(f'Running {selected_strategy} on {len(sim_symbols)} symbol(s)...'):
         portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
-        risk_mgr = build_risk_manager()
+        risk_mgr = risk_manager_for(selected_strategy, strategy_params)
         backtester = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_mgr,
                                 slippage_bps=slippage_bps)
-
-        # Determine symbols list (pairs trading needs 2)
-        sim_symbols = [symbol, pair_symbol] if selected_strategy == "Pairs Trading" and pair_symbol else [symbol]
 
         # Suppress backtester console output
         f_buf = io.StringIO()
@@ -450,7 +498,7 @@ if st.session_state.active_view == 'backtest':
             delta_color = "normal" if ret_pct >= 0 else "inverse"
 
             with col1:
-                st.metric("Final Equity", f"HKD {equity:,.2f}", f"{ret_pct:+.2f}%", delta_color=delta_color)
+                st.metric("Final Equity", f"{_ccy} {equity:,.2f}", f"{ret_pct:+.2f}%", delta_color=delta_color)
             with col2:
                 st.metric("Total Trades", f"{metrics['total_trades']}")
             with col3:
@@ -511,9 +559,9 @@ if st.session_state.active_view == 'backtest':
 
             if not trade_df.empty:
                 trade_df['timestamp'] = trade_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-                trade_df['price'] = trade_df['price'].apply(lambda x: f"HKD {x:.2f}")
-                trade_df['commission'] = trade_df['commission'].apply(lambda x: f"HKD {x:.2f}")
-                trade_df['cash_after'] = trade_df['cash_after'].apply(lambda x: f"HKD {x:.2f}")
+                trade_df['price'] = trade_df['price'].apply(lambda x: f"{_ccy} {x:.2f}")
+                trade_df['commission'] = trade_df['commission'].apply(lambda x: f"{_ccy} {x:.2f}")
+                trade_df['cash_after'] = trade_df['cash_after'].apply(lambda x: f"{_ccy} {x:.2f}")
                 
                 # Add exit reason column if present
                 if 'exit_reason' not in trade_df.columns:
@@ -548,6 +596,9 @@ elif st.session_state.active_view == 'compare':
     # ─── Strategy Comparison Mode ──────────────────────────────────
     st.markdown("### ⚡ Strategy Comparison")
     st.markdown(f"Running all strategies on **{symbol}** ({selected_tf_label})...")
+    st.caption(f"Cross-sectional strategies rank stocks against each other, so they run on the whole "
+               f"{UNIVERSE_LABELS.get(universe, universe)} universe ({len(available_symbols)} symbols) "
+               f"rather than {symbol} alone, and are not like-for-like with the single-stock rows.")
 
     # Exclude Pairs Trading from single-stock comparison
     compare_strategies = {k: v for k, v in STRATEGY_REGISTRY.items() if k != "Pairs Trading"}
@@ -558,14 +609,14 @@ elif st.session_state.active_view == 'compare':
     progress = st.progress(0)
     for i, (strat_name, info) in enumerate(compare_strategies.items()):
         portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
-        risk_mgr = build_risk_manager()
+        defaults = {k: v['default'] for k, v in info['params'].items()}
+        risk_mgr = risk_manager_for(strat_name, defaults)
         bt = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_mgr,
                         slippage_bps=slippage_bps)
-        defaults = {k: v['default'] for k, v in info['params'].items()}
 
         f_buf = io.StringIO()
         with contextlib.redirect_stdout(f_buf):
-            metrics = bt.run(info['class'], symbols=[symbol], timeframe=timeframe, 
+            metrics = bt.run(info['class'], symbols=symbols_for(strat_name, symbol), timeframe=timeframe, 
                              start_date=start_date, end_date=end_date, **defaults)
 
         if metrics:
@@ -578,7 +629,7 @@ elif st.session_state.active_view == 'compare':
                 'Win Rate': f"{metrics['win_rate']:.1f}%",
                 'Sharpe': f"{metrics['sharpe_ratio']:.2f}",
                 'Max DD': f"{metrics['max_drawdown']:.2f}%",
-                'Final Equity': f"HKD {metrics['final_equity']:,.2f}",
+                'Final Equity': f"{_ccy} {metrics['final_equity']:,.2f}",
                 '_return': metrics['return_pct'],  # for sorting
             })
             # Use detailed equity curve for comparison
@@ -630,8 +681,16 @@ elif st.session_state.active_view == 'compare':
 
 elif st.session_state.active_view == 'optimize':
     # ─── Strategy Optimization Mode ────────────────────────────────
-    sim_symbols = [symbol, pair_symbol] if selected_strategy == "Pairs Trading" and pair_symbol else [symbol]
-    risk_mgr = build_risk_manager()
+    sim_symbols = symbols_for(selected_strategy, symbol, pair_symbol)
+    # Baskets run with no risk manager here, exactly as the research studies
+    # did: the grid varies top_n, so any fixed-size sizer would be wrong for
+    # most of the grid, and without one the strategy sizes equally by value
+    # across whatever top_n each combination uses.
+    risk_mgr = None if is_basket(selected_strategy) else build_risk_manager()
+    if is_basket(selected_strategy):
+        st.warning(f"{selected_strategy} optimizes over the whole {UNIVERSE_LABELS.get(universe, universe)} "
+                   f"universe ({len(sim_symbols)} symbols). On the S&P 100 or Hang Seng a walk-forward "
+                   "takes roughly 10-15 minutes; the smaller universes take 1-2.")
 
     progress_bar = st.progress(0.0)
     status_text = st.empty()
@@ -655,6 +714,7 @@ elif st.session_state.active_view == 'optimize':
             initial_capital=initial_capital,
             risk_manager=risk_mgr,
             slippage_bps=slippage_bps,
+            commission_rate=commission_rate,
             max_combinations=max_combinations,
             progress_callback=_progress,
         )
@@ -720,6 +780,7 @@ elif st.session_state.active_view == 'optimize':
             initial_capital=initial_capital,
             risk_manager=risk_mgr,
             slippage_bps=slippage_bps,
+            commission_rate=commission_rate,
             progress_callback=_progress,
         )
 
