@@ -882,46 +882,58 @@ elif st.session_state.active_view == 'live':
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, height=280)
 
-        # Equity across the whole forward test, not just one session. Every
-        # candle_close event carries the account equity at that candle, so
-        # stacking all sessions in time order gives the actual track record.
-        st.markdown("#### Equity Across All Sessions")
-        all_pts = []
+        # Account equity over time, from the BROKER's own figure.
+        #
+        # candle_close events carry each session's own view of equity: the
+        # shared account cash plus only that session's positions. On days
+        # when three strategies ran in parallel on one account, stacking
+        # those views interleaved three different partial numbers at the same
+        # timestamps, drawing a sawtooth that was not the account moving at
+        # all, and a headline of HKD 979,877 (-2.0%) when the account stood at
+        # HKD 997,096 (-0.3%). session_start and session_end record
+        # total_assets as reported by the broker, which is the account's true
+        # value, so the curve is built from those.
+        st.markdown("#### Account Equity Over Time")
+        acct_pts, all_pts = [], []
         for f in session_files:
             events = [json.loads(line) for line in f.read_text().splitlines() if line.strip()]
             start = next((e for e in events if e['type'] == 'session_start'), {})
             for e in events:
+                if e['type'] in ('session_start', 'session_end') and e.get('account', {}).get('total_assets'):
+                    acct_pts.append({'timestamp': pd.to_datetime(e['timestamp'], errors='coerce'),
+                                     'equity': float(e['account']['total_assets'])})
                 if e['type'] == 'candle_close' and e.get('equity') is not None:
                     all_pts.append({'timestamp': pd.to_datetime(e['timestamp'], utc=True, errors='coerce'),
                                     'equity': e['equity'], 'symbol': e.get('symbol', '?'),
                                     'strategy': start.get('strategy', '?'),
                                     'session': f.stem.replace('session_', '')})
-        eq_all = pd.DataFrame(all_pts).dropna(subset=['timestamp']).sort_values('timestamp')
+        acct = (pd.DataFrame(acct_pts).dropna().drop_duplicates('timestamp')
+                .sort_values('timestamp')) if acct_pts else pd.DataFrame()
+        eq_all = pd.DataFrame(all_pts).dropna(subset=['timestamp']).sort_values('timestamp') if all_pts else pd.DataFrame()
 
-        if len(eq_all) >= 2:
-            first, last = eq_all.equity.iloc[0], eq_all.equity.iloc[-1]
+        if len(acct) >= 2:
+            first, last = acct.equity.iloc[0], acct.equity.iloc[-1]
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Sessions with data", eq_all.session.nunique())
+            m1.metric("Sessions", len(session_files))
             m2.metric("Candles recorded", f"{len(eq_all):,}")
-            m3.metric("Equity now", f"{CCY} {last:,.0f}",
-                      f"{(last - first) / first * 100:+.3f}% since first candle")
-            m4.metric("Span", f"{(eq_all.timestamp.max() - eq_all.timestamp.min()).days} days")
+            m3.metric("Account equity", f"{CCY} {last:,.0f}",
+                      f"{(last - first) / first * 100:+.3f}% since first session")
+            m4.metric("Span", f"{(acct.timestamp.max() - acct.timestamp.min()).days} days")
 
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=eq_all['timestamp'], y=eq_all['equity'], mode='lines',
-                                     line=dict(color='#2a78d6', width=1.8), name='equity',
-                                     hovertext=[f"{r.session}<br>{r.strategy} · {r.symbol}"
-                                                for r in eq_all.itertuples()],
-                                     hovertemplate='%{hovertext}<br>' + CCY + ' %{y:,.0f}<extra></extra>'))
+            fig.add_trace(go.Scatter(x=acct['timestamp'], y=acct['equity'], mode='lines+markers',
+                                     line=dict(color='#2a78d6', width=2, shape='hv'),
+                                     marker=dict(size=4),
+                                     hovertemplate='%{x|%d %b %H:%M}<br>' + CCY + ' %{y:,.2f}<extra></extra>'))
             fig.add_hline(y=first, line_dash="dot", line_color="#6B6B63",
-                          annotation_text="first recorded equity", annotation_position="bottom right")
+                          annotation_text="starting equity", annotation_position="bottom right")
             fig.update_layout(height=340, yaxis_title=CCY, xaxis_title=None,
                               margin=dict(l=0, r=0, t=10, b=0), showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
-            st.caption("Every candle close across every recorded session, in time order. Gaps are "
-                       "periods when no session was running.")
-
-            with st.expander("Drill into a single session"):
+            st.caption("Total account value as reported by the broker at the start and end of each "
+                       "session. Flat stretches are days when no position was held or no session ran.")
+        if len(eq_all) >= 2:
+            with st.expander("Drill into a single session (that session's own view of equity)"):
                 pick = st.selectbox("Session", sorted(eq_all.session.unique(), reverse=True))
                 one = eq_all[eq_all.session == pick]
                 f2 = go.Figure()
@@ -1044,7 +1056,13 @@ elif st.session_state.active_view == 'research':
         st.markdown("#### Current Allocation Verdict")
         st.caption(f"Method: {alloc.get('method', 'n/a')}  •  Generated: {alloc.get('generated_at', 'n/a')}")
         if assigned:
-            st.success(f"{len(assigned)}/{len(allocation)} symbols have a validated tool assigned:")
+            # info, not success: the one assignment this study produces
+            # (HK.00005, ML classifier) passes the standard at +0.055% and
+            # +0.008% per window, which the report treats as economically
+            # negligible. A green banner read as a win.
+            st.info(f"{len(assigned)}/{len(allocation)} symbols passed the validation bar under this "
+                    "study. Check the effect size before reading this as an edge: the report treats a "
+                    "pass of a few hundredths of a percent per window as economically negligible.")
             st.dataframe(pd.DataFrame([{'symbol': k, 'assigned_tool': v} for k, v in assigned.items()]),
                         use_container_width=True)
         else:
@@ -1107,7 +1125,12 @@ elif st.session_state.active_view == 'research':
                 if prefix not in seen:
                     seen[prefix] = f
             options = [(label_for(f)[0], f) for f in seen.values()]
-            options.sort(key=lambda x: x[0])
+            # Current studies first, the corrected headline study at the top,
+            # superseded ones last. Plain alphabetical order opened the view
+            # on "Allocation — Robust, 1yr Data (superseded)", the least
+            # relevant study in the project.
+            options.sort(key=lambda x: ('superseded' in x[0].lower() or 'failed' in x[0].lower(),
+                                        not x[0].startswith('⭐'), not x[0].startswith('✅'), x[0]))
 
         choice_label = st.selectbox("Select a study", [o[0] for o in options])
         chosen_file = dict(options)[choice_label]

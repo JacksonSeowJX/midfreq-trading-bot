@@ -10,7 +10,11 @@ unreachable, so any screenshot taken before that shows incorrect output.
 Chrome's --screenshot alone is not enough. Streamlit renders over a
 websocket after load, and --virtual-time-budget fast-forwards VIRTUAL
 time while the server responds in real time, so the capture lands on the
-grey skeleton. Playwright can wait for real content to appear.
+grey skeleton. Playwright waits for real content to appear.
+
+Only the main content area is captured (not the sidebar), with a tall
+viewport so nothing is cut off, and pages with several sections are split
+at their section headings so each report figure shows one thing.
 
 Usage:
     python3 scripts/capture_dashboard.py [--port 8601] [--out DIR]
@@ -26,52 +30,71 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8601)
     ap.add_argument('--out', default=str(REPO / 'images' / 'dashboard'))
-    ap.add_argument('--width', type=int, default=1680)
-    ap.add_argument('--height', type=int, default=1050)
     args = ap.parse_args()
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        print("playwright missing. pip install playwright && playwright install chromium")
-        return 1
+    from playwright.sync_api import sync_playwright
+    from PIL import Image
 
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     url = f"http://localhost:{args.port}"
 
-    # (filename, sidebar button text, what must appear before capturing)
-    SHOTS = [
-        ('01_overview',  '📋 All Results Overview', 'Results tested'),
-        ('02_research',  'Browse Research Results', 'Research Studies'),
-        ('03_live',      'Show Live Account & Sessions', 'Live Paper Trading'),
-    ]
+    def settle(page, marker):
+        page.wait_for_selector(f'text={marker}', timeout=60_000)
+        page.wait_for_timeout(4000)                     # plotly finishes drawing
+
+    def grab_main(page, path):
+        main = page.locator('[data-testid="stAppViewBlockContainer"]').first   # main content, no sidebar (Streamlit 1.37)
+        main.screenshot(path=str(path))
+        return main.bounding_box()
+
+    def split_at(page, src, box, cuts, names):
+        """Crop a main-area capture at the y positions of the given headings."""
+        img = Image.open(src)
+        scale = img.height / box['height']
+        ys = [0]
+        for heading in cuts:
+            hb = page.get_by_text(heading, exact=True).first.bounding_box()
+            ys.append(int((hb['y'] - box['y'] - 8) * scale))
+        ys.append(img.height)
+        for (top, bot), name in zip(zip(ys, ys[1:]), names):
+            img.crop((0, max(0, top), img.width, bot)).save(out / name)
+            print(f"  {name}")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        page = browser.new_page(viewport={'width': args.width, 'height': args.height})
+        page = browser.new_page(viewport={'width': 1500, 'height': 2600}, device_scale_factor=1.5)
         page.goto(url, wait_until='networkidle', timeout=60_000)
-        # Streamlit paints a skeleton first; wait for the real sidebar control
         page.wait_for_selector('text=Strategy Control Panel', timeout=60_000)
-        page.wait_for_timeout(2500)
-        page.screenshot(path=str(out / '00_home.png'), full_page=True)
-        print(f"  00_home.png")
 
-        for name, button, marker in SHOTS:
-            try:
-                page.get_by_role('button', name=button).click(timeout=20_000)
-                page.wait_for_selector(f'text={marker}', timeout=60_000)
-                page.wait_for_timeout(3500)      # let plotly finish drawing
-                page.screenshot(path=str(out / f'{name}.png'), full_page=True)
-                print(f"  {name}.png")
-            except Exception as e:
-                print(f"  {name}: FAILED — {type(e).__name__}: {str(e)[:90]}")
+        # All Results Overview
+        page.get_by_role('button', name='📋 All Results Overview').click()
+        settle(page, 'Results tested')
+        grab_main(page, out / 'overview.png'); print("  overview.png")
 
+        # Research Studies
+        page.get_by_role('button', name='Browse Research Results').click()
+        settle(page, 'Select a study')
+        grab_main(page, out / 'research.png'); print("  research.png")
+
+        # Live, HK then US; split into account section and session section
+        page.get_by_role('button', name='Show Live Account & Sessions').click()
+        settle(page, 'Live Paper Trading')
+        for mkt, label in (('hk', 'Hong Kong (HKD)'), ('us', 'United States (USD)')):
+            page.get_by_text(label).first.click()
+            page.wait_for_timeout(5000)
+            src = out / f'_live_{mkt}_full.png'
+            box = grab_main(page, src)
+            has_sessions = page.get_by_text('Forward-Test Session History', exact=True).count() > 0
+            if has_sessions:
+                split_at(page, src, box, ['Forward-Test Session History'],
+                         [f'live_{mkt}_account.png', f'live_{mkt}_sessions.png'])
+            else:
+                Image.open(src).save(out / f'live_{mkt}_account.png'); print(f"  live_{mkt}_account.png")
+            src.unlink()
         browser.close()
 
-    files = sorted(out.glob('*.png'))
-    print(f"\n{len(files)} screenshot(s) in {out}")
-    for f in files:
-        print(f"   {f.name:22s} {f.stat().st_size/1024:>7.0f} KB")
+    for f in sorted(out.glob('*.png')):
+        print(f"   {f.name:26s} {Image.open(f).size}")
     return 0
 
 
