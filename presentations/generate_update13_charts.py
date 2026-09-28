@@ -31,7 +31,8 @@ plt.rcParams.update({'font.family':'sans-serif','font.sans-serif':['Helvetica Ne
 
 
 def latest_rc():
-    f = sorted(glob.glob(str(RESULTS / 'reality_check_*.json')))
+    # dated results only: reality_check_cache.json matches reality_check_*.json and sorts last
+    f = sorted(glob.glob(str(RESULTS / 'reality_check_2*.json')))
     return json.loads(Path(f[-1]).read_text()) if f else None
 
 
@@ -110,35 +111,44 @@ def chart_drift():
 
 
 def chart_rc():
-    """The Reality Check itself: where the winner falls in the null distribution."""
+    """The Reality Check: distribution of the best-of-N edgeless score, winner marked.
+
+    The shaded tail to the right of the actual winner IS the p-value, which a
+    quantile band cannot show. The distribution is recomputed from the stored
+    per-window returns with the same bootstrap and seed as the study.
+    """
     rc = latest_rc()
     if not rc or not rc.get('by_config'):
-        print('rc chart SKIPPED — no reality_check_*.json yet'); return
+        print('rc chart SKIPPED — no reality_check_2*.json yet'); return
+    sys.path.insert(0, str(REPO / 'src'))
+    from core.reality_check import stationary_bootstrap_indices
     cfgs = list(rc['by_config'])
-    fig, axes = plt.subplots(1, len(cfgs), figsize=(6.4*len(cfgs), 4.8), dpi=200, squeeze=False)
+    fig, axes = plt.subplots(1, len(cfgs), figsize=(6.3*len(cfgs), 4.6), dpi=200, squeeze=False)
     for ax, cname in zip(axes[0], cfgs):
         d = rc['by_config'][cname]
-        q = d['bootstrap_max_quantiles']
-        ax.axvspan(q['p50'], q['p95'], color=MUTED, alpha=0.18, zorder=1,
-                   label='where the best of an edgeless set lands (50th-95th)')
-        for key, lbl in (('p50','median'), ('p95','95th')):
-            ax.axvline(q[key], color=MUTED, ls=':', lw=1.6, zorder=2)
-            ax.annotate(lbl, xy=(q[key], 0.92), xycoords=('data','axes fraction'),
-                        rotation=90, fontsize=9, color=MUTED, ha='right', va='top')
+        R = np.array(list(d['per_window'].values()), dtype=float)
+        centred = R - R.mean(axis=1, keepdims=True)
+        rng = np.random.default_rng(12345)
+        n = R.shape[1]
+        boot = np.array([centred[:, stationary_bootstrap_indices(n, d.get('mean_block', 2.0), rng)]
+                         .mean(axis=1).max() for _ in range(d.get('n_boot', 20000))])
         obs = d['observed_max_mean']
-        ax.axvline(obs, color=GREEN if d['p_value'] < 0.05 else RED, lw=3, zorder=4)
-        ax.annotate(f"actual best\n{obs:+.2f}%", xy=(obs, 0.55),
-                    xycoords=('data','axes fraction'), fontsize=11, fontweight='bold',
-                    color=GREEN if d['p_value'] < 0.05 else RED,
-                    ha='left' if obs < q['p95'] else 'right',
-                    xytext=(8 if obs < q['p95'] else -8, 0), textcoords='offset points')
-        ax.set_title(f"{cname}\nReality Check p = {d['p_value']:.3f}    "
-                     f"(naive p = {d['naive_p_value']:.3f})",
-                     fontsize=12, loc='left', pad=10)
-        ax.set_xlabel('mean out-of-sample return per window'); ax.set_yticks([])
-        ax.grid(axis='x', color=GRID, lw=0.8); ax.tick_params(length=0)
-        ax.spines[['top','right','left']].set_visible(False)
-        ax.legend(frameon=False, fontsize=9, loc='upper left')
+        bins = np.linspace(min(boot.min(), 0), max(boot.max(), obs) * 1.05, 60)
+        ax.hist(boot[boot < obs], bins=bins, color=MUTED, alpha=0.55, zorder=2,
+                label='best of %d candidates with no edge' % d['n_candidates'])
+        ax.hist(boot[boot >= obs], bins=bins, color=RED, alpha=0.85, zorder=3,
+                label=f'luck matches or beats the winner: {(boot >= obs).mean():.1%}')
+        ax.axvline(obs, color=INK, lw=2.4, zorder=4)
+        ax.annotate(f"actual winner\n{d['best_candidate'].replace('CS-', '')}\n{obs:+.2f}%",
+                    xy=(obs, 0.97), xycoords=('data', 'axes fraction'), va='top',
+                    ha='left', xytext=(6, 0), textcoords='offset points', fontsize=10, fontweight='bold')
+        ax.set_title(f"{cname}:  Reality Check p = {d['p_value']:.3f}   (tested alone: {d['naive_p_value']:.3f})",
+                     fontsize=11.5, loc='left', pad=10)
+        ax.set_xlabel('mean out-of-sample return per window (%)')
+        ax.set_ylabel('bootstrap resamples')
+        ax.grid(axis='y', color=GRID, lw=0.8); ax.tick_params(length=0)
+        ax.spines[['top','right']].set_visible(False)
+        ax.legend(frameon=False, fontsize=9, loc='center right')
     fig.tight_layout(); fig.savefig(OUT / 'chart_u13_rc.png', bbox_inches='tight')
     plt.close(fig); print('rc chart done')
 
