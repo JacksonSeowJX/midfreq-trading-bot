@@ -88,26 +88,40 @@ def chart_fee():
 
 
 def chart_drift():
-    """Same study, five more weeks of data, different answer."""
-    fig, ax = plt.subplots(figsize=(9.2, 4.6), dpi=200)
-    labels = ['Config A\n(9 windows)', 'Config B\n(15 windows)']
-    then, now = [5.726, 0.632], [7.788, 2.987]
-    x = np.arange(2); w = 0.34
-    ax.bar(x - w/2, then, w, color=MUTED, zorder=3, label='data to 21 Aug (Update 12)')
-    ax.bar(x + w/2, now, w, color=ORANGE, zorder=3, label='data to 25 Sep (now)')
-    for xp, v in list(zip(x - w/2, then)) + list(zip(x + w/2, now)):
-        ax.annotate(f'{v:+.3f}%', xy=(xp, v), xytext=(0, 5), textcoords='offset points',
-                    ha='center', fontsize=10.5, fontweight='bold')
-    ax.set_xticks(x, labels, fontsize=11)
-    ax.set_ylabel('mean out-of-sample return per window')
-    ax.set_ylim(0, max(now) * 1.3)
+    """Same study, three data end dates: pass, fail, pass.
+
+    Config B's consistency (share of its 15 test windows that made money) is
+    the figure that decides the verdict, so that is what is plotted, against
+    the 50% bar. Figures: 21 Aug from cross_sectional_cost_sensitivity at
+    0.005%; 28 Aug and 25 Sep from the two Reality Check runs.
+    """
+    ends = ['data to\n21 Aug 2026', 'data to\n28 Aug 2026', 'data to\n25 Sep 2026']
+    cons_b = [66.7, 46.7, 80.0]
+    wins_b = ['10 of 15', '7 of 15', '12 of 15']
+    mean_a = [5.73, 6.15, 7.79]; mean_b = [0.63, 1.87, 2.99]
+    passed = [c >= 50 for c in cons_b]
+    fig, ax = plt.subplots(figsize=(10.2, 4.9), dpi=200)
+    cols = [GREEN if ok else RED for ok in passed]
+    ax.bar(range(3), cons_b, 0.5, color=cols, zorder=3)
+    ax.axhline(50, color=INK, ls='--', lw=1.6, zorder=4)
+    ax.annotate('50% bar', xy=(2.42, 51.5), fontsize=10, color=INK, ha='right')
+    for i in range(3):
+        ax.annotate(f"{wins_b[i]} windows\nprofitable ({cons_b[i]:.1f}%)", xy=(i, max(cons_b[i], 52)),
+                    xytext=(0, 6), textcoords='offset points', ha='center', fontsize=10.5,
+                    fontweight='bold')
+        ax.annotate('PASSES' if passed[i] else 'FAILS', xy=(i, 8), ha='center', fontsize=13,
+                    fontweight='bold', color='white', zorder=5)
+        ax.annotate(f"A {mean_a[i]:+.2f}%   B {mean_b[i]:+.2f}%", xy=(i, -15), ha='center',
+                    fontsize=9.5, color=MUTED, annotation_clip=False)
+    ax.set_xticks(range(3), ends, fontsize=11)
+    ax.set_ylim(0, 100)
+    ax.set_ylabel('Config B: share of test windows profitable (%)')
     ax.grid(axis='y', color=GRID, lw=0.8); ax.tick_params(length=0)
     ax.spines[['top','right','left']].set_visible(False)
-    ax.legend(frameon=False, fontsize=10, loc='upper left')
-    ax.set_title('Nothing changed but the data window sliding forward 5 weeks',
+    ax.set_title('Same strategy, code and fee. Only the end date of the data changes.',
                  fontsize=11.5, loc='left', color=MUTED, pad=10)
-    fig.tight_layout(); fig.savefig(OUT / 'chart_u13_drift.png', bbox_inches='tight')
-    plt.close(fig); print('drift chart done')
+    fig.tight_layout(); fig.subplots_adjust(bottom=0.2)
+    fig.savefig(OUT / 'chart_u13_drift.png', bbox_inches='tight'); plt.close(fig); print('drift chart done')
 
 
 def chart_rc():
