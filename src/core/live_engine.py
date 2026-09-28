@@ -248,11 +248,16 @@ class LiveTradingEngine:
                  session_log_dir: str = "live_sessions",
                  commission_rate: float = Portfolio.HK_FEE_RATE,
                  capital_cap: Optional[float] = None,
+                 stall_timeout_s: Optional[float] = None,
                  **strategy_params):
         self.provider = provider
         self.gateway = gateway
         self.symbols = symbols
         self.timeframe = timeframe
+        # Silence after which the stream is presumed dead: 1.25 candle periods.
+        _period_s = {Timeframe.MIN_1: 60, Timeframe.MIN_5: 300,
+                     Timeframe.HOUR_1: 3600, Timeframe.DAY_1: 86400}.get(timeframe, 3600)
+        self.stall_timeout_s = stall_timeout_s or _period_s * 1.25
 
         log_dir = Path(session_log_dir)
         log_dir.mkdir(exist_ok=True)
@@ -264,6 +269,8 @@ class LiveTradingEngine:
         self._forming: Dict[str, Candle] = {}
         self._candles_processed = 0
         self._closed_candles: Dict[str, list] = {}
+        self._last_candle_at: Optional[float] = None
+        self._last_saved_xs: Optional[int] = None
         self._started_at: Optional[datetime] = None
 
         self._log_dir = log_dir
@@ -396,6 +403,21 @@ class LiveTradingEngine:
         # per rolling 7 days). A live session already has the candles; this
         # just stops throwing them away.
         self._closed_candles.setdefault(symbol, []).append(candle)
+        self._last_candle_at = time.time()
+
+        # Save the rebalance clock the moment it advances, not only at
+        # shutdown. The first S&P 100 session (2026-09-28) received three
+        # full cross-sections, then hung during shutdown and took the VM with
+        # it — so save_state never ran and all three were lost. A crash now
+        # costs at most the cross-section in progress.
+        xs = getattr(self.strategy, '_cross_section_count', None)
+        if xs is not None and xs != self._last_saved_xs:
+            self.portfolio.cross_section_count = xs
+            try:
+                self.portfolio.save_state()
+                self._last_saved_xs = xs
+            except Exception as e:
+                print(f"  [!] periodic state save failed: {e}")
 
         # Equity snapshot per closed candle
         prices = {s: c.close for s, c in self._forming.items()}
@@ -455,6 +477,21 @@ class LiveTradingEngine:
                     last_sync = time.time()
                 if deadline and time.time() >= deadline:
                     print("\nSession duration reached.")
+                    break
+                # Stall detector. On 2026-09-28 the stream delivered 3 full
+                # hours, then 14 of 98 symbols for the 4th, then nothing; the
+                # session sat idle for hours until its scheduled end and then
+                # hung on the way out. With hourly candles a healthy stream
+                # closes one every 60 minutes, so 75 minutes of silence after
+                # at least one candle means it has died: stop now, cleanly,
+                # while shutdown can still complete.
+                if (self._last_candle_at is not None
+                        and time.time() - self._last_candle_at > self.stall_timeout_s):
+                    print(f"\n[!] STALL: no candle for "
+                          f"{(time.time() - self._last_candle_at)/60:.0f} min — "
+                          f"stopping cleanly")
+                    self._log_event({'type': 'stall', 'timestamp': str(datetime.now()),
+                                     'silent_min': round((time.time() - self._last_candle_at)/60, 1)})
                     break
         except KeyboardInterrupt:
             print("\nStopped by user.")
@@ -519,12 +556,13 @@ class LiveTradingEngine:
 
     def _shutdown(self):
         self._finalize_elapsed_candles()
-        self._persist_candles()
-        # Hand the strategy's live rebalance clock to the portfolio so
-        # save_state persists it for tomorrow's session.
+        # State first: it is small, fast, and the only thing tomorrow's session
+        # cannot do without. Writing 98 parquet files is slow and optional, so
+        # it goes last — a hang there must not cost the rebalance clock again.
         if hasattr(self.strategy, '_cross_section_count'):
             self.portfolio.cross_section_count = self.strategy._cross_section_count
         self.portfolio.save_state()
+        self._persist_candles()
         acc = self.gateway.get_account_info() or {}
         positions = self.gateway.get_positions() or {}
         print("\n" + "=" * 60)

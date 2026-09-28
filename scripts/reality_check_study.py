@@ -43,6 +43,26 @@ from core.reality_check import reality_check, naive_single_test
 
 REPO = Path(__file__).resolve().parent.parent
 RESULTS = REPO / 'results'
+# Per-window returns keyed by exactly what determines them. A walk-forward on
+# 98 symbols costs ~30 minutes, and an aligned re-run usually only needs SOME
+# candidates redone: the HK universes already end at 2026-08-28, so forcing
+# that as the common end leaves their results untouched and only the US ones
+# to recompute. Without a cache the whole 4-6 hour study reruns to change two
+# candidates.
+CACHE = RESULTS / 'reality_check_cache.json'
+
+
+def _cache_load():
+    if CACHE.exists():
+        try:
+            return json.loads(CACHE.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def _cache_key(strategy, uni, cname, start, end, fee, n_syms):
+    return f"{strategy}|{uni}|{cname}|{str(start)[:10]}|{str(end)[:10]}|{fee}|{n_syms}"
 
 # One candidate per (strategy, universe). Fees follow the market, as
 # established by calibration: HK 0.16%/side built up from the published
@@ -64,7 +84,7 @@ SLIPPAGE_BPS = 5.0
 MAX_STALENESS_DAYS = 3
 
 
-def universe_symbols(cfg, name):
+def universe_symbols(cfg, name, end_date=None):
     """Cached symbols for a universe, dropping any that are badly stale.
 
     latest_common_timestamp takes the MINIMUM end date across symbols, so a
@@ -86,8 +106,20 @@ def universe_symbols(cfg, name):
                 pass
     if not last:
         return [], []
-    freshest = max(last.values())
-    keep = [s for s, d in last.items() if (freshest - d).days <= MAX_STALENESS_DAYS]
+    # With a forced common end, "stale" means "does not reach that end", not
+    # "behind the freshest symbol". WMT and XOM stop at 2026-09-04, which is
+    # behind the rest of the S&P 100 but fully covers a window ending
+    # 2026-08-28, so dropping them would shrink the universe for no reason.
+    if end_date is not None:
+        ref = pd.Timestamp(end_date)
+        keep = []
+        for s, d in last.items():
+            dd = d.tz_localize(None) if d.tzinfo is not None else d
+            if (ref - dd).days <= MAX_STALENESS_DAYS:
+                keep.append(s)
+    else:
+        freshest = max(last.values())
+        keep = [s for s, d in last.items() if (freshest - d).days <= MAX_STALENESS_DAYS]
     dropped = sorted(set(last) - set(keep))
     return keep, dropped
 
@@ -97,6 +129,8 @@ def main():
     ap.add_argument('--n-boot', type=int, default=5000)
     ap.add_argument('--quick', action='store_true',
                     help='only the 4 reversal candidates, for a fast sanity run')
+    ap.add_argument('--no-cache', action='store_true',
+                    help='recompute every candidate even if cached')
     ap.add_argument('--end-date', default=None,
                     help="Common study end (YYYY-MM-DD) for EVERY candidate. Without it each "
                          "universe ends at its own newest candle, and the US universes are "
@@ -109,6 +143,9 @@ def main():
 
     cfg = ConfigLoader()
     storage = DataStorage()
+    cache = _cache_load()
+    if cache and not args.no_cache:
+        print(f"cache holds {len(cache)} completed walk-forward(s)\n")
     cands = [c for c in CANDIDATES if not args.quick or 'Reversal' in c[0]]
 
     print(f"White's Reality Check over {len(cands)} strategy-universe candidates\n")
@@ -117,7 +154,7 @@ def main():
     t_all = time.time()
 
     for strategy, uni, fee in cands:
-        syms, dropped = universe_symbols(cfg, uni)
+        syms, dropped = universe_symbols(cfg, uni, args.end_date)
         if len(syms) < 3:
             print(f"  SKIP {strategy} x {uni}: only {len(syms)} symbols with data")
             continue
@@ -138,6 +175,15 @@ def main():
               + (f", dropped {len(dropped)} stale" if dropped else ""), flush=True)
 
         for cname, n_splits in CONFIGS:
+            key = _cache_key(strategy, uni, cname, start, end, fee, len(syms))
+            if key in cache and not args.no_cache:
+                oos = cache[key]['oos_returns']
+                per_config[cname][label] = oos
+                meta[f"{label} | {cname}"] = cache[key].get('meta', {})
+                print(f"      {cname}: mean {cache[key]['meta'].get('mean_oos', 0):+7.3f}% "
+                      f"consistency {cache[key]['meta'].get('consistency', 0):5.1f}% "
+                      f"({len(oos)} windows, from cache)", flush=True)
+                continue
             t0 = time.time()
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
@@ -156,12 +202,16 @@ def main():
                 print(f"      {cname}: only {len(oos)} windows, unusable", flush=True)
                 continue
             per_config[cname][label] = oos
-            meta[f"{label} | {cname}"] = {
+            m = {
                 'n_symbols': len(syms), 'dropped_stale': dropped,
                 'mean_oos': s.get('avg_oos_return'),
                 'consistency': s.get('consistency_pct'),
                 'windows': len(oos),
+                'start': str(start)[:10], 'end': str(end)[:10],
             }
+            meta[f"{label} | {cname}"] = m
+            cache[key] = {'oos_returns': oos, 'meta': m}
+            CACHE.write_text(json.dumps(cache, indent=1))
             print(f"      {cname}: mean {s.get('avg_oos_return', 0):+7.3f}% "
                   f"consistency {s.get('consistency_pct', 0):5.1f}% "
                   f"({len(oos)} windows, {time.time()-t0:.0f}s)", flush=True)
