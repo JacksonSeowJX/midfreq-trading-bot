@@ -104,6 +104,8 @@ Run the backtesting dashboard:
 PYTHONPATH=src streamlit run src/app.py
 ```
 
+See **[docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md)** for a walkthrough of every view and control.
+
 Run live paper trading (requires OpenD running, HK market hours):
 ```bash
 python3 run_live.py --strategy "Z-Score Mean Reversion" --symbols HK.00700 --duration 30
