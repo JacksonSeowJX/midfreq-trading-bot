@@ -775,6 +775,15 @@ elif st.session_state.active_view == 'live':
     # ─── Live Paper Trading View ───────────────────────────────────
     st.markdown("### 📡 Live Paper Trading — Account & Session History")
 
+    # Moomoo keeps a separate paper account per market, each in its own
+    # currency. This view was hardwired to Hong Kong, so the S&P 100 forward
+    # test (US account, capped at US$100,000) was invisible here. Sessions are
+    # filtered to the chosen market too: HK equity is ~HKD 1,000,000 and the
+    # capped US session ~USD 100,000, so one combined curve would be meaningless.
+    live_mkt = st.radio("Paper account", ["HK", "US"], horizontal=True,
+                        format_func=lambda m: {"HK": "🇭🇰 Hong Kong (HKD)", "US": "🇺🇸 United States (USD)"}[m])
+    CCY = "USD" if live_mkt == "US" else "HKD"
+
     # Broker state (requires OpenD).
     #
     # The moomoo SDK retries a refused connection internally, every 6 seconds,
@@ -801,7 +810,8 @@ elif st.session_state.active_view == 'live':
         if not _opend_reachable():
             raise RuntimeError("OpenD not reachable")
         from core.order_gateway import MoomooPaperGateway
-        gw = MoomooPaperGateway()
+        from moomoo import TrdMarket as _TM
+        gw = MoomooPaperGateway(trd_market=_TM.US if live_mkt == 'US' else _TM.HK)
         acc = gw.get_account_info() or {}
         positions = gw.get_positions() or {}
         orders = gw.list_recent_orders(days=14)
@@ -811,19 +821,19 @@ elif st.session_state.active_view == 'live':
         initial = 1_000_000.0  # Moomoo paper account starting balance
         pnl_pct = (acc.get('total_assets', initial) - initial) / initial * 100
         with col1:
-            st.metric("Total Assets", f"HKD {acc.get('total_assets', 0):,.2f}",
+            st.metric("Total Assets", f"{CCY} {acc.get('total_assets', 0):,.2f}",
                       f"{pnl_pct:+.3f}% all-time", delta_color="normal" if pnl_pct >= 0 else "inverse")
         with col2:
-            st.metric("Cash", f"HKD {acc.get('cash', 0):,.2f}")
+            st.metric("Cash", f"{CCY} {acc.get('cash', 0):,.2f}")
         with col3:
-            st.metric("Market Value", f"HKD {acc.get('market_value', 0):,.2f}")
+            st.metric("Market Value", f"{CCY} {acc.get('market_value', 0):,.2f}")
         with col4:
             st.metric("Open Positions", len(positions))
 
         if positions:
             st.markdown("#### Open Positions")
             st.dataframe(pd.DataFrame([
-                {'Symbol': s, 'Qty': p['qty'], 'Avg Cost': f"HKD {p['entry_price']:.2f}"}
+                {'Symbol': s, 'Qty': p['qty'], 'Avg Cost': f"{CCY} {p['entry_price']:.2f}"}
                 for s, p in positions.items()
             ]), use_container_width=True)
 
@@ -842,7 +852,15 @@ elif st.session_state.active_view == 'live':
     # Session history from live_sessions/*.jsonl
     import json
     session_dir = Path(__file__).parent.parent / 'live_sessions'
-    session_files = sorted(session_dir.glob('session_*.jsonl'), reverse=True)
+    def _session_market(f):
+        try:
+            first = f.open().readline()
+            syms = json.loads(first).get('symbols', [])
+            return syms[0].split('.')[0].upper() if syms else '?'
+        except Exception:
+            return '?'
+    session_files = [f for f in sorted(session_dir.glob('session_*.jsonl'), reverse=True)
+                     if _session_market(f) == live_mkt]
 
     if session_files:
         st.markdown("#### Forward-Test Session History")
@@ -855,11 +873,12 @@ elif st.session_state.active_view == 'live':
             rows.append({
                 'Session': f.stem.replace('session_', ''),
                 'Strategy': start.get('strategy', '?'),
-                'Symbols': ', '.join(start.get('symbols', [])),
+                'Symbols': (', '.join(start.get('symbols', [])) if len(start.get('symbols', [])) <= 3
+                            else f"{len(start['symbols'])} symbols ({start['symbols'][0]}, …)"),
                 'TF': start.get('timeframe', '?'),
                 'Candles': candles,
                 'Trades': end.get('trades', 'running' if not end else 0),
-                'End Assets': f"HKD {end['account'].get('total_assets', 0):,.0f}" if end.get('account') else '—',
+                'End Assets': f"{CCY} {end['account'].get('total_assets', 0):,.0f}" if end.get('account') else '—',
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, height=280)
 
@@ -884,7 +903,7 @@ elif st.session_state.active_view == 'live':
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Sessions with data", eq_all.session.nunique())
             m2.metric("Candles recorded", f"{len(eq_all):,}")
-            m3.metric("Equity now", f"HKD {last:,.0f}",
+            m3.metric("Equity now", f"{CCY} {last:,.0f}",
                       f"{(last - first) / first * 100:+.3f}% since first candle")
             m4.metric("Span", f"{(eq_all.timestamp.max() - eq_all.timestamp.min()).days} days")
 
@@ -893,10 +912,10 @@ elif st.session_state.active_view == 'live':
                                      line=dict(color='#2a78d6', width=1.8), name='equity',
                                      hovertext=[f"{r.session}<br>{r.strategy} · {r.symbol}"
                                                 for r in eq_all.itertuples()],
-                                     hovertemplate='%{hovertext}<br>HKD %{y:,.0f}<extra></extra>'))
+                                     hovertemplate='%{hovertext}<br>' + CCY + ' %{y:,.0f}<extra></extra>'))
             fig.add_hline(y=first, line_dash="dot", line_color="#6B6B63",
                           annotation_text="first recorded equity", annotation_position="bottom right")
-            fig.update_layout(height=340, yaxis_title='HKD', xaxis_title=None,
+            fig.update_layout(height=340, yaxis_title=CCY, xaxis_title=None,
                               margin=dict(l=0, r=0, t=10, b=0), showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
             st.caption("Every candle close across every recorded session, in time order. Gaps are "
@@ -908,14 +927,16 @@ elif st.session_state.active_view == 'live':
                 f2 = go.Figure()
                 f2.add_trace(go.Scatter(x=one['timestamp'], y=one['equity'],
                                         mode='lines+markers', line=dict(color='#eb6834', width=2)))
-                f2.update_layout(height=280, yaxis_title='HKD',
+                f2.update_layout(height=280, yaxis_title=CCY,
                                  margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(f2, use_container_width=True)
                 st.caption(f"{len(one)} candles · {one.strategy.iloc[0]} · {', '.join(sorted(one.symbol.unique()))}")
         else:
             st.info("Not enough recorded candles yet to draw an equity curve.")
     else:
-        st.info("No live sessions recorded yet. Run `./scripts/run_daily_candidates.sh` during market hours.")
+        st.info(f"No {live_mkt} live sessions recorded yet. HK: `./scripts/run_daily_candidates.sh`; "
+                "US: `./scripts/run_sp100_forward_test.sh`. Session logs reach this machine through "
+                "the VM's daily 16:15 SGT upload, so pull the repo to see the latest.")
 
 elif st.session_state.active_view == 'overview':
     # ─── All Results Overview ──────────────────────────────────────
