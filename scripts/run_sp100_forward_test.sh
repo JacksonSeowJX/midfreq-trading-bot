@@ -30,6 +30,30 @@ LOG_DIR=live_sessions
 mkdir -p "$LOG_DIR"
 STAMP=$(date +%Y%m%d_%H%M%S)
 
+# --scheduled: cron fires this at BOTH 21:35 and 22:35 SGT, because the US
+# open moves between those two times when US daylight saving ends (Sun 1 Nov
+# 2026: 09:30 ET is 21:30 SGT under EDT, 22:30 SGT under EST). Only the run
+# that lands within 30 minutes after the 09:30 ET open proceeds; the other
+# exits here. No crontab edit is needed when the clocks change.
+if [ "${1:-}" = "--scheduled" ]; then
+  shift
+  if ! $PY - <<'PYEOF'
+import os, sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
+now = datetime.now(ZoneInfo("America/New_York"))
+if os.environ.get("FAKE_ET"):                       # for testing the gate
+    now = datetime.fromisoformat(os.environ["FAKE_ET"]).replace(tzinfo=ZoneInfo("America/New_York"))
+mins = now.hour * 60 + now.minute
+ok = now.weekday() < 5 and 9 * 60 + 30 <= mins <= 10 * 60
+print(f"[gate] {now:%a %Y-%m-%d %H:%M %Z}: {'US open, running' if ok else 'not the US open, skipping'}")
+sys.exit(0 if ok else 1)
+PYEOF
+  then
+    exit 0
+  fi
+fi
+
 if [ ! -f "$CFG" ]; then
   echo "Missing $CFG — run scripts/pick_sp100_live_config.py first."
   exit 1
