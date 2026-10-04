@@ -1,0 +1,131 @@
+#!/bin/bash
+# Forward test of the one strategy-universe combination that passed the
+# project's two-configuration validation standard: cross-sectional
+# reversal on the S&P 100.
+#
+# Reads its configuration from config/sp100_forward_test.json so the
+# parameters being traded live are recorded in one place the dashboard
+# and the report can both cite, rather than living in this script.
+#
+# Differences from run_daily_candidates.sh, which this does NOT replace:
+#   - US market hours (09:30-16:00 ET), not HK
+#   - equal-dollar sizing across the basket, not a flat share count:
+#     a fixed 100 shares put $2,529 into T and $125,540 into LLY on this
+#     same universe, so the basket tracked share price instead of the
+#     ranking (2026-09-08 audit, defect 2)
+#   - US commission (0.005%/side), not the HK 0.16% that includes stamp duty
+#   - NO per-position stop-loss: the validated walk-forward studies ran this
+#     strategy without a risk manager, so a 5% stop (as this used to set) made
+#     the forward test a different strategy from the one that passed. The 15%
+#     account drawdown halt stays, as a safety net only.
+#
+# Both rosters together exceed the account's 100-unit subscription quota,
+# so the HK roster cron is paused while this runs.
+#
+# Usage: ./scripts/live/run_sp100_forward_test.sh [duration_minutes]
+# Requires: OpenD running and logged in.
+
+set -u
+cd "$(dirname "$0")/../.."
+
+PY=${PYTHON:-/opt/anaconda3/bin/python}
+CFG=config/sp100_forward_test.json
+LOG_DIR=live_sessions
+mkdir -p "$LOG_DIR"
+STAMP=$(date +%Y%m%d_%H%M%S)
+
+# --scheduled: cron fires this at BOTH 21:35 and 22:35 SGT, because the US
+# open moves between those two times when US daylight saving ends (Sun 1 Nov
+# 2026: 09:30 ET is 21:30 SGT under EDT, 22:30 SGT under EST). Only the run
+# that lands within 30 minutes after the 09:30 ET open proceeds; the other
+# exits here. No crontab edit is needed when the clocks change.
+if [ "${1:-}" = "--scheduled" ]; then
+  shift
+  if ! $PY - <<'PYEOF'
+import os, sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
+now = datetime.now(ZoneInfo("America/New_York"))
+if os.environ.get("FAKE_ET"):                       # for testing the gate
+    now = datetime.fromisoformat(os.environ["FAKE_ET"]).replace(tzinfo=ZoneInfo("America/New_York"))
+mins = now.hour * 60 + now.minute
+ok = now.weekday() < 5 and 9 * 60 + 30 <= mins <= 10 * 60
+print(f"[gate] {now:%a %Y-%m-%d %H:%M %Z}: {'US open, running' if ok else 'not the US open, skipping'}")
+sys.exit(0 if ok else 1)
+PYEOF
+  then
+    exit 0
+  fi
+fi
+
+if [ ! -f "$CFG" ]; then
+  echo "Missing $CFG — run scripts/live/pick_sp100_live_config.py first."
+  exit 1
+fi
+
+read -r LOOKBACK TOP_N REBAL NSYM CAPITAL <<<"$($PY - <<'PYEOF'
+import json
+c = json.load(open('config/sp100_forward_test.json'))
+p = c['params']
+print(p['lookback'], p['top_n'], p['rebalance_every'], len(c['symbols']),
+      c.get('capital', 100000.0))
+PYEOF
+)"
+
+SYMBOLS=$($PY -c "import json;print(' '.join(json.load(open('$CFG'))['symbols']))")
+
+# Duration: minutes until the US close (16:00 ET), unless overridden.
+if [ $# -ge 1 ]; then
+  DURATION=$1
+else
+  DURATION=$($PY - <<'PYEOF'
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+et = datetime.now(ZoneInfo("America/New_York"))
+close = et.replace(hour=16, minute=0, second=0, microsecond=0)
+if et >= close:
+    close += timedelta(days=1)
+print(max(0, int((close - et).total_seconds() // 60)))
+PYEOF
+)
+  if [ "$DURATION" -le 0 ]; then
+    echo "US market is closed. Pass a duration explicitly to override."
+    exit 1
+  fi
+fi
+
+echo "S&P 100 cross-sectional reversal forward test"
+echo "  symbols        : $NSYM"
+echo "  lookback       : $LOOKBACK candles"
+echo "  basket size    : $TOP_N"
+echo "  rebalance every: $REBAL candles"
+echo "  capital        : $CAPITAL (account holds ~1,000,000; capped to match the backtest)"
+echo "  duration       : ${DURATION} min"
+echo "  log            : $LOG_DIR/console_sp100_reversal_${STAMP}.log"
+echo
+
+# DRY_RUN=1: everything except trading. Paths are resolved, the config is
+# read and the duration computed, then the exact command is printed. This
+# lets the SCHEDULED command be tested on the VM at any hour without
+# starting a session (used to verify the 2026-10-05 scripts/ reorganisation).
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  echo "[dry run] working directory: $(pwd)"
+  [ -f run_live.py ] && echo "[dry run] run_live.py found" || { echo "[dry run] run_live.py MISSING"; exit 1; }
+  echo "[dry run] would run: $PY -u run_live.py --strategy \"Cross-Sectional Reversal\" --symbols <$NSYM symbols> --timeframe 1h --duration $DURATION --sizing equal-dollar --basket-size $TOP_N --capital $CAPITAL --stop-loss 0 --max-drawdown 15 --params lookback=$LOOKBACK top_n=$TOP_N rebalance_every=$REBAL"
+  exit 0
+fi
+
+$PY -u run_live.py \
+    --strategy "Cross-Sectional Reversal" \
+    --symbols $SYMBOLS \
+    --timeframe 1h \
+    --duration "$DURATION" \
+    --sizing equal-dollar --basket-size "$TOP_N" \
+    --capital "$CAPITAL" \
+    --stop-loss 0 --max-drawdown 15 \
+    --params lookback="$LOOKBACK" top_n="$TOP_N" rebalance_every="$REBAL" \
+    2>&1 | tee "$LOG_DIR/console_sp100_reversal_${STAMP}.log"
+
+echo
+echo "--- session summary ---"
+grep -A 8 "SESSION SUMMARY" "$LOG_DIR/console_sp100_reversal_${STAMP}.log" | head -9

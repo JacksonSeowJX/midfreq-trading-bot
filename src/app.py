@@ -1007,8 +1007,8 @@ elif st.session_state.active_view == 'live':
         else:
             st.info("Not enough recorded candles yet to draw an equity curve.")
     else:
-        st.info(f"No {live_mkt} live sessions recorded yet. HK: `./scripts/run_daily_candidates.sh`; "
-                "US: `./scripts/run_sp100_forward_test.sh`. Session logs reach this machine through "
+        st.info(f"No {live_mkt} live sessions recorded yet. HK: `./scripts/live/run_daily_candidates.sh`; "
+                "US: `./scripts/live/run_sp100_forward_test.sh`. Session logs reach this machine through "
                 "the VM's daily 16:15 SGT upload, so pull the repo to see the latest.")
 
 elif st.session_state.active_view == 'overview':
@@ -1135,7 +1135,7 @@ elif st.session_state.active_view == 'research':
     csv_files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
 
     if not csv_files:
-        st.info("No research results found in results/. Run one of the scripts/*_research.py studies first.")
+        st.info("No research results found in results/. Run one of the studies in scripts/research/ first.")
     else:
         import re
         FRIENDLY_NAMES = {

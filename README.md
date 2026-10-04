@@ -75,10 +75,29 @@ This repository contains a modular quantitative trading framework for mid-freque
 
 ## Project Structure
 
-- `src/core/`: Core logic, models, and abstract interfaces.
-- `src/providers/`: Concrete data provider implementations (e.g., YFinance).
-- `src/utils/`: Helper functions and utilities.
-- `data/`: Local storage for Parquet files (ignored by git).
+```
+src/
+  core/             strategies, backtester, walk-forward optimiser, risk manager,
+                    live trading engine, order gateway, PBO and Reality Check
+  providers/        market-data providers (moomoo is the one used throughout)
+  app.py            Streamlit dashboard (see docs/DASHBOARD_GUIDE.md)
+run_live.py         live paper-trading entry point
+scripts/
+  live/             the live forward test: nightly launcher, config picker, end-to-end
+                    replay test, real-broker order-path test, trade-blotter export
+  data/             historical data download and incremental refresh
+  calibration/      cost-model measurements: HK fee from a real fill, bid-ask spreads
+  research/         every study the final report draws on
+  research/superseded/  earlier versions replaced after the 2026-09-08 testing audit,
+                    kept for the record
+  tools/            dashboard screenshots, cache seeding, one-off charts
+config/             stock universes (symbols.json) and the live forward-test config
+results/            study outputs (CSV / JSON) read by the dashboard
+live_sessions/      live session logs and strategy state, uploaded daily by the cloud VM
+presentations/      weekly-update slide and chart generators
+tests/              unit tests
+data/               local Parquet price cache (ignored by git)
+```
 
 ## Setup
 
@@ -96,7 +115,7 @@ This repository contains a modular quantitative trading framework for mid-freque
 
 Backfill historical data for all configured HK stocks (requires OpenD running):
 ```bash
-python3 scripts/backfill_data.py
+python3 scripts/data/backfill_data.py
 ```
 
 Run the backtesting dashboard:
