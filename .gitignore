@@ -14,3 +14,6 @@ live_sessions/
 .claude/
 !results/*.csv
 .venv/
+
+# per-window returns cache; keyed by a code fingerprint, rebuilt on demand
+results/reality_check_cache.json
