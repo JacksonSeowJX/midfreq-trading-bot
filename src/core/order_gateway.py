@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 from moomoo import (
-    OpenSecTradeContext, TrdEnv, TrdMarket, TrdSide, OrderType,
+    OpenSecTradeContext, TrdEnv, TrdMarket, TrdSide, OrderType, ModifyOrderOp,
     SecurityFirm, RET_OK
 )
 
@@ -109,6 +109,63 @@ class MoomooPaperGateway(OrderGateway):
 
         self.order_log.append(result)
         return result
+
+    def place_and_confirm(self, symbol: str, is_buy: bool, qty: float, ref_price: float,
+                          slip: float = 0.01, wait_s: float = 30.0) -> Dict[str, Any]:
+        """
+        Place a marketable limit order and wait for the broker to fill it.
+
+        place_order() submits a limit at the price given, and callers used to
+        treat "accepted" as "done". A limit at a candle's close does not fill
+        if the price has moved away, and the first rebalance of each session
+        is priced at the PREVIOUS day's close, so unfilled orders were likely:
+        an unfilled sell left shares at the broker that the strategy believed
+        it had sold, which the position sync never adopts back.
+
+        This prices the limit `slip` through the reference price (above it for
+        a buy, below for a sell) so it executes at the market, polls until it
+        fills or `wait_s` passes, cancels any unfilled remainder, and returns
+        what ACTUALLY filled. Callers must book dealt_qty at dealt_price, and
+        nothing at all when dealt_qty is 0.
+        """
+        import time as _time
+        limit = round(ref_price * (1 + slip if is_buy else 1 - slip), 2)
+        sub = self.place_order(symbol, is_buy, qty, limit)
+        out = {'ok': False, 'order_id': sub.get('order_id'), 'dealt_qty': 0.0,
+               'dealt_price': None, 'limit': limit, 'message': sub.get('message')}
+        if not sub.get('ok') or sub.get('order_id') is None:
+            return out
+        ctx = self._get_context()
+        oid = sub['order_id']
+        deadline = _time.time() + wait_s
+        row = None
+        while _time.time() < deadline:
+            ret, data = ctx.order_list_query(order_id=oid, trd_env=TrdEnv.SIMULATE, refresh_cache=True)
+            if ret == RET_OK and len(data):
+                row = data.iloc[0]
+                status = str(row['order_status'])
+                if status.startswith('FILLED_ALL'):
+                    break
+                if any(s in status for s in ('CANCELLED', 'FAILED', 'DELETED', 'DISABLED')):
+                    break
+            _time.sleep(1.0)
+        if row is not None and not str(row['order_status']).startswith('FILLED_ALL'):
+            # Do not leave a live remainder behind: it could fill later, after
+            # the strategy has moved on, as shares nobody is managing.
+            try:
+                ctx.modify_order(ModifyOrderOp.CANCEL, oid, 0, 0, trd_env=TrdEnv.SIMULATE)
+            except Exception as e:
+                print(f"  [!] cancel of unfilled remainder {oid} failed: {e}")
+            _time.sleep(1.0)
+            ret, data = ctx.order_list_query(order_id=oid, trd_env=TrdEnv.SIMULATE, refresh_cache=True)
+            if ret == RET_OK and len(data):
+                row = data.iloc[0]
+        if row is not None:
+            dq = float(row['dealt_qty'] or 0)
+            dp = float(row['dealt_avg_price'] or 0)
+            out.update(ok=dq > 0, dealt_qty=dq, dealt_price=dp if dq > 0 else None,
+                       message=str(row['order_status']))
+        return out
 
     def get_positions(self) -> Optional[Dict[str, Dict[str, float]]]:
         ctx = self._get_context()

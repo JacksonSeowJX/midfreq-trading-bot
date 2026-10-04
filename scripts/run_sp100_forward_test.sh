@@ -14,6 +14,10 @@
 #     same universe, so the basket tracked share price instead of the
 #     ranking (2026-09-08 audit, defect 2)
 #   - US commission (0.005%/side), not the HK 0.16% that includes stamp duty
+#   - NO per-position stop-loss: the validated walk-forward studies ran this
+#     strategy without a risk manager, so a 5% stop (as this used to set) made
+#     the forward test a different strategy from the one that passed. The 15%
+#     account drawdown halt stays, as a safety net only.
 #
 # Both rosters together exceed the account's 100-unit subscription quota,
 # so the HK roster cron is paused while this runs.
@@ -107,7 +111,7 @@ $PY -u run_live.py \
     --duration "$DURATION" \
     --sizing equal-dollar --basket-size "$TOP_N" \
     --capital "$CAPITAL" \
-    --stop-loss 5 --max-drawdown 15 \
+    --stop-loss 0 --max-drawdown 15 \
     --params lookback="$LOOKBACK" top_n="$TOP_N" rebalance_every="$REBAL" \
     2>&1 | tee "$LOG_DIR/console_sp100_reversal_${STAMP}.log"
 
