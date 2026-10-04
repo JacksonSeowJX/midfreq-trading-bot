@@ -86,8 +86,12 @@ class BaseStrategy:
         """Check if the portfolio circuit breaker has been triggered."""
         if not self.risk_manager:
             return False
+        # Each position at its own latest price. Valuing every position at
+        # `current_price` (one symbol's price) is the same defect fixed in
+        # _get_trade_qty: for a basket it could make the account look like it
+        # had crashed and trip the drawdown halt for the rest of the session.
         equity = self.portfolio.cash + sum(
-            p['qty'] * current_price for p in self.portfolio.positions.values()
+            p['qty'] * self._mark_price(sym, p) for sym, p in self.portfolio.positions.items()
         )
         return self.risk_manager.is_trading_halted(equity, self.portfolio.initial_cash)
 
@@ -997,17 +1001,46 @@ class CrossSectionalReversal(BaseStrategy):
         self.pending: Dict[str, Candle] = {}
         self.current_ts = None
         self._cross_section_count = 0
+        self._next_rebalance_at = self.rebalance_every
+        self.min_cross_section = 0          # set by the live engine
+        self.defer_unready_rebalance = False  # set by the live engine
 
     def on_start(self):
         print(f"Starting Cross-Sectional Reversal (Lookback: {self.lookback}, Top N: {self.top_n}, "
               f"Rebalance every: {self.rebalance_every})")
 
     def on_data(self, symbol: str, candle: Candle):
+        # A candle OLDER than the cross-section being assembled arrived late
+        # (live pushes can straggle). Treating it as a new timestamp would
+        # count a phantom cross-section and rebalance on a one-stock ranking,
+        # so it is dropped. Backtests deliver strictly in order, so this never
+        # fires there.
+        if self.current_ts is not None and candle.timestamp < self.current_ts:
+            return
         # A new timestamp means the previous cross-section is complete.
         if self.current_ts is not None and candle.timestamp != self.current_ts:
             self._cross_section_count += 1
-            if self._cross_section_count % self.rebalance_every == 0:
-                self._rebalance()
+            # Rebalance when one is DUE, not only on an exact multiple. In a
+            # continuous backtest these are identical (due at N, 2N, ...). Live,
+            # trading is paused during warm-up and at shutdown; a rebalance that
+            # falls due then used to be lost outright, and now waits for the
+            # first moment trading is allowed.
+            trading_allowed = not getattr(self.portfolio, 'warming_up', False)
+            # Live only (min_cross_section is 0 in backtests): rank only when
+            # nearly the whole universe reported this hour. A stalled stream on
+            # 2026-09-28 delivered 14 of 98 symbols for one hour; ranking 14
+            # stocks, and being unable to sell holdings absent from them, is not
+            # the strategy that was validated. The rebalance stays due instead.
+            complete = len(self.pending) >= self.min_cross_section
+            if self._cross_section_count >= self._next_rebalance_at and trading_allowed and complete:
+                ran = self._rebalance()
+                # Live only: a rebalance that could not decide (too little
+                # history to rank, e.g. after the local cache went stale) stays
+                # due rather than being marked done with no trades. Backtests
+                # keep the original behaviour, where the slot simply passes.
+                if ran or not self.defer_unready_rebalance:
+                    while self._next_rebalance_at <= self._cross_section_count:
+                        self._next_rebalance_at += self.rebalance_every
             self.pending = {}
         self.current_ts = candle.timestamp
         self.pending[symbol] = candle
@@ -1023,9 +1056,11 @@ class CrossSectionalReversal(BaseStrategy):
         if self._check_risk_exits(symbol, candle):
             return
 
-    def _rebalance(self):
+    def _rebalance(self) -> bool:
+        """Rebalance on the pending cross-section. Returns False when it could
+        not decide (halted, or too few symbols with enough history to rank)."""
         if self._is_halted(next(iter(self.pending.values())).close):
-            return
+            return False
 
         scores = {}
         for symbol, candle in self.pending.items():
@@ -1037,7 +1072,10 @@ class CrossSectionalReversal(BaseStrategy):
                 scores[symbol] = (candle.close / past) - 1.0  # recent return
 
         if len(scores) < self.top_n:
-            return
+            if self.defer_unready_rebalance:
+                print(f"  [!] rebalance due but only {len(scores)} of {len(self.pending)} symbols "
+                      f"have {self.lookback + 1} candles of history to rank; staying due")
+            return False
 
         ranked = sorted(scores.items(), key=lambda kv: kv[1])  # ascending: worst first
         # Ordered list, NOT a set. Python randomizes string hashing per
@@ -1065,6 +1103,13 @@ class CrossSectionalReversal(BaseStrategy):
         # Buy new basket members not already held, in rank order
         budget = self._position_budget()
         for symbol in basket:
+            # Never hold more than top_n. In a backtest every sell above
+            # succeeds, so holdings plus new buys land on exactly top_n and this
+            # never binds. Live, a sell can go unfilled; buying the replacement
+            # anyway grew the basket past top_n in the end-to-end replay.
+            held = sum(1 for q in self.portfolio.positions.values() if q.get('qty', 0) > 0)
+            if held >= self.top_n:
+                break
             if self.portfolio.get_position_qty(symbol) == 0:
                 c = self.pending[symbol]
                 qty = self._basket_qty(symbol, c.close, budget)
@@ -1072,6 +1117,7 @@ class CrossSectionalReversal(BaseStrategy):
                     self.portfolio.execute_trade(symbol, True, qty, c.close, c.timestamp)
                     if self.risk_manager:
                         self.risk_manager.register_entry(symbol, c.close)
+        return True
 
     def _position_budget(self) -> float:
         """

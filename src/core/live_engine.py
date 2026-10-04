@@ -60,6 +60,11 @@ class LivePortfolio(Portfolio):
         # reads this after warmup. 0 when there is no prior state.
         self.resumed_cross_section_count = 0
         self.cross_section_count = 0
+        self.resumed_next_rebalance_at = None
+        self.next_rebalance_at = None
+        # Latest live price per symbol, supplied by the engine, used to price
+        # orders at the market rather than at a candle close that may be a day old.
+        self.price_ref: Optional[Callable[[str], Optional[float]]] = None
         if capital_cap is not None:
             initial_cash = min(initial_cash, capital_cap) if initial_cash else capital_cap
         super().__init__(initial_cash=initial_cash, commission_rate=commission_rate)
@@ -108,6 +113,19 @@ class LivePortfolio(Portfolio):
             for symbol, peak in state.get('peak_prices', {}).items():
                 if symbol in self.positions:
                     self._peak_prices[symbol] = peak
+            nra = state.get('next_rebalance_at')
+            self.resumed_next_rebalance_at = int(nra) if nra else None
+            # Capped session: its cash is its own ledger, carried across days.
+            # Setting it to the full cap on every start ignored any positions
+            # carried over, so equity read cap + positions (~2x) until the first
+            # sync, and a rebalance in that window would have bought double size.
+            if capital_cap is not None:
+                if state.get('cash') is not None:
+                    self.cash = min(float(state['cash']), acc.get('cash', float(state['cash'])))
+                else:
+                    own_cost = sum(p['qty'] * p['entry_price'] for p in self.positions.values())
+                    self.cash = max(0.0, min(acc.get('cash', capital_cap), capital_cap - own_cost))
+                print(f"  [resume] session cash {self.cash:,.2f} (cap {capital_cap:,.2f})")
             if self.positions:
                 print(f"  [resume] restored positions: "
                       f"{ {s: p['qty'] for s, p in self.positions.items()} }")
@@ -158,6 +176,9 @@ class LivePortfolio(Portfolio):
             # N was tuned on a continuous backtest. Live restarts daily, so the
             # count has to survive the restart or the rebalance never arrives.
             'cross_section_count': getattr(self, 'cross_section_count', 0),
+            'next_rebalance_at': getattr(self, 'next_rebalance_at', None),
+            # Session cash ledger under a capital cap (see __init__/sync).
+            'cash': self.cash if self.capital_cap is not None else None,
         }, indent=1))
 
     def execute_trade(self, symbol: str, is_buy: bool, qty: float, price: float,
@@ -177,15 +198,55 @@ class LivePortfolio(Portfolio):
                 print(f"[{timestamp}] Lot-adjusted BUY {symbol}: {qty} -> {rounded} (lot {lot})")
                 qty = rounded
 
-        # 1. Submit to the broker FIRST
-        result = self.gateway.place_order(symbol, is_buy, qty, price)
-        if not result['ok']:
-            print(f"[{timestamp}] Broker rejected {'BUY' if is_buy else 'SELL'} "
-                  f"{qty} {symbol} @ {price}: {result['message']}")
-            return
+        # Price at the live market, not the decision candle's close, which on
+        # the first rebalance of a session is the previous day's 16:00 close.
+        ref = None
+        if self.price_ref is not None:
+            try:
+                ref = self.price_ref(symbol)
+            except Exception:
+                ref = None
+        ref = ref or price
 
-        # 2. Mirror locally (keeps strategy + risk manager state consistent)
-        super().execute_trade(symbol, is_buy, qty, price, timestamp, exit_reason=exit_reason)
+        if hasattr(self.gateway, 'place_and_confirm'):
+            slip = 0.01
+            if is_buy:
+                # Size against the worst-case fill (the limit), so a confirmed
+                # fill can never be rejected by the local cash check and leave
+                # the broker and this ledger disagreeing.
+                worst = ref * (1 + slip) * (1 + self.commission_rate)
+                affordable = int(self.cash // worst) if worst > 0 else 0
+                if lot and lot > 1:
+                    affordable = (affordable // lot) * lot
+                if affordable < qty:
+                    print(f"[{timestamp}] BUY {symbol} trimmed {qty} -> {affordable} to fit cash at the limit")
+                    qty = affordable
+                if qty <= 0:
+                    return
+            else:
+                qty = min(qty, self.get_position_qty(symbol))
+                if qty <= 0:
+                    return
+            result = self.gateway.place_and_confirm(symbol, is_buy, qty, ref, slip=slip)
+            if not result['ok']:
+                print(f"[{timestamp}] NOT FILLED {'BUY' if is_buy else 'SELL'} {qty} {symbol} "
+                      f"(limit {result.get('limit')}): {result['message']} — nothing booked")
+                return
+            fill_qty, fill_px = result['dealt_qty'], result['dealt_price']
+            if fill_qty < qty:
+                print(f"[{timestamp}] PARTIAL {symbol}: {fill_qty} of {qty} filled, remainder cancelled")
+        else:
+            # Legacy gateways (tests): accepted == filled at the given price.
+            result = self.gateway.place_order(symbol, is_buy, qty, ref)
+            if not result['ok']:
+                print(f"[{timestamp}] Broker rejected {'BUY' if is_buy else 'SELL'} "
+                      f"{qty} {symbol} @ {ref}: {result['message']}")
+                return
+            fill_qty, fill_px = qty, ref
+
+        # Mirror exactly what the broker did
+        super().execute_trade(symbol, is_buy, fill_qty, fill_px, timestamp, exit_reason=exit_reason)
+        qty, price = fill_qty, fill_px
         print(f"[{timestamp}] {'BUY' if is_buy else 'SELL'} {qty} {symbol} @ {price} "
               f"(order {result['order_id']}{', ' + exit_reason if exit_reason else ''})")
 
@@ -210,10 +271,13 @@ class LivePortfolio(Portfolio):
             # (cap - what this session already holds) keeps total exposure at
             # the cap; adopting the raw balance would quietly lift it back to
             # the full account on the first sync, 5 minutes in.
+            # Under a cap the session's cash is its own ledger: proceeds and
+            # costs of its confirmed fills. The broker only bounds it from
+            # above. Re-deriving it as (cap - cost of open positions), as this
+            # used to, reset the session to a fresh cap every 5 minutes and
+            # erased every realised gain or loss.
             if self.capital_cap is not None:
-                own_mv = sum(pos['qty'] * pos['entry_price']
-                             for pos in self.positions.values())
-                self.cash = max(0.0, min(acc['cash'], self.capital_cap - own_mv))
+                self.cash = min(self.cash, acc['cash'])
             else:
                 self.cash = acc['cash']
         broker_pos = self.gateway.get_positions()
@@ -288,8 +352,14 @@ class LiveTradingEngine:
         # Rebalance clock carried over from the previous session, applied after
         # warmup so replay does not advance it.
         self._resumed_xs_count = self.portfolio.resumed_cross_section_count
+        self.portfolio.price_ref = lambda s: (self._forming[s].close if s in self._forming else None)
         self.strategy = strategy_class(self.portfolio, risk_manager=risk_manager,
                                        **strategy_params)
+        if hasattr(self.strategy, 'min_cross_section'):
+            import math
+            self.strategy.min_cross_section = math.ceil(0.9 * len(symbols))
+        if hasattr(self.strategy, 'defer_unready_rebalance'):
+            self.strategy.defer_unready_rebalance = True
 
     def _warm_up(self, candles: int = 60):
         """
@@ -373,9 +443,14 @@ class LiveTradingEngine:
         # never trade. Persisting it makes the live cadence match the tested one.
         if hasattr(self.strategy, '_cross_section_count'):
             self.strategy._cross_section_count = self._resumed_xs_count
+            n = getattr(self.strategy, 'rebalance_every', 1)
+            nra = self.portfolio.resumed_next_rebalance_at
+            if nra is None:
+                # No mark saved yet: next multiple of N strictly above the count.
+                nra = (self._resumed_xs_count // n + 1) * n
+            self.strategy._next_rebalance_at = nra
             print(f"  [warmup] rebalance clock resumed at {self._resumed_xs_count} "
-                  f"cross-sections (rebalance_every="
-                  f"{getattr(self.strategy, 'rebalance_every', '?')})")
+                  f"cross-sections, next rebalance due at {nra} (rebalance_every={n})")
 
         print(f"  [warmup] complete — {_cached} from local cache, {_missed} from the broker "
               f"(broker history is quota-metered per symbol) — trading enabled\n")
@@ -413,6 +488,7 @@ class LiveTradingEngine:
         xs = getattr(self.strategy, '_cross_section_count', None)
         if xs is not None and xs != self._last_saved_xs:
             self.portfolio.cross_section_count = xs
+            self.portfolio.next_rebalance_at = getattr(self.strategy, '_next_rebalance_at', None)
             try:
                 self.portfolio.save_state()
                 self._last_saved_xs = xs
@@ -466,6 +542,11 @@ class LiveTradingEngine:
         self._warm_up()
         self.provider.start_live_streaming_multi(self.symbols, self.timeframe,
                                                  self._on_candle_update)
+        # Start the stall clock now, not at the first candle: a stream that
+        # never delivers anything is the worst stall of all, and used to go
+        # undetected because the detector only armed after a first candle.
+        self._last_candle_at = time.time()
+        resubscribed = False
 
         deadline = (time.time() + duration_minutes * 60) if duration_minutes else None
         last_sync = time.time()
@@ -487,11 +568,23 @@ class LiveTradingEngine:
                 # while shutdown can still complete.
                 if (self._last_candle_at is not None
                         and time.time() - self._last_candle_at > self.stall_timeout_s):
-                    print(f"\n[!] STALL: no candle for "
-                          f"{(time.time() - self._last_candle_at)/60:.0f} min — "
-                          f"stopping cleanly")
+                    silent = round((time.time() - self._last_candle_at) / 60, 1)
                     self._log_event({'type': 'stall', 'timestamp': str(datetime.now()),
-                                     'silent_min': round((time.time() - self._last_candle_at)/60, 1)})
+                                     'silent_min': silent, 'resubscribed_before': resubscribed})
+                    if not resubscribed:
+                        # One reconnect attempt before giving up the day: a
+                        # dropped subscription is recoverable, and stopping
+                        # cost the 2026-09-28 session its whole afternoon.
+                        print(f"\n[!] STALL: no candle for {silent:.0f} min — resubscribing once")
+                        try:
+                            self.provider.start_live_streaming_multi(self.symbols, self.timeframe,
+                                                                     self._on_candle_update)
+                            resubscribed = True
+                            self._last_candle_at = time.time()
+                            continue
+                        except Exception as e:
+                            print(f"  [!] resubscribe failed: {e}")
+                    print(f"\n[!] STALL: no candle for {silent:.0f} min — stopping cleanly")
                     break
         except KeyboardInterrupt:
             print("\nStopped by user.")
@@ -515,10 +608,20 @@ class LiveTradingEngine:
         span = spans.get(self.timeframe)
         if span is None:
             return
-        # Candle timestamps follow the provider's convention: HKT wall-clock
-        # values labeled as UTC. Compare against "now" expressed the same way.
-        now = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=timezone.utc)
-        for symbol, candle in list(self._forming.items()):
+        # Candle timestamps are the EXCHANGE's wall-clock time labelled as UTC
+        # (10:30 for the first US hourly bar, Eastern time). Compare against
+        # "now" in the same exchange's local time. This used Hong Kong time for
+        # every market, which for a US session is 12-13 hours ahead, so a
+        # mid-session stop would finalise still-forming candles as complete.
+        from zoneinfo import ZoneInfo
+        mkt = (self.symbols[0].split('.')[0].upper() if self.symbols else 'HK')
+        tz = ZoneInfo('America/New_York' if mkt == 'US' else 'Asia/Hong_Kong')
+        now = datetime.now(tz).replace(tzinfo=None).replace(tzinfo=timezone.utc)
+        # Oldest first. In a stalled hour some symbols' forming candle is an
+        # hour older than others'; finalising in storage order could feed the
+        # newer ones first, after which the older ones arrive "late" and are
+        # dropped, losing a whole hour for most of the universe.
+        for symbol, candle in sorted(self._forming.items(), key=lambda kv: kv[1].timestamp):
             # Moomoo labels candles by window END time, so an elapsed window
             # means timestamp <= now.
             ts = candle.timestamp if candle.timestamp.tzinfo else candle.timestamp.replace(tzinfo=timezone.utc)
@@ -555,12 +658,18 @@ class LiveTradingEngine:
               + (f", {failed} failed" if failed else ""))
 
     def _shutdown(self):
+        # Trading off before the last candles are finalised: they are fed after
+        # the deadline (16:00 ET), and a rebalance falling due on them would
+        # otherwise send orders at a closed market. It stays due instead, and
+        # runs at the first live cross-section of the next session.
+        self.portfolio.warming_up = True
         self._finalize_elapsed_candles()
         # State first: it is small, fast, and the only thing tomorrow's session
         # cannot do without. Writing 98 parquet files is slow and optional, so
         # it goes last — a hang there must not cost the rebalance clock again.
         if hasattr(self.strategy, '_cross_section_count'):
             self.portfolio.cross_section_count = self.strategy._cross_section_count
+            self.portfolio.next_rebalance_at = getattr(self.strategy, '_next_rebalance_at', None)
         self.portfolio.save_state()
         self._persist_candles()
         acc = self.gateway.get_account_info() or {}

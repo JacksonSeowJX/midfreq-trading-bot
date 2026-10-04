@@ -280,13 +280,24 @@ class MoomooProvider(BaseDataProvider):
                         close=row['close'],
                         volume=row['volume']
                     )
-                    callback(row['code'], candle)
+                    # One bad candle must not take the stream down with it.
+                    # This runs on moomoo's push thread: an exception escaping
+                    # here (e.g. a broker error during a rebalance) abandons
+                    # the rest of the batch and can stop pushes being handled.
+                    try:
+                        callback(row['code'], candle)
+                    except Exception as e:
+                        import traceback
+                        print(f"  [!] candle handler error on {row['code']} {row['time_key']}: {e}")
+                        traceback.print_exc()
                 return ret_code, data
 
         ctx.set_handler(MultiCandleHandler())
 
         ret, err = ctx.subscribe(symbols, [sub_type])
         if ret != RET_OK:
-            print(f"Streaming subscription error: {err}")
+            # Raise, not print: a session that silently has no data idles until
+            # its deadline and looks healthy in the logs.
+            raise RuntimeError(f"Streaming subscription failed: {err}")
         else:
             print(f"Started live {timeframe.value} candle streaming for {len(symbols)} symbols: {symbols}")
