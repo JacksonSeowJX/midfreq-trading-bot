@@ -1,6 +1,7 @@
 {
- "saved_at": "2026-09-30 03:59:06.738584",
+ "saved_at": "2026-10-03 03:59:04.633482",
  "positions": {},
  "peak_prices": {},
- "cross_section_count": 7
+ "cross_section_count": 18,
+ "note": "cross_section_count set to 18 by hand on 2026-10-05: 28 live cross-sections had been observed but git_selfheal reset the saved count to 7 each morning, so the rebalance due at 19 never fired. 18 makes that overdue rebalance happen on the first cross-section of the next session."
 }
