@@ -205,13 +205,15 @@ add_para(tf, "", font_size=7)
 add_para(tf, "✅   Hong Kong fee confirmed against a real trade (HK$77.73 vs HK$77.84)", font_size=16, color=DARK)
 add_para(tf, "", font_size=7)
 add_para(tf, "➡️   No strategy in this project beat chance once tested properly", font_size=16, color=DARK, bold=True)
-add_card(slide, 2.0, 4.85, 9.5, 1.75)
-tf = add_text(slide, 2.3, 4.97, 9, 0.5, "🎯  Now trading live: S&P 100 reversal, US$100,000 paper account",
+add_card(slide, 2.0, 4.8, 9.5, 1.85)
+tf = add_text(slide, 2.3, 4.9, 9, 0.5, "🎯  Now trading live: S&P 100 reversal, US$100,000 paper account",
               font_size=17, color=ACCENT_GREEN, bold=True)
-add_para(tf, "Started 28 September. Six bugs were caught before its first trade, including one that would "
-             "have stopped it trading at all. First trades expected this week.", font_size=13.5, color=MID)
-add_para(tf, "About 5 rebalances before the project ends: enough to show the system works, "
-             "not enough to prove the strategy.", font_size=13.5, color=MID, space_before=Pt(4))
+add_para(tf, "Running since 28 September, but week 1 placed no trades: the server's daily code update reset "
+             "the saved rebalance counter, so it never reached 19. Fixed, and the whole live path replayed "
+             "against a simulated broker.", font_size=13.5, color=MID)
+add_para(tf, "First rebalance due 5 October, then one every 19 hourly candles (just under 3 trading days): "
+             "about 4 by 19 October, enough to show the system works, not to prove the strategy.",
+         font_size=13.5, color=MID, space_before=Pt(4))
 add_text(slide, 2.5, 6.8, 8.5, 0.5, "Thank You", font_size=24, color=BRACKET, bold=True, alignment=PP_ALIGN.CENTER)
 
 
