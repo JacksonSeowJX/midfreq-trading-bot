@@ -46,7 +46,7 @@ class DataStorage:
             combined_df = combined_df[~combined_df.index.duplicated(keep='last')].sort_index()
             self.save_data(combined_df, symbol, timeframe)
 
-    def latest_common_timestamp(self, symbols: list, timeframe: str):
+    def latest_common_timestamp(self, symbols: list, timeframe: str, as_of=None):
         """
         Latest candle timestamp available across ALL of `symbols`, as a naive
         datetime, or None if nothing is cached.
@@ -61,13 +61,29 @@ class DataStorage:
         The MINIMUM across symbols is used deliberately: a universe-ranking
         strategy should not be evaluated over a period where only some of its
         constituents have quotes.
+
+        `as_of` (a date) ignores candles after that day, which gives the
+        answer this method returned back when the cache ended there. That is
+        what re-runs an old study after the cache has been topped up: the
+        Update 12 studies anchored here when the S&P 100 data ended on
+        2026-08-21, so as_of='2026-08-21' recovers their exact window.
         """
+        cutoff = None
+        if as_of is not None:
+            cutoff = pd.Timestamp(as_of).normalize() + pd.Timedelta(days=1)
+            if cutoff.tzinfo is not None:
+                cutoff = cutoff.tz_localize(None)
         latest = None
         for symbol in symbols:
             df = self.load_data(symbol.replace('.', '_'), timeframe)
             if df.empty:
                 continue
-            end = df.index.max()
+            idx = df.index
+            if cutoff is not None:
+                idx = idx[idx < (cutoff.tz_localize(idx.tz) if idx.tz is not None else cutoff)]
+                if len(idx) == 0:
+                    continue
+            end = idx.max()
             end = end.to_pydatetime().replace(tzinfo=None)
             latest = end if latest is None else min(latest, end)
         return latest

@@ -35,9 +35,8 @@ from core.storage import DataStorage
 from core.portfolio import Portfolio
 from core.optimizer import walk_forward
 from core.config import ConfigLoader
-from core.config import ConfigLoader
+
 SP100_TICKERS = ConfigLoader().describe_universe("sp100")["tickers"]
-from core.config import ConfigLoader
 HSI_CODES = [s.replace("HK.", "") for s in ConfigLoader().get_universe("hsi")]
 
 CONFIGS = [('A (9 windows)', 9), ('B (15 windows)', 15)]

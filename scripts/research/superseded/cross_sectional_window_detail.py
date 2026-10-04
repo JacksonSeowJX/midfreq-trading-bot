@@ -28,8 +28,8 @@ from core.models import Timeframe
 from core.storage import DataStorage
 from core.optimizer import walk_forward
 from core.config import ConfigLoader
+
 SP100_TICKERS = ConfigLoader().describe_universe("sp100")["tickers"]
-from core.config import ConfigLoader
 HSI_CODES = [s.replace("HK.", "") for s in ConfigLoader().get_universe("hsi")]
 
 CONFIGS = [
