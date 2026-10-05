@@ -110,8 +110,15 @@ class MoomooPaperGateway(OrderGateway):
         self.order_log.append(result)
         return result
 
+    @staticmethod
+    def _is_final(status: str) -> bool:
+        """Filled, cancelled or rejected: nothing about the order can change any more."""
+        return status.startswith('FILLED_ALL') or any(
+            s in status for s in ('CANCELLED', 'FAILED', 'DELETED', 'DISABLED'))
+
     def place_and_confirm(self, symbol: str, is_buy: bool, qty: float, ref_price: float,
-                          slip: float = 0.01, wait_s: float = 30.0) -> Dict[str, Any]:
+                          slip: float = 0.01, wait_s: float = 30.0,
+                          cancel_wait_s: float = 10.0) -> Dict[str, Any]:
         """
         Place a marketable limit order and wait for the broker to fill it.
 
@@ -137,29 +144,41 @@ class MoomooPaperGateway(OrderGateway):
             return out
         ctx = self._get_context()
         oid = sub['order_id']
-        deadline = _time.time() + wait_s
-        row = None
-        while _time.time() < deadline:
-            ret, data = ctx.order_list_query(order_id=oid, trd_env=TrdEnv.SIMULATE, refresh_cache=True)
-            if ret == RET_OK and len(data):
-                row = data.iloc[0]
-                status = str(row['order_status'])
-                if status.startswith('FILLED_ALL'):
-                    break
-                if any(s in status for s in ('CANCELLED', 'FAILED', 'DELETED', 'DISABLED')):
-                    break
-            _time.sleep(1.0)
-        if row is not None and not str(row['order_status']).startswith('FILLED_ALL'):
+
+        def poll(seconds, row=None):
+            """Latest known state of the order, returning as soon as it is final."""
+            deadline = _time.time() + seconds
+            while True:
+                ret, data = ctx.order_list_query(order_id=oid, trd_env=TrdEnv.SIMULATE,
+                                                 refresh_cache=True)
+                if ret == RET_OK and len(data):
+                    row = data.iloc[0]
+                    if self._is_final(str(row['order_status'])):
+                        return row
+                if _time.time() >= deadline:
+                    return row
+                _time.sleep(1.0)
+
+        row = poll(wait_s)
+        if row is None or not self._is_final(str(row['order_status'])):
             # Do not leave a live remainder behind: it could fill later, after
-            # the strategy has moved on, as shares nobody is managing.
+            # the strategy has moved on, as shares nobody is managing. Cancel
+            # even when every status query failed, since then nothing is known.
             try:
-                ctx.modify_order(ModifyOrderOp.CANCEL, oid, 0, 0, trd_env=TrdEnv.SIMULATE)
+                ret, msg = ctx.modify_order(ModifyOrderOp.CANCEL, oid, 0, 0, trd_env=TrdEnv.SIMULATE)
+                if ret != RET_OK:
+                    print(f"  [!] cancel of unfilled remainder {oid} refused: {msg}")
             except Exception as e:
                 print(f"  [!] cancel of unfilled remainder {oid} failed: {e}")
-            _time.sleep(1.0)
-            ret, data = ctx.order_list_query(order_id=oid, trd_env=TrdEnv.SIMULATE, refresh_cache=True)
-            if ret == RET_OK and len(data):
-                row = data.iloc[0]
+            # A cancel is asynchronous. On 2026-10-05 the paper broker marked
+            # one CANCELLED_ALL about a second after the request, so a single
+            # re-query 1s later still read SUBMITTED. Wait for the final status,
+            # which also picks up anything that filled before the cancel landed.
+            row = poll(cancel_wait_s, row)
+            if row is None or not self._is_final(str(row['order_status'])):
+                print(f"  [!] order {oid} not final {cancel_wait_s:.0f}s after cancel "
+                      f"({'unknown' if row is None else row['order_status']}); "
+                      f"booking only what has filled so far")
         if row is not None:
             dq = float(row['dealt_qty'] or 0)
             dp = float(row['dealt_avg_price'] or 0)
