@@ -118,7 +118,7 @@ class MoomooPaperGateway(OrderGateway):
 
     def place_and_confirm(self, symbol: str, is_buy: bool, qty: float, ref_price: float,
                           slip: float = 0.01, wait_s: float = 30.0,
-                          cancel_wait_s: float = 10.0) -> Dict[str, Any]:
+                          cancel_wait_s: float = 30.0) -> Dict[str, Any]:
         """
         Place a marketable limit order and wait for the broker to fill it.
 
@@ -170,10 +170,14 @@ class MoomooPaperGateway(OrderGateway):
                     print(f"  [!] cancel of unfilled remainder {oid} refused: {msg}")
             except Exception as e:
                 print(f"  [!] cancel of unfilled remainder {oid} failed: {e}")
-            # A cancel is asynchronous. On 2026-10-05 the paper broker marked
-            # one CANCELLED_ALL about a second after the request, so a single
-            # re-query 1s later still read SUBMITTED. Wait for the final status,
-            # which also picks up anything that filled before the cancel landed.
+            # A cancel is asynchronous, and the status can lag the broker's own
+            # records. On 2026-10-05 the HK paper broker marked a cancelled order
+            # CANCELLED_ALL about a second after the request, so a single re-query
+            # 1s later still read SUBMITTED; and that night every US paper order
+            # read SUBMITTED for the whole 30s wait although the broker timestamps
+            # its fill 16-18s in, and showed FILLED_ALL only in the query after
+            # the (refused) cancel. Wait for the final status, which also picks up
+            # anything that filled before the cancel landed.
             row = poll(cancel_wait_s, row)
             if row is None or not self._is_final(str(row['order_status'])):
                 print(f"  [!] order {oid} not final {cancel_wait_s:.0f}s after cancel "
