@@ -117,3 +117,16 @@ def test_an_order_the_broker_already_rejected_is_not_cancelled(clock):
     ctx = FakeCtx([('SUBMIT_FAILED', 0, 0)])
     r = gateway(ctx).place_and_confirm('US.AAPL', True, 10, 250.0)
     assert ctx.cancels == 0 and r['dealt_qty'] == 0 and r['message'] == 'SUBMIT_FAILED'
+
+
+def test_us_paper_fill_that_shows_late_is_still_booked(clock):
+    # 2026-10-05, US paper: the order read SUBMITTED for the whole 30s wait
+    # although the broker filled it at 18s; the cancel was refused and the
+    # fill showed up afterwards. Here it shows up 3 queries after the cancel,
+    # which a single re-query would have missed, booking 0 shares the broker
+    # had bought.
+    ctx = FakeCtx([('SUBMITTED', 0, 0)] * 31 + [('SUBMITTED', 0, 0)] * 3 + [('FILLED_ALL', 179, 183.04)],
+                  cancel_ok=False)
+    r = gateway(ctx).place_and_confirm('US.QCOM', True, 179, 183.0)
+    assert ctx.cancels == 1
+    assert (r['ok'], r['dealt_qty'], r['dealt_price'], r['message']) == (True, 179, 183.04, 'FILLED_ALL')
