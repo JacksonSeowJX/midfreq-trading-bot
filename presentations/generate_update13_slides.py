@@ -109,6 +109,7 @@ def caption_card(slide, top, headline, body, height=1.1):
     add_card(slide, 0.8, top, 11.7, height)
     tf = add_text(slide, 1.1, top + 0.1, 11.2, 0.5, headline, font_size=14, color=DARK, bold=True)
     add_para(tf, body, font_size=13.5, color=MID, space_before=Pt(2))
+    return tf
 
 
 # ==================== SLIDE 1: TITLE ====================
@@ -181,14 +182,17 @@ caption_card(slide, 6.05,
 
 # ==================== SLIDE 6: HK FEE CHECKED ====================
 slide = prs.slides.add_slide(prs.slide_layouts[6]); set_slide_bg(slide)
-title(slide, "The Hong Kong Fee, Checked Against a Real Trade")
+title(slide, "The Trading Fees, Checked Against Real Trades")
 picture(slide, 'chart_u13_fee.png', 0.9, 1.4, 11.5)
-caption_card(slide, 6.0,
-             "A real paper trade of 100 Tencent shares was charged HK$77.73. "
-             "The published fee schedule predicts HK$77.84.",
-             "Because of the flat HK$15 platform fee, the percentage depends on trade size: "
-             "about 0.158% at the HK$100,000 our studies trade, against the 0.16% the code uses.",
-             height=1.2)
+tf = caption_card(slide, 5.75,
+                  "A real paper trade of 100 Tencent shares was charged HK$77.73. "
+                  "The published fee schedule predicts HK$77.84.",
+                  "Because of the flat HK$15 platform fee, the percentage depends on trade size: "
+                  "about 0.158% at the HK$100,000 our studies trade, against the 0.16% the code uses.",
+                  height=1.6)
+add_para(tf, "US: the first live orders (5 October) were charged US$0.99 each, 0.003% of a "
+             "US$33,000 order, against the 0.005% the code uses.",
+         font_size=13.5, color=MID, space_before=Pt(4))
 
 
 # ==================== SLIDE 7: SUMMARY ====================
@@ -202,17 +206,18 @@ tf = add_text(slide, 2.0, 2.0, 9.5, 0.5,
 add_para(tf, "", font_size=7)
 add_para(tf, "❌   A one-week change in the data turns the pass into a fail", font_size=16, color=DARK)
 add_para(tf, "", font_size=7)
-add_para(tf, "✅   Hong Kong fee confirmed against a real trade (HK$77.73 vs HK$77.84)", font_size=16, color=DARK)
+add_para(tf, "✅   Fees confirmed by real trades: HK$77.73 vs HK$77.84 predicted, US$0.99 per US order", font_size=16, color=DARK)
 add_para(tf, "", font_size=7)
 add_para(tf, "➡️   No strategy in this project beat chance once tested properly", font_size=16, color=DARK, bold=True)
-add_card(slide, 2.0, 4.8, 9.5, 1.85)
-tf = add_text(slide, 2.3, 4.9, 9, 0.5, "🎯  Now trading live: S&P 100 reversal, US$100,000 paper account",
+add_card(slide, 2.0, 4.6, 9.5, 2.05)
+tf = add_text(slide, 2.3, 4.7, 9, 0.5, "🎯  Now trading live: S&P 100 reversal, US$100,000 paper account",
               font_size=17, color=ACCENT_GREEN, bold=True)
-add_para(tf, "Running since 28 September, but week 1 placed no trades: the server's daily code update reset "
-             "the saved rebalance counter, so it never reached 19. Fixed, and the whole live path replayed "
-             "against a simulated broker.", font_size=13.5, color=MID)
-add_para(tf, "First rebalance due 5 October, then one every 19 hourly candles (just under 3 trading days): "
-             "about 4 by 19 October, enough to show the system works, not to prove the strategy.",
+add_para(tf, "Live since 28 September, but week 1 placed no trades: the server's daily code update kept "
+             "resetting the saved rebalance counter. Fixed, and the whole live path replayed against a "
+             "simulated broker.", font_size=13.5, color=MID)
+add_para(tf, "First rebalance on 5 October bought Qualcomm, General Motors and Netflix, about US$33,000 each, "
+             "matching the broker share for share. Then one every 19 trading hours (just under 3 trading days): "
+             "about 4 by 19 October.",
          font_size=13.5, color=MID, space_before=Pt(4))
 add_text(slide, 2.5, 6.8, 8.5, 0.5, "Thank You", font_size=24, color=BRACKET, bold=True, alignment=PP_ALIGN.CENTER)
 
