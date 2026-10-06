@@ -1,7 +1,25 @@
 {
- "saved_at": "2026-10-03 03:59:04.633482",
- "positions": {},
- "peak_prices": {},
- "cross_section_count": 18,
- "note": "cross_section_count set to 18 by hand on 2026-10-05: 28 live cross-sections had been observed but git_selfheal reset the saved count to 7 each morning, so the rebalance due at 19 never fired. 18 makes that overdue rebalance happen on the first cross-section of the next session."
+ "saved_at": "2026-10-06 03:59:03.521018",
+ "positions": {
+  "US.QCOM": {
+   "qty": 179.0,
+   "entry_price": 183.04
+  },
+  "US.GM": {
+   "qty": 425.0,
+   "entry_price": 79.9
+  },
+  "US.NFLX": {
+   "qty": 491.0,
+   "entry_price": 66.98
+  }
+ },
+ "peak_prices": {
+  "US.QCOM": 183.04,
+  "US.GM": 80.5791,
+  "US.NFLX": 67.24
+ },
+ "cross_section_count": 24,
+ "next_rebalance_at": 38,
+ "cash": 386.17955800001073
 }
