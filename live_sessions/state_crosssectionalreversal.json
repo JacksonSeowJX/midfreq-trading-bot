@@ -1,5 +1,5 @@
 {
- "saved_at": "2026-10-06 03:59:03.521018",
+ "saved_at": "2026-10-07 03:59:05.475946",
  "positions": {
   "US.QCOM": {
    "qty": 179.0,
@@ -15,11 +15,11 @@
   }
  },
  "peak_prices": {
-  "US.QCOM": 183.04,
-  "US.GM": 80.5791,
-  "US.NFLX": 67.24
+  "US.QCOM": 204.465,
+  "US.GM": 84.31,
+  "US.NFLX": 72.16
  },
- "cross_section_count": 24,
+ "cross_section_count": 30,
  "next_rebalance_at": 38,
  "cash": 386.17955800001073
 }
