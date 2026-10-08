@@ -16,9 +16,27 @@ class BaseStrategy:
         """Called once before the strategy begins running data"""
         pass
 
+    def _live_price(self, symbol: str) -> Optional[float]:
+        """The price an order would be sent at right now, when trading live.
+
+        The live portfolio exposes `price_ref`; a backtest portfolio does not,
+        so this is None there and backtests are unaffected.
+        """
+        ref = getattr(self.portfolio, 'price_ref', None)
+        if ref is None:
+            return None
+        try:
+            return ref(symbol) or None
+        except Exception:
+            return None
+
     def _mark_price(self, symbol: str, pos: dict) -> float:
-        """Latest known price for a held symbol: current candle, else last
-        close in history, else the entry price."""
+        """Latest known price for a held symbol: the live price when trading
+        live, else the current candle, else last close in history, else the
+        entry price."""
+        live = self._live_price(symbol)
+        if live:
+            return live
         pending = getattr(self, 'pending', None)
         if isinstance(pending, dict) and symbol in pending:
             return pending[symbol].close
@@ -31,6 +49,14 @@ class BaseStrategy:
         """Calculate trade quantity using risk manager or default to 100."""
         if self.risk_manager:
             stats = self.portfolio.get_trade_stats()
+            # Live: size at the price the order will be sent at. `price` is the
+            # close of the cross-section the decision was made on, which live
+            # is an hour old, or a night old when a rebalance is carried over
+            # from the close. Sizing on it let the dollar amounts drift from
+            # equal by however far each stock had moved since: in the replay a
+            # stock that had gapped up 22% overnight got $50k where its
+            # neighbours got $41k and $33k. A backtest fills at `price` itself.
+            price = self._live_price(symbol) or price
             # Value each held position at ITS OWN latest price. This used to
             # multiply every position by `price` — the price of the symbol
             # being traded — which is harmless with one position at a time but
