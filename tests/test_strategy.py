@@ -256,3 +256,60 @@ def test_live_sizing_uses_the_live_price_not_the_decision_close():
     assert abs(a - b) / max(a, b) < 0.01, (a, b)                # equal dollars, ~60k each
     a, b = basket(with_live_price=False)
     assert a > 1.2 * b, (a, b)                                  # what sizing on the stale close did
+
+
+# ── live: act when the cross-section is complete, not an hour later ──────────
+
+def _xs_strategy(full, lookback=1, top_n=1, rebalance_every=1):
+    from core.strategy import CrossSectionalReversal
+    pf = Portfolio(initial_cash=100_000.0, commission_rate=0.0)
+    s = CrossSectionalReversal(pf, lookback=lookback, top_n=top_n, rebalance_every=rebalance_every)
+    s.full_cross_section = full
+    return s, pf
+
+
+def _feed(s, ts, closes):
+    for sym, px in closes.items():
+        s.on_data(sym, Candle(timestamp=ts, open=px, high=px, low=px, close=px, volume=1))
+
+
+_T = [datetime(2026, 10, 8, 10, 30) + timedelta(hours=h) for h in range(6)]
+_PATH = [{'A': 100, 'B': 100, 'C': 100}, {'A': 90, 'B': 101, 'C': 102}, {'A': 91, 'B': 80, 'C': 103},
+         {'A': 92, 'B': 81, 'C': 70}, {'A': 99, 'B': 82, 'C': 71}, {'A': 99, 'B': 90, 'C': 72}]
+
+
+def test_backtest_closes_a_cross_section_only_when_the_next_timestamp_arrives():
+    s, pf = _xs_strategy(full=0)
+    _feed(s, _T[0], _PATH[0]); _feed(s, _T[1], _PATH[1])
+    assert s._cross_section_count == 1 and not pf.positions       # T1 is still open
+    _feed(s, _T[2], {'A': 91})                                    # first candle of T2 closes T1
+    assert s._cross_section_count == 2 and list(pf.positions) == ['A']
+
+
+def test_live_acts_as_soon_as_the_whole_universe_has_reported():
+    s, pf = _xs_strategy(full=3)
+    _feed(s, _T[0], _PATH[0]); _feed(s, _T[1], {'A': 90, 'B': 101})
+    assert s._cross_section_count == 1 and not pf.positions       # 2 of 3 in: not yet
+    _feed(s, _T[1], {'C': 102})                                   # the last symbol reports
+    assert s._cross_section_count == 2 and list(pf.positions) == ['A']
+    _feed(s, _T[2], {'A': 91})                                    # next hour must not count T1 again
+    assert s._cross_section_count == 2
+
+
+def test_live_falls_back_to_the_next_timestamp_when_a_symbol_never_reports():
+    s, pf = _xs_strategy(full=3)
+    _feed(s, _T[0], _PATH[0]); _feed(s, _T[1], {'A': 90, 'B': 101})    # C is missing this hour
+    assert s._cross_section_count == 1
+    _feed(s, _T[2], {'A': 91})
+    assert s._cross_section_count == 2 and list(pf.positions) == ['A']
+
+
+def test_live_and_backtest_make_the_same_decisions_on_the_same_candles():
+    def run(full):
+        s, pf = _xs_strategy(full=full)
+        for ts, closes in zip(_T, _PATH):
+            _feed(s, ts, closes)
+        _feed(s, _T[-1] + timedelta(hours=1), {'A': 1})           # lets the backtest close the last one
+        return [tuple(sorted((k, str(v)) for k, v in t.items())) for t in pf.trade_history]
+    backtest, live = run(0), run(3)
+    assert backtest and backtest == live
