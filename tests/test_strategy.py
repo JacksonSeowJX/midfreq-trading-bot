@@ -223,3 +223,36 @@ def test_basket_sizing_values_each_position_at_its_own_price():
     q2 = s._get_trade_qty('CHEAP', 20.0)
     exp_val, cheap_val = q1 * 200.0, q2 * 20.0
     assert abs(exp_val - cheap_val) / exp_val < 0.01, (exp_val, cheap_val)
+
+
+def test_live_sizing_uses_the_live_price_not_the_decision_close():
+    """Regression: live, the decision close is an hour (or a night) old. A
+    stock that gapped up 22% since was bought 22% over its equal share."""
+    from core.portfolio import Portfolio
+    from core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+    from core.strategy import CrossSectionalReversal
+
+    live = {'GAPPED': 223.76, 'FLAT': 50.0}
+    decision = {'GAPPED': 183.435, 'FLAT': 50.0}
+
+    def basket(with_live_price):
+        pf = Portfolio(initial_cash=120_000.0, commission_rate=0.0)
+        if with_live_price:
+            pf.price_ref = live.get
+        rm = RiskManager(position_sizer=create_position_sizer(SizingMethod.EQUAL_DOLLAR,
+                                                              n_positions=2, cost_buffer=0.0))
+        s = CrossSectionalReversal(pf, risk_manager=rm, lookback=1, top_n=2, rebalance_every=1)
+        ts = datetime(2026, 10, 1, 10, 30)
+        s.pending = {k: Candle(timestamp=ts, open=v, high=v, low=v, close=v, volume=1)
+                     for k, v in decision.items()}
+        spent = []
+        for sym in ('GAPPED', 'FLAT'):
+            q = s._get_trade_qty(sym, decision[sym])
+            pf.execute_trade(sym, True, q, live[sym], ts)      # the order fills at the live price
+            spent.append(q * live[sym])
+        return spent
+
+    a, b = basket(with_live_price=True)
+    assert abs(a - b) / max(a, b) < 0.01, (a, b)                # equal dollars, ~60k each
+    a, b = basket(with_live_price=False)
+    assert a > 1.2 * b, (a, b)                                  # what sizing on the stale close did
