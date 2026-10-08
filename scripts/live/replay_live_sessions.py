@@ -176,6 +176,7 @@ def run_scenario(name, sessions, broker_kwargs, crash_session=None):
     real_dt = live_mod.datetime
     live_mod.datetime = ReplayClock
     fails, expected_xs, rebalances = [], 0, 0
+    carried = 0        # 1 when the previous session ended on an incomplete cross-section
     try:
         for day, (date, hours) in enumerate(sessions):
             day0 = pd.Timestamp(hours[0][0]).tz_localize(None).normalize()
@@ -193,12 +194,27 @@ def run_scenario(name, sessions, broker_kwargs, crash_session=None):
                 eng._warm_up()
             xs_start = eng.strategy._cross_section_count
             due_start = eng.strategy._next_rebalance_at
+            # Every order must be decided on the cross-section that has JUST
+            # completed. Feeding hour i completes hour i-1 (a candle is final
+            # when its successor's first push arrives), so that is the only
+            # cross-section an order sent during hour i may be based on. Until
+            # 9 Oct 2026 the strategy only closed a cross-section when the next
+            # one's first candle was finalised, a full hour later.
+            feeding = {'done': None}
+            late = []
+            _execute = eng.portfolio.execute_trade
+            def _spy(symbol, is_buy, qty, price, timestamp, *a, **k):
+                if feeding['done'] is None or pd.Timestamp(timestamp) != feeding['done']:
+                    late.append((symbol, str(timestamp)[:16], str(feeding['done'])[:16]))
+                return _execute(symbol, is_buy, qty, price, timestamp, *a, **k)
+            eng.portfolio.execute_trade = _spy
             orders_before = broker.n_orders
             cash_before_local, cash_before_broker = eng.portfolio.cash, broker.cash
 
             with contextlib.redirect_stdout(buf):
                 for i, (ts, closes) in enumerate(hours):
                     t = pd.Timestamp(ts)
+                    feeding['done'] = pd.Timestamp(hours[i - 1][0]) if i else None
                     for sym, c in closes.items():
                         broker.market[sym] = c
                         eng._on_candle_update(sym, Candle(timestamp=t, open=c, high=c, low=c, close=c, volume=1))
@@ -224,8 +240,24 @@ def run_scenario(name, sessions, broker_kwargs, crash_session=None):
                 fails.append(f"{date}: positions disagree local={local} broker={remote}")
             if len(local) > PARAMS['top_n']:
                 fails.append(f"{date}: basket of {len(local)} > top_n {PARAMS['top_n']}")
-            if crash_session != day and xs_end - xs_start != len(hours):
-                fails.append(f"{date}: clock advanced {xs_end - xs_start} for {len(hours)} hours of data")
+            if late:
+                sym, decided, done = late[0]
+                fails.append(f"{date}: {len(late)} order(s) not on the cross-section just completed, "
+                             f"e.g. {sym} decided on {decided} when {done} had completed")
+            # Every cross-section is counted exactly once. One that the whole
+            # universe reported is counted as it completes; one that ended the
+            # session incomplete (28 Sep: 14 of 98 symbols in the last hour) is
+            # counted when the next session's first candle supersedes it.
+            incomplete_last = len(hours[-1][1]) < len(SYMBOLS)
+            if crash_session != day:
+                expected = len(hours) + carried - (1 if incomplete_last else 0)
+                if xs_end - xs_start != expected:
+                    fails.append(f"{date}: clock advanced {xs_end - xs_start}, expected {expected} "
+                                 f"({len(hours)} hours of data, {carried} carried in, "
+                                 f"{int(incomplete_last)} left incomplete)")
+                carried = 1 if incomplete_last else 0
+            else:
+                carried = 0
             if 'STATE ANOMALY' in log:
                 fails.append(f"{date}: state anomaly logged")
             st = json.loads((log_dir / 'state_crosssectionalreversal.json').read_text())

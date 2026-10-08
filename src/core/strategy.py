@@ -1030,6 +1030,8 @@ class CrossSectionalReversal(BaseStrategy):
         self._next_rebalance_at = self.rebalance_every
         self.min_cross_section = 0          # set by the live engine
         self.defer_unready_rebalance = False  # set by the live engine
+        self.full_cross_section = 0         # set by the live engine: universe size
+        self._closed_ts = None              # last cross-section already counted
 
     def on_start(self):
         print(f"Starting Cross-Sectional Reversal (Lookback: {self.lookback}, Top N: {self.top_n}, "
@@ -1043,30 +1045,11 @@ class CrossSectionalReversal(BaseStrategy):
         # fires there.
         if self.current_ts is not None and candle.timestamp < self.current_ts:
             return
-        # A new timestamp means the previous cross-section is complete.
+        # A new timestamp means the previous cross-section is complete, unless
+        # it was already closed the moment its last symbol reported (live).
         if self.current_ts is not None and candle.timestamp != self.current_ts:
-            self._cross_section_count += 1
-            # Rebalance when one is DUE, not only on an exact multiple. In a
-            # continuous backtest these are identical (due at N, 2N, ...). Live,
-            # trading is paused during warm-up and at shutdown; a rebalance that
-            # falls due then used to be lost outright, and now waits for the
-            # first moment trading is allowed.
-            trading_allowed = not getattr(self.portfolio, 'warming_up', False)
-            # Live only (min_cross_section is 0 in backtests): rank only when
-            # nearly the whole universe reported this hour. A stalled stream on
-            # 2026-09-28 delivered 14 of 98 symbols for one hour; ranking 14
-            # stocks, and being unable to sell holdings absent from them, is not
-            # the strategy that was validated. The rebalance stays due instead.
-            complete = len(self.pending) >= self.min_cross_section
-            if self._cross_section_count >= self._next_rebalance_at and trading_allowed and complete:
-                ran = self._rebalance()
-                # Live only: a rebalance that could not decide (too little
-                # history to rank, e.g. after the local cache went stale) stays
-                # due rather than being marked done with no trades. Backtests
-                # keep the original behaviour, where the slot simply passes.
-                if ran or not self.defer_unready_rebalance:
-                    while self._next_rebalance_at <= self._cross_section_count:
-                        self._next_rebalance_at += self.rebalance_every
+            if self._closed_ts != self.current_ts:
+                self._close_cross_section()
             self.pending = {}
         self.current_ts = candle.timestamp
         self.pending[symbol] = candle
@@ -1079,8 +1062,47 @@ class CrossSectionalReversal(BaseStrategy):
         if len(prices) > self.lookback + 2:
             prices.pop(0)
 
+        # Live only (full_cross_section is 0 in backtests): the cross-section is
+        # complete as soon as every symbol in the universe has reported it.
+        # Waiting for "a new timestamp" is free in a backtest, where the next
+        # candle is fed immediately and the trade is booked at this candle's
+        # close. Live, the next hourly candle is an hour away: the 8 Oct 2026
+        # rebalance ranked on the 10:30 candle and sent its first order at
+        # 11:30:00. If any symbol fails to report, the rule above still closes
+        # the cross-section when the next hour arrives, as before.
+        if (self.full_cross_section and len(self.pending) >= self.full_cross_section
+                and self._closed_ts != self.current_ts):
+            self._close_cross_section()
+
         if self._check_risk_exits(symbol, candle):
             return
+
+    def _close_cross_section(self):
+        """The cross-section in `pending` is complete: count it, and rebalance
+        on it if a rebalance is due."""
+        self._cross_section_count += 1
+        self._closed_ts = self.current_ts
+        # Rebalance when one is DUE, not only on an exact multiple. In a
+        # continuous backtest these are identical (due at N, 2N, ...). Live,
+        # trading is paused during warm-up and at shutdown; a rebalance that
+        # falls due then used to be lost outright, and now waits for the
+        # first moment trading is allowed.
+        trading_allowed = not getattr(self.portfolio, 'warming_up', False)
+        # Live only (min_cross_section is 0 in backtests): rank only when
+        # nearly the whole universe reported this hour. A stalled stream on
+        # 2026-09-28 delivered 14 of 98 symbols for one hour; ranking 14
+        # stocks, and being unable to sell holdings absent from them, is not
+        # the strategy that was validated. The rebalance stays due instead.
+        complete = len(self.pending) >= self.min_cross_section
+        if self._cross_section_count >= self._next_rebalance_at and trading_allowed and complete:
+            ran = self._rebalance()
+            # Live only: a rebalance that could not decide (too little
+            # history to rank, e.g. after the local cache went stale) stays
+            # due rather than being marked done with no trades. Backtests
+            # keep the original behaviour, where the slot simply passes.
+            if ran or not self.defer_unready_rebalance:
+                while self._next_rebalance_at <= self._cross_section_count:
+                    self._next_rebalance_at += self.rebalance_every
 
     def _rebalance(self) -> bool:
         """Rebalance on the pending cross-section. Returns False when it could

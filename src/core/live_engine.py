@@ -360,6 +360,12 @@ class LiveTradingEngine:
             self.strategy.min_cross_section = math.ceil(0.9 * len(symbols))
         if hasattr(self.strategy, 'defer_unready_rebalance'):
             self.strategy.defer_unready_rebalance = True
+        # Act on a cross-section as soon as the whole universe has reported it,
+        # seconds after the candle closes, rather than when the next hourly
+        # candle completes an hour later. A backtest books each trade at the
+        # close of the candle it ranked on; this is the live equivalent.
+        if hasattr(self.strategy, 'full_cross_section'):
+            self.strategy.full_cross_section = len(symbols)
 
     def _warm_up(self, candles: int = 60):
         """
