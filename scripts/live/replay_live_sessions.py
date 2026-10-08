@@ -257,15 +257,20 @@ def main():
     sessions = load_sessions()
     if not sessions:
         print("no recorded cross-sectional sessions in live_sessions/"); return 1
-    # The recorded week three times over, so the clock crosses several
+    # The recordings three times over, so the clock crosses several
     # rebalances. Copies are shifted BACKWARDS in time: the engine (correctly)
     # will not finalise a candle whose hour has not yet happened, so copies
-    # dated in the future would each lose their 16:00 candle.
+    # dated in the future would each lose their 16:00 candle. The shift is a
+    # whole number of weeks covering everything recorded; a fixed 7 days made
+    # the copies overlap once the recordings ran past one week, and the engine
+    # (again correctly) dropped the repeated dates as stale.
+    first, last = pd.Timestamp(sessions[0][0]), pd.Timestamp(sessions[-1][0])
+    period = 7 * ((last - first).days // 7 + 1)
     long = []
     for k in (2, 1, 0):
         for date, hours in sessions:
-            shifted = [(str(pd.Timestamp(ts) - pd.Timedelta(days=7 * k)), c) for ts, c in hours]
-            long.append((str((pd.Timestamp(date) - pd.Timedelta(days=7 * k)).date()), shifted))
+            shifted = [(str(pd.Timestamp(ts) - pd.Timedelta(days=period * k)), c) for ts, c in hours]
+            long.append((str((pd.Timestamp(date) - pd.Timedelta(days=period * k)).date()), shifted))
     scenarios = [
         ("clean broker", {}),
         ("every 4th order not filled", {'reject_every': 4}),
