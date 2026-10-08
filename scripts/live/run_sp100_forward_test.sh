@@ -74,18 +74,29 @@ PYEOF
 
 SYMBOLS=$($PY -c "import json;print(' '.join(json.load(open('$CFG'))['symbols']))")
 
-# Duration: minutes until the US close (16:00 ET), unless overridden.
+# Duration: until 1-2 minutes AFTER the US close (16:00 ET), unless overridden.
+# The engine only counts and stores a candle once its window has elapsed, and
+# the day's last candle ends at 16:00:00. Whole minutes to the close itself
+# round down (384 from a 09:35:01 start), which stopped every session at
+# 15:59: from 5 to 8 Oct 2026 the 16:00 candle was dropped each day, so 6
+# cross-sections were counted instead of the 7 a backtest sees and the cache
+# held no closing prices. Trading is already off during shutdown, so nothing
+# can be ordered in the extra minutes.
 if [ $# -ge 1 ]; then
   DURATION=$1
 else
   DURATION=$($PY - <<'PYEOF'
+import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-et = datetime.now(ZoneInfo("America/New_York"))
+ET = ZoneInfo("America/New_York")
+et = datetime.now(ET)
+if os.environ.get("FAKE_ET"):                       # for testing
+    et = datetime.fromisoformat(os.environ["FAKE_ET"]).replace(tzinfo=ET)
 close = et.replace(hour=16, minute=0, second=0, microsecond=0)
 if et >= close:
     close += timedelta(days=1)
-print(max(0, int((close - et).total_seconds() // 60)))
+print(max(0, int((close - et).total_seconds() // 60)) + 2)
 PYEOF
 )
   if [ "$DURATION" -le 0 ]; then
