@@ -1,25 +1,25 @@
 {
- "saved_at": "2026-10-08 03:59:05.004719",
+ "saved_at": "2026-10-09 03:59:04.295495",
  "positions": {
   "US.QCOM": {
    "qty": 179.0,
    "entry_price": 183.04
   },
-  "US.GM": {
-   "qty": 425.0,
-   "entry_price": 79.9
+  "US.ACN": {
+   "qty": 166.0,
+   "entry_price": 196.665
   },
-  "US.NFLX": {
-   "qty": 491.0,
-   "entry_price": 66.98
+  "US.INTC": {
+   "qty": 302.0,
+   "entry_price": 109.585
   }
  },
  "peak_prices": {
   "US.QCOM": 204.465,
-  "US.GM": 84.31,
-  "US.NFLX": 72.16
+  "US.ACN": 206.75,
+  "US.INTC": 109.585
  },
- "cross_section_count": 36,
- "next_rebalance_at": 38,
- "cash": 386.17955800001073
+ "cross_section_count": 42,
+ "next_rebalance_at": 57,
+ "cash": 3846.7370867500213
 }
