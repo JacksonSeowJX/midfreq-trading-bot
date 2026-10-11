@@ -215,9 +215,9 @@ tf = add_text(slide, 2.3, 4.7, 9, 0.5, "🎯  Now trading live: S&P 100 reversal
 add_para(tf, "Live since 28 September, but week 1 placed no trades: the server's daily code update kept "
              "resetting the saved rebalance counter. Fixed, and the whole live path replayed against a "
              "simulated broker.", font_size=13.5, color=MID)
-add_para(tf, "First rebalance on 5 October bought Qualcomm, General Motors and Netflix, about US$33,000 each, "
-             "matching the broker share for share. Then one every 19 trading hours (just under 3 trading days): "
-             "about 4 by 19 October.",
+add_para(tf, "2 rebalances so far, both matching the broker share for share. 5 Oct: bought Qualcomm, General "
+             "Motors and Netflix, about US$33,000 each. 8 Oct: sold Netflix (+6.0%) and General Motors (+1.1%), "
+             "bought Accenture and Intel. One every 19 trading hours (about 3 trading days): about 4 by 19 October.",
          font_size=13.5, color=MID, space_before=Pt(4))
 add_text(slide, 2.5, 6.8, 8.5, 0.5, "Thank You", font_size=24, color=BRACKET, bold=True, alignment=PP_ALIGN.CENTER)
 
