@@ -58,9 +58,11 @@ Update 11 (4 Sep 26)
 Update 12 (18 Sep 26)
 - https://youtu.be/8UpOjeVDq7Y
 
-Update 13 (2 Oct 26)
+Update 13 (9 Oct 26)
+- https://youtu.be/18lVFtQxvnY
 
-Update 14 (16 Oct 26)
+Update 14 (18 Oct 26)
+
 
 ## System Overview
 
