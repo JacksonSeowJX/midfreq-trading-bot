@@ -150,7 +150,7 @@ slide = prs.slides.add_slide(prs.slide_layouts[6]); set_slide_bg(slide)
 title(slide, "Why the Number of Tries Matters")
 picture(slide, 'chart_u13_cost_curve.png', 1.97, 1.4, 9.4)
 caption_card(slide, 6.1,
-             "The Reality Check: remove any edge from all 8 combinations, reshuffle 20,000 times, "
+             "The Reality Check: remove any edge from all 8 combinations, redraw the test periods 20,000 times, "
              "and count how often the luckiest one beats our winner.",
              "8 combinations = 2 cross-sectional strategies × 4 stock universes, all over the same 3 years. "
              "Counting every single-stock test instead would mean over 100 candidates and a worse score for our result.",
@@ -164,7 +164,7 @@ picture(slide, 'chart_u13_rc.png', 0.9, 1.4, 11.5)
 caption_card(slide, 5.75,
              f"Luck matches or beats the winner {A['p_value']:.1%} and {B['p_value']:.1%} of the time. "
              f"The usual bar for \"real\" is under 5%.",
-             f"Tested alone, the same winners score {A['naive_p_value']:.3f} and {B['naive_p_value']:.3f}. "
+             f"Tested alone, luck would match the same winners only {A['naive_p_value']:.1%} and {B['naive_p_value']:.1%} of the time. "
              "The gap between those numbers is the cost of admitting how many combinations were tried.",
              height=1.25)
 
