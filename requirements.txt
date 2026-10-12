@@ -8,3 +8,7 @@ ib-insync
 moomoo-api
 streamlit
 plotly
+numpy
+statsmodels
+matplotlib
+pytest

@@ -13,9 +13,25 @@
 
 ## Overview
 
-This project focuses on the development of a quantitative trading bot for mid-frequency U.S. stock trading. 
+This project builds and evaluates a quantitative trading bot for mid-frequency (hourly) stock trading on Hong Kong and US equities, using the moomoo OpenAPI for both market data and paper trading.
 
-The system is designed with modular components including a market data service, backtesting engine, trading logic module, and order gateway. It supports configurable candlestick intervals (e.g., 5-minute, 1-hour, daily) and integrates with brokerage APIs for paper trading and execution testing.
+The system covers the whole path from data to live orders: market data download and storage, a backtester with realistic costs, walk-forward validation, checks for overfitting, a live paper-trading engine that runs unattended on a cloud VM, and a dashboard over all of it.
+
+The research question was whether any systematic strategy shows a real, tradable edge on these markets once it is tested properly. After 13 strategies on 4 stock universes, the answer reached is that none does.
+
+## Results at a Glance
+
+| | |
+|---|---|
+| Strategies implemented | 13: trend following, mean reversion, pairs trading, regime switching, cross-sectional reversal and momentum, an ML direction classifier, and buy-and-hold with a risk overlay |
+| Stock universes | 19 Hong Kong stocks, 15 large US stocks, the S&P 100, and the Hang Seng Index (88 stocks) |
+| Validation standard | Walk-forward over 3 years, split two ways (9 windows and 15 windows, each 70% training and 30% test). A result passes only if its mean out-of-sample return is positive and at least 50% of its test windows are profitable under both splits |
+| Results brought to that standard | 217, of which 13 passed (6%) |
+| Strongest result | Cross-sectional reversal on the S&P 100. It passes at the broker's real fee of 0.005% per side (+5.73% and +0.63% per test window) with a Probability of Backtest Overfitting of 0.274 |
+| Corrected for the search | White's Reality Check over the 8 cross-sectional candidates gives p = 0.094 and 0.098, so the result cannot be told apart from luck. It also passes or fails depending on the week its data ends |
+| Live trading | Paper trading from a Google Cloud VM: Hong Kong single-stock strategies from July to September 2026, then a forward test of S&P 100 reversal on a US$100,000 allocation from 28 September 2026 |
+
+No strategy beat chance once the number of things tried was accounted for, and the single-stock strategies did not beat simply holding the same stocks. What the project delivers is the framework, a validation method that catches results a single backtest would have reported as real, and a live system checked against a real broker.
 
 ## Video Updates (YouTube)
 
@@ -58,20 +74,20 @@ Update 11 (4 Sep 26)
 Update 12 (18 Sep 26)
 - https://youtu.be/8UpOjeVDq7Y
 
-Update 13 (2 Oct 26)
+Update 13 (9 Oct 26)
+- https://youtu.be/18lVFtQxvnY
 
-Update 14 (16 Oct 26)
+Update 14 (18 Oct 26)
+
 
 ## System Overview
 
-This repository contains a modular quantitative trading framework for mid-frequency stock trading: market data ingestion (Moomoo/OpenD), Parquet storage, a strategy engine, a realistic backtester with risk management and optimization tooling, and a live paper-trading gateway.
-
-## Features
-
-- **Standardized OHLCV Schema**: All data is validated using Pydantic and converted to UTC timezone-aware timestamps.
-- **Modular Provider System**: Easily add New data providers by implementing the `BaseDataProvider` interface.
-- **Local Parquet Storage**: High-performance storage using Parquet format, organized by symbol and timeframe.
-- **YFinance Support**: Initial implementation for fetching historical data and latest quotes/candles from Yahoo Finance.
+- **Data** (`src/providers/moomoo_provider.py`, `src/core/storage.py`): candles are pulled from moomoo OpenD and kept as Parquet, one file per symbol and timeframe. Every study uses moomoo data, the same source the live engine trades on. The Yahoo Finance and Interactive Brokers providers remain from early prototypes.
+- **Strategies** (`src/core/strategy.py`): 13 strategies behind one interface and a registry, so the backtester, optimiser, dashboard and live engine all run the same strategy code.
+- **Backtester** (`src/core/backtester.py`, `portfolio.py`, `risk_manager.py`): event-driven, with per-market fees checked against real fills (Hong Kong 0.16% and US 0.005% per side), slippage, board lots, stop-loss, trailing stop, take-profit, position sizing and a drawdown halt.
+- **Validation** (`src/core/optimizer.py`, `overfitting.py`, `reality_check.py`): grid search, walk-forward optimisation, Probability of Backtest Overfitting, and White's Reality Check.
+- **Live trading** (`src/core/live_engine.py`, `order_gateway.py`, `run_live.py`): streams hourly candles, places marketable limit orders, records only what the broker confirms as filled, and keeps its state between daily sessions. Cron starts a session on the VM each US trading day, and the session logs are committed to `live_sessions/` daily.
+- **Dashboard** (`src/app.py`): a Streamlit app for backtests, optimisation, the live accounts and every research result. See [docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md).
 
 ## Project Structure
 
@@ -85,7 +101,7 @@ run_live.py         live paper-trading entry point
 scripts/
   live/             the live forward test: nightly launcher, config picker, end-to-end
                     replay test, real-broker order-path test, trade-blotter export
-  data/             historical data download and incremental refresh
+  data/             historical data download, incremental refresh and gap filling
   calibration/      cost-model measurements: HK fee from a real fill, bid-ask spreads
   research/         every study the final report draws on
   research/superseded/  earlier versions replaced after the 2026-09-08 testing audit,
@@ -94,46 +110,72 @@ scripts/
 config/             stock universes (symbols.json) and the live forward-test config
 results/            study outputs (CSV / JSON) read by the dashboard
 live_sessions/      live session logs and strategy state, uploaded daily by the cloud VM
-presentations/      weekly-update slide and chart generators
+presentations/      update slide and chart generators
+docs/               dashboard guide
 tests/              unit tests
 data/               local Parquet price cache (ignored by git)
 ```
 
 ## Setup
 
-1. **Install Dependencies**:
-   ```bash
-   pip install pandas pyarrow pydantic python-dotenv pytz yfinance
-   ```
+```bash
+pip install -r requirements.txt
+```
 
-2. **Set PYTHONPATH**:
-   ```bash
-   export PYTHONPATH=src
-   ```
+Developed on Python 3.12. Downloading data and live trading need the moomoo OpenD gateway running and logged in on port 11111.
+
+The price cache (`data/`) is not in the repository. From a fresh clone the dashboard's research and results views work straight away, because they read `results/` and `live_sessions/`. Running a new backtest needs the cache, which the scripts in `scripts/data/` download through OpenD.
 
 ## Usage
 
-Backfill historical data for all configured HK stocks (requires OpenD running):
-```bash
-python3 scripts/data/backfill_data.py
-```
-
-Run the backtesting dashboard:
+Run the dashboard:
 ```bash
 PYTHONPATH=src streamlit run src/app.py
 ```
-
 See **[docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md)** for a walkthrough of every view and control.
 
-Run live paper trading (requires OpenD running, HK market hours):
+Run the tests:
 ```bash
+python3 -m pytest tests/
+```
+
+Reproduce the report's key numbers (these need the price cache):
+```bash
+# Cost sensitivity of the S&P 100 result (report Section 4.9)
+python3 scripts/research/cross_sectional_cost_sensitivity.py --end-date 2026-08-21
+
+# Probability of Backtest Overfitting, 0.274 (report Section 4.11)
+python3 scripts/research/pbo_sp100_reversal.py --end-date 2026-08-21
+
+# White's Reality Check, p = 0.094 and 0.098 (report Section 4.11)
+python3 scripts/research/reality_check_study.py --end-date "2026-08-28 16:00" --n-boot 20000
+```
+
+Live paper trading (needs OpenD):
+```bash
+# The S&P 100 forward test, as cron runs it on the VM. It only starts within 30 minutes of the
+# US open and ends just after the close. Prefix with DRY_RUN=1 to print the command without running it
+./scripts/live/run_sp100_forward_test.sh --scheduled
+
+# Any single strategy, for example on a Hong Kong stock during Hong Kong hours
 python3 run_live.py --strategy "Z-Score Mean Reversion" --symbols HK.00700 --duration 30
+```
+
+Check the live trading path without a broker, by replaying the recorded sessions through the real engine against a simulated one:
+```bash
+python3 scripts/live/replay_live_sessions.py
+```
+
+Download historical data (needs OpenD):
+```bash
+python3 scripts/data/backfill_data.py        # the configured Hong Kong stocks
+python3 scripts/data/backfill_sp100.py       # the S&P 100
 ```
 
 ## Data Schema
 
 The system standardizes all OHLCV data to the following schema:
-- `timestamp` (UTC, index)
+- `timestamp` (index; the candle's end time in the exchange's local time, stored with a UTC label)
 - `open`
 - `high`
 - `low`
