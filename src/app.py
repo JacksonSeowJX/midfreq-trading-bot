@@ -25,8 +25,7 @@ st.set_page_config(page_title="Mid-Frequency Trading Dashboard", layout="wide",
                    page_icon=str(Path(__file__).parent.parent / "images" / "dashboard_icon.png"))
 ui.apply()
 ui.page_header("Mid-Frequency Trading Dashboard",
-               "Backtesting, walk-forward validation, live paper trading and every research result",
-               tag="NTU CCDS FYP · CCDS25-1040")
+               "Backtesting, walk-forward validation, live paper trading and every research result")
 
 # Initialize core services
 @st.cache_resource

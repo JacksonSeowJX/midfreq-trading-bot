@@ -30,8 +30,6 @@ header[data-testid="stHeader"] {{ background: transparent; }}
     border-bottom: 1px solid {BORDER}; padding-bottom: .8rem; margin-bottom: 1.2rem; }}
 .fyp-header .title {{ font-size: 1.7rem; font-weight: 700; letter-spacing: -.01em; color: {INK}; line-height: 1.2; }}
 .fyp-header .sub {{ color: {MUTED}; font-size: .93rem; margin-top: .15rem; }}
-.fyp-header .tag {{ font-size: .76rem; font-weight: 600; color: {PRIMARY}; background: #E6EDF5;
-    border-radius: 999px; padding: .25rem .75rem; white-space: nowrap; }}
 
 /* headings */
 [data-testid="stMarkdownContainer"] h3 {{ font-size: 1.18rem; font-weight: 650; color: {INK};
@@ -81,10 +79,9 @@ def apply():
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
-def page_header(title: str, subtitle: str, tag: str = ''):
+def page_header(title: str, subtitle: str):
     """Title band at the top of every view."""
     st.markdown(
         f'<div class="fyp-header"><div><div class="title">{title}</div>'
-        f'<div class="sub">{subtitle}</div></div>'
-        + (f'<div class="tag">{tag}</div>' if tag else '') + '</div>',
+        f'<div class="sub">{subtitle}</div></div></div>',
         unsafe_allow_html=True)
