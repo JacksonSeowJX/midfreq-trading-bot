@@ -924,6 +924,81 @@ elif st.session_state.active_view == 'live':
                      if _session_market(f) == live_mkt]
 
     if session_files:
+        # The forward test itself, read back from the session logs. The broker
+        # sections above need OpenD and show the whole ~US$1,000,000 account;
+        # this shows the US$100,000 the strategy trades, its trades and its
+        # holdings, and works from a fresh clone.
+        if live_mkt == 'US':
+            from core import forward_test as _ft
+            try:
+                _cap = float(json.loads((Path(__file__).parent.parent / 'config' /
+                                         'sp100_forward_test.json').read_text()).get('capital', 100000.0))
+            except Exception:
+                _cap = 100000.0
+            ftd = _ft.load(session_dir, capital=_cap)
+            if ftd:
+                st.markdown(f"#### S&P 100 Forward Test — the US\\${ftd['capital']:,.0f} the strategy trades")
+                k1, k2, k3, k4, k5 = st.columns(5)
+                k1.metric("Value now", f"USD {ftd['value']:,.0f}", f"{ftd['pnl_pct']:+.2f}%")
+                k2.metric("Profit / loss", f"USD {ftd['pnl']:+,.0f}")
+                k3.metric("Rebalances", ftd['rebalances'])
+                k4.metric("Orders filled", ftd['orders'])
+                k5.metric("Banked from sales", f"USD {ftd['realised']:+,.0f}")
+                _asof = f"{ftd['as_of']:%d %b %H:%M} SGT" if ftd['as_of'] is not None else "the last upload"
+                st.caption(
+                    f"Profit / loss is the change in the broker's reported account total since the test began, "
+                    f"so it is after fees and includes any dividends the broker credits. The paper account holds "
+                    f"about US\\$1,000,000; the strategy is capped at US\\${ftd['capital']:,.0f} to match the backtests. "
+                    f"Deployed {pd.to_datetime(ftd['started']):%d %b %Y}"
+                    + (f", first trade {pd.to_datetime(ftd['first_trade']):%d %b}" if ftd['first_trade'] else "")
+                    + f". As of {_asof}, the last session the VM has uploaded.")
+                _eq = ftd['equity']
+                if len(_eq) >= 2:
+                    _f = go.Figure()
+                    _f.add_trace(go.Scatter(x=_eq['timestamp'], y=_eq['value'], mode='lines+markers',
+                                            line=dict(color='#2E7D32', width=2), marker=dict(size=5),
+                                            hovertemplate='%{x|%d %b %H:%M}<br>USD %{y:,.0f}<extra></extra>'))
+                    _f.add_hline(y=ftd['capital'], line_dash="dot", line_color="#6B6B63",
+                                 annotation_text=f"US${ftd['capital']:,.0f} allocated",
+                                 annotation_position="bottom right")
+                    _f.update_layout(height=300, yaxis_title="USD", xaxis_title=None,
+                                     margin=dict(l=0, r=0, t=10, b=0), showlegend=False)
+                    st.plotly_chart(_f, use_container_width=True)
+                _tab_t, _tab_h = st.tabs(["Trades", "Holdings at the last recorded candle"])
+                with _tab_t:
+                    _t = ftd['trades']
+                    if len(_t):
+                        _show = pd.DataFrame({
+                            'Date (New York)': _t['Date'].astype(str),
+                            'Decided on candle': _t['Decided on candle'],
+                            'Side': _t['Side'], 'Stock': _t['Stock'],
+                            'Shares': _t['Shares'].map(lambda v: f"{v:,.0f}"),
+                            'Price': _t['Price'].map(lambda v: f"{v:,.2f}"),
+                            'Value (USD)': _t['Value'].map(lambda v: f"{v:,.0f}"),
+                            'Realised P&L (USD)': _t['Realised P&L'].map(lambda v: "" if pd.isna(v) else f"{v:+,.0f}"),
+                            'Realised %': _t['Realised %'].map(lambda v: "" if pd.isna(v) else f"{v:+.1f}%"),
+                        })
+                        st.dataframe(_show.iloc[::-1], use_container_width=True, hide_index=True,
+                                     height=min(420, 38 + 35 * len(_show)))
+                        st.caption("Newest first. Realised profit is on each sale, before fees "
+                                   "(about US\\$0.99 per order).")
+                    else:
+                        st.info("No trades recorded yet.")
+                with _tab_h:
+                    _h = ftd['holdings']
+                    if len(_h):
+                        st.dataframe(pd.DataFrame({
+                            'Stock': _h['Stock'], 'Shares': _h['Shares'].map(lambda v: f"{v:,.0f}"),
+                            'Bought at': _h['Bought at'].map(lambda v: f"{v:,.2f}"),
+                            'Last price': _h['Last price'].map(lambda v: f"{v:,.2f}"),
+                            'Value (USD)': _h['Value'].map(lambda v: f"{v:,.0f}"),
+                            'Unrealised P&L (USD)': _h['Unrealised P&L'].map(lambda v: f"{v:+,.0f}"),
+                            'Unrealised %': _h['Unrealised %'].map(lambda v: f"{v:+.1f}%"),
+                        }), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No positions held at the end of the last recorded session.")
+                st.markdown("---")
+
         st.markdown("#### Forward-Test Session History")
         rows = []
         for f in session_files:
@@ -938,7 +1013,7 @@ elif st.session_state.active_view == 'live':
                             else f"{len(start['symbols'])} symbols ({start['symbols'][0]}, …)"),
                 'TF': start.get('timeframe', '?'),
                 'Candles': candles,
-                'Trades': end.get('trades', 'running' if not end else 0),
+                'Trades': str(end.get('trades', 'running' if not end else 0)),
                 'End Assets': f"{CCY} {end['account'].get('total_assets', 0):,.0f}" if end.get('account') else '—',
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, height=280)

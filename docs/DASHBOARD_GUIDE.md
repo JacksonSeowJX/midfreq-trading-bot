@@ -11,9 +11,16 @@ git pull                                   # latest code and live-session logs
 PYTHONPATH=src streamlit run src/app.py    # opens http://localhost:8501
 ```
 
+If the dashboard was already running, stop it (Ctrl+C) and start it again after `git pull`.
+A running dashboard keeps using the code it started with.
+
 The **Live** view needs the moomoo OpenD gateway running and logged in on port 11111 to show
-account balances. Without it, that view still shows recorded session history, and every other
-view works normally.
+the broker's own account balance, positions and orders. Without it, that view still shows the
+forward test's profit, trades and holdings from the recorded session logs, and every other view
+works normally.
+
+Running a new backtest needs the local price cache (`data/`), which is not in the repository.
+The results, research and live views do not need it.
 
 ## Layout
 
@@ -45,16 +52,36 @@ details; the *Pass rate by family* tab summarises by strategy type.
 
 ### Live paper trading
 
-![Live account](../images/dashboard/live_hk_account.png)
-
 The selector at the top switches between the **Hong Kong** account (HKD) and the **US** account
-(USD). The S&P 100 forward test trades the US account, capped at US$100,000.
+(USD).
+
+**US: the S&P 100 forward test.** This is the strategy trading live, shown from the session logs
+the cloud VM uploads, so it needs no broker connection:
+
+![S&P 100 forward test](../images/dashboard/live_us_forward_test.png)
+
+- **Value now** and **Profit / loss** are for the US$100,000 the strategy trades. The paper
+  account itself holds about US$1,000,000; the strategy is capped at US$100,000 to match the
+  backtests. The figure is the change in the broker's reported account total since the test
+  began, so it is after fees and includes any dividends.
+- **Rebalances** is how many times the strategy has re-ranked the 98 stocks and traded. It does
+  this once every 19 hourly candles, which is about every 3 trading days.
+- **Banked from sales** is the profit on positions already sold. The rest of the profit or loss
+  is still in the stocks it holds.
+- The **Trades** tab lists every order that filled, newest first, with the profit on each sale.
+  *Decided on candle* is the hourly candle whose ranking produced the trade.
+- The **Holdings** tab shows what it holds now, valued at the last recorded candle.
+
+**Hong Kong: the earlier single-stock strategies**, which ran from July to September 2026:
+
+![Live account](../images/dashboard/live_hk_account.png)
 
 ![Session history and equity](../images/dashboard/live_hk_sessions.png)
 
 The equity curve uses the account value reported by the broker at the start and end of each
-session. Session logs are recorded on the cloud VM and uploaded daily at 16:15 SGT, so run
-`git pull` to see the latest.
+session. Session logs are recorded on the cloud VM and uploaded daily at 16:15 SGT, so the
+dashboard shows everything up to the last completed session once you run `git pull`. A session
+that is still running, or finished after 16:15, appears the next day.
 
 ### Research studies
 
@@ -80,25 +107,41 @@ Studies are listed current-first. Anything marked *superseded* was produced befo
 always run on the **whole selected universe**, not just the chosen symbol, with money split
 equally across the stocks held. A note appears above the results when this happens.
 
-## Things to try
+## A guided walkthrough
+
+Set **Start Date** to 25 Sep 2025 and **End Date** to 25 Sep 2026 first. That is the last full
+year in the price cache, and with those dates the results below are what you should see.
 
 1. **A single-stock backtest.** Universe *US — S&P 100*, symbol *US.AAPL*, strategy
-   *Z-Score Mean Reversion*, then **Run Backtest**.
-2. **The project's headline strategy.** Same universe, strategy *Cross-Sectional Reversal*, then
-   **Run Backtest**. It trades across all 100 stocks.
-3. **Cost sensitivity.** Repeat step 2 with *Commission per side* raised from 0.005 to 0.160
-   and compare.
+   *Z-Score Mean Reversion*, then **Run Backtest**. Expect 64 trades and a loss of 3.8%, while
+   simply holding the stock made 34.8% (the *Benchmark* figure).
+2. **The strategy that is trading live.** Strategy *Cross-Sectional Reversal*, then type in
+   *Lookback* 30, *Basket Size* 3 and *Rebalance Every* 19, the settings of the live forward
+   test, and **Run Backtest**. It runs on all 100 stocks. Expect +56.8% from 449 trades, with a
+   largest fall of 20.5% along the way, against +24.9% for holding all 100 stocks equally.
+3. **Cost sensitivity.** Keep step 2 and raise *Commission per side* from 0.005 to 0.160, the
+   Hong Kong rate. The same 449 trades now return +24.8%: fees take more than half the profit.
 4. **A walk-forward validation.** Universe *US — 15 large caps*, strategy *Cross-Sectional
-   Reversal*, *Walk-Forward* mode, then **Run Optimization** (1–2 minutes).
+   Reversal*, mode *Walk-Forward*, then **Run Optimization** (1–2 minutes). Expect an average of
+   +17.7% on the data the settings were chosen on, and +3.5% on the data they had not seen.
 5. **The whole record.** Open **All Results Overview**.
+6. **The live test.** Open **Show Live Account & Sessions** and choose *United States*.
 
 ## Reading a single backtest
 
-A single backtest over one period, with parameters that were never validated, is not evidence
-of an edge. A profitable-looking backtest is easy to find by trying settings until one works.
-That is why this project requires agreement across two walk-forward splits, and why the one
-result that passed was then tested further (report §4.11): after correcting for the number of
-strategy-universe combinations tried, it could not be distinguished from chance.
+A single backtest over one period is not evidence of an edge. A profitable-looking backtest is
+easy to find by trying settings until one works.
+
+Step 2 above is the clearest example. Its +56.8% is not this project's result, because the
+settings 30 / 3 / 19 were chosen on the last 84 days of that same year (3 July to 25 September
+2026), so the backtest is partly scoring them on the data they were picked from. Step 4 shows
+the size of that effect on another universe: +17.7% on the data used to choose the settings and
++3.5% on unseen data. Tested on unseen data across 3 years, S&P 100 reversal averages +5.7% and
++0.6% per window, and once the number of strategy and universe combinations tried is accounted
+for (report §4.11), that cannot be told apart from chance.
+
+That is why the project requires agreement across two walk-forward splits before a result
+counts, and why the live forward test, not a backtest, is the only truly unseen result.
 
 ## Timing
 
