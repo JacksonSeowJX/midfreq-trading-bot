@@ -33,22 +33,28 @@ The results, research and live views do not need it.
 
 | Button | What it does |
 |---|---|
-| 🚀 **Run Backtest** | One strategy over one period: price chart with indicators, equity curve against buy-and-hold, and the full trade log. |
-| ⚡ **Compare All Strategies** | Every strategy on the selected stock with default settings, side by side. |
-| 🔬 **Run Optimization** | Grid search, or walk-forward — the validation method used throughout the project. |
+| **Run Backtest** | One strategy over one period: price chart with indicators, equity curve against buy-and-hold, and the full trade log. |
+| **Compare All Strategies** | Every strategy on the selected stock with default settings, side by side. |
+| **Run Optimization** | Grid search, or walk-forward — the validation method used throughout the project. |
 | **Show Live Account & Sessions** | Either paper account (HK or US), its positions and orders, session history, and account equity over the whole deployment. |
-| 📋 **All Results Overview** | Every result brought to the validation standard, on one chart. |
+| **All Results Overview** | Every result brought to the validation standard, on one chart. |
 | **Browse Research Results** | The raw results file of any individual study. |
 
 ### All Results Overview — the best place to start
 
-![All Results Overview](../images/dashboard/report_overview.png)
+![All Results Overview](../images/dashboard/overview.png)
 
 Each dot is one strategy tested on one stock or universe. The horizontal axis is its average
 out-of-sample return under the 9-window split (Config A), the vertical axis under the 15-window
 split (Config B). **A result passes only if both are positive and at least half of its windows
 are profitable, so only the shaded top-right quadrant can pass.** Hover over any dot for the
 details; the *Pass rate by family* tab summarises by strategy type.
+
+The **Corrected for the search** tab shows what happened to the results that passed. Many
+combinations were tried, and the best of many looks good by luck alone, so White's Reality
+Check measures how often the best of 8 combinations with no edge at all would score as well
+as the real winner. It does so about 1 time in 10, against the 1 in 20 needed to call a
+result real. The tab also gives the Probability of Backtest Overfitting for S&P 100 reversal.
 
 ### Live paper trading
 
@@ -74,8 +80,6 @@ the cloud VM uploads, so it needs no broker connection:
 
 **Hong Kong: the earlier single-stock strategies**, which ran from July to September 2026:
 
-![Live account](../images/dashboard/live_hk_account.png)
-
 ![Session history and equity](../images/dashboard/live_hk_sessions.png)
 
 The equity curve uses the account value reported by the broker at the start and end of each
@@ -85,7 +89,7 @@ that is still running, or finished after 16:15, appears the next day.
 
 ### Research studies
 
-![Research studies](../images/dashboard/report_research.png)
+![Research studies](../images/dashboard/research.png)
 
 Studies are listed current-first. Anything marked *superseded* was produced before the
 2026-09-08 audit corrected six defects in the testing code and should not be relied on.

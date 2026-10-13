@@ -122,6 +122,43 @@ def summary(df: Optional[pd.DataFrame] = None) -> dict:
     }
 
 
+UNIVERSE_NAMES = {'sp100': 'S&P 100', 'us_15': 'US 15', 'hsi': 'Hang Seng', 'hk_live': 'HK 19'}
+
+
+def _candidate_name(key: str) -> str:
+    """'CS-Reversal x sp100' -> 'Reversal, S&P 100'."""
+    strat, _, uni = key.partition(' x ')
+    return f"{strat.replace('CS-', '')}, {UNIVERSE_NAMES.get(uni, uni)}"
+
+
+def load_search_correction(results_dir: Optional[Path] = None) -> Optional[dict]:
+    """White's Reality Check and the PBO figure, the tests applied AFTER the
+    dual-configuration standard. They are written as JSON, not as the CSV rows
+    load_all() stacks, so the overview had no way to show the project's final
+    verdict on its one passing result. Returns None if no Reality Check exists.
+    """
+    import json
+    rdir = Path(results_dir) if results_dir else RESULTS
+    runs = sorted(f for f in rdir.glob('reality_check_2*.json'))
+    if not runs:
+        return None
+    rc = json.loads(runs[-1].read_text())
+    configs = []
+    for name, c in rc.get('by_config', {}).items():
+        means = {_candidate_name(k): v for k, v in c.get('candidate_means', {}).items()}
+        configs.append({
+            'name': name, 'p_value': c['p_value'], 'naive_p_value': c.get('naive_p_value'),
+            'best': _candidate_name(c['best_candidate']), 'best_mean': c['observed_max_mean'],
+            'n_windows': c.get('n_windows'), 'n_candidates': c.get('n_candidates'),
+            'luck_p95': (c.get('bootstrap_max_quantiles') or {}).get('p95'),
+            'means': dict(sorted(means.items(), key=lambda kv: kv[1])),
+        })
+    pbo_file = rdir / 'pbo_sp100_reversal_full96.json'
+    pbo = json.loads(pbo_file.read_text()) if pbo_file.exists() else None
+    return {'file': runs[-1].name, 'end': str(rc.get('common_end_date') or '')[:10],
+            'n_boot': rc.get('n_boot'), 'configs': configs, 'pbo': pbo}
+
+
 if __name__ == '__main__':
     d = load_all()
     s = summary(d)

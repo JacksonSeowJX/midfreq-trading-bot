@@ -18,11 +18,15 @@ from core.backtester import Backtester
 from core.models import Timeframe
 from core.risk_manager import RiskManager, SizingMethod, create_position_sizer
 from core.optimizer import grid_search, walk_forward, generate_param_grid, OBJECTIVES
+import ui
 
 # Set page config
-st.set_page_config(page_title="Quantitative Trading Dashboard", layout="wide", page_icon="📈")
-
-st.title("📈 Mid-Frequency Trading Dashboard")
+st.set_page_config(page_title="Mid-Frequency Trading Dashboard", layout="wide",
+                   page_icon=str(Path(__file__).parent.parent / "images" / "dashboard_icon.png"))
+ui.apply()
+ui.page_header("Mid-Frequency Trading Dashboard",
+               "Backtesting, walk-forward validation, live paper trading and every research result",
+               tag="NTU CCDS FYP · CCDS25-1040")
 
 # Initialize core services
 @st.cache_resource
@@ -34,7 +38,7 @@ def get_services():
 config, storage = get_services()
 
 # --- SIDEBAR (Control Panel) ---
-st.sidebar.header("🕹️ Strategy Control Panel")
+st.sidebar.header(":material/tune: Strategy Control Panel")
 
 # 1. Universe & Symbol Selection
 # Was a hardcoded ["HK"] market dropdown driven by get_live_symbols(), which
@@ -133,7 +137,7 @@ initial_capital = st.sidebar.number_input(f"Starting Capital ({_ccy})", min_valu
 st.sidebar.markdown("---")
 
 # ─── Risk Management Controls ────────────────────────────────────
-st.sidebar.subheader("🛡️ Risk Management")
+st.sidebar.subheader(":material/shield: Risk Management")
 
 with st.sidebar.expander("Stop-Loss & Take-Profit", expanded=False):
     enable_stop_loss = st.checkbox("Enable Fixed Stop-Loss", value=False)
@@ -183,7 +187,7 @@ def build_risk_manager():
 
 # Slippage setting
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Execution Model")
+st.sidebar.subheader(":material/settings: Execution Model")
 slippage_bps = st.sidebar.slider("Slippage (basis points)", min_value=0.0, max_value=50.0, value=0.0, step=1.0,
                                   help="Simulated slippage: buys pay more, sells receive less. 1 bps = 0.01%.")
 
@@ -203,7 +207,7 @@ commission_rate = commission_pct / 100.0
 st.sidebar.markdown("---")
 
 # ─── Strategy Optimization Controls ──────────────────────────────
-st.sidebar.subheader("🔬 Strategy Optimization")
+st.sidebar.subheader(":material/science: Strategy Optimization")
 
 with st.sidebar.expander("Grid Search / Walk-Forward", expanded=True):
     opt_mode = st.radio("Mode", ["Grid Search", "Walk-Forward"], horizontal=True, index=1)
@@ -224,19 +228,19 @@ with st.sidebar.expander("Grid Search / Walk-Forward", expanded=True):
 st.sidebar.markdown("---")
 
 # 5. Execution Actions
-run_sim = st.sidebar.button("🚀 Run Backtest", type="primary", use_container_width=True)
-run_compare = st.sidebar.button("⚡ Compare All Strategies", use_container_width=True)
-run_optimize = st.sidebar.button("🔬 Run Optimization", use_container_width=True)
+run_sim = st.sidebar.button(":material/play_arrow: Run Backtest", type="primary", use_container_width=True)
+run_compare = st.sidebar.button(":material/compare_arrows: Compare All Strategies", use_container_width=True)
+run_optimize = st.sidebar.button(":material/tune: Run Optimization", use_container_width=True)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📡 Live Paper Trading")
-run_live_view = st.sidebar.button("Show Live Account & Sessions", use_container_width=True)
+st.sidebar.subheader(":material/sensors: Live Paper Trading")
+run_live_view = st.sidebar.button(":material/account_balance_wallet: Show Live Account & Sessions", use_container_width=True)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📊 Research Studies")
-run_overview_view = st.sidebar.button("📋 All Results Overview", use_container_width=True,
+st.sidebar.subheader(":material/insights: Research Studies")
+run_overview_view = st.sidebar.button(":material/dashboard: All Results Overview", use_container_width=True,
                                       help="Every backtest brought to the two-configuration standard, on one chart.")
-run_research_view = st.sidebar.button("Browse Research Results", use_container_width=True)
+run_research_view = st.sidebar.button(":material/folder_open: Browse Research Results", use_container_width=True)
 
 # st.button() only returns True on the single rerun immediately after a click —
 # any widget interaction INSIDE a button-triggered view (e.g. the study dropdown
@@ -487,18 +491,18 @@ if st.session_state.active_view == 'backtest':
                 **strategy_params
             )
 
-        st.success(f"✅ {selected_strategy} Simulation Complete!")
+        st.success(f"{selected_strategy} simulation complete", icon=":material/check_circle:")
 
         # --- TOP ROW: KPIs ---
         if metrics:
-            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
+            # Two rows of four: eight across squeezed the cards until the figures were cut off.
+            col1, col2, col3, col4 = st.columns(4)
+            col5, col6, col7, col8 = st.columns(4)
 
             equity = metrics['final_equity']
             ret_pct = metrics['return_pct']
-            delta_color = "normal" if ret_pct >= 0 else "inverse"
-
             with col1:
-                st.metric("Final Equity", f"{_ccy} {equity:,.2f}", f"{ret_pct:+.2f}%", delta_color=delta_color)
+                st.metric("Final Equity", f"{_ccy} {equity:,.2f}", f"{ret_pct:+.2f}%")
             with col2:
                 st.metric("Total Trades", f"{metrics['total_trades']}")
             with col3:
@@ -525,7 +529,7 @@ if st.session_state.active_view == 'backtest':
         raw_df = storage.load_data(folder, timeframe.value)
 
         if not raw_df.empty:
-            st.markdown(f"### 📊 {selected_strategy} — Market View & Indicator Overlay")
+            st.markdown(f"### :material/candlestick_chart: {selected_strategy} — Market View & Indicator Overlay")
             plot_fn = PLOT_FUNCTIONS[selected_strategy]
             fig = plot_fn(raw_df, strategy_params)
             st.plotly_chart(fig, use_container_width=True)
@@ -533,7 +537,7 @@ if st.session_state.active_view == 'backtest':
             # --- EQUITY CURVE (use detailed per-candle data) ---
             equity_data = portfolio.equity_curve_detailed if portfolio.equity_curve_detailed else portfolio.equity_curve
             if equity_data:
-                st.markdown("### 📈 Equity Curve vs. Buy-and-Hold Benchmark")
+                st.markdown("### :material/show_chart: Equity Curve vs. Buy-and-Hold Benchmark")
                 eq_fig = plot_equity_curve(equity_data)
                 
                 # Add benchmark line if available
@@ -554,7 +558,7 @@ if st.session_state.active_view == 'backtest':
                 st.plotly_chart(eq_fig, use_container_width=True)
 
             # --- TRADE LOG ---
-            st.markdown("### 📋 Execution Trade Log")
+            st.markdown("### :material/receipt_long: Execution Trade Log")
             trade_df = pd.DataFrame(portfolio.trade_history)
 
             if not trade_df.empty:
@@ -594,7 +598,7 @@ if st.session_state.active_view == 'backtest':
 
 elif st.session_state.active_view == 'compare':
     # ─── Strategy Comparison Mode ──────────────────────────────────
-    st.markdown("### ⚡ Strategy Comparison")
+    st.markdown("### :material/compare_arrows: Strategy Comparison")
     st.markdown(f"Running all strategies on **{symbol}** ({selected_tf_label})...")
     st.caption(f"Cross-sectional strategies rank stocks against each other, so they run on the whole "
                f"{UNIVERSE_LABELS.get(universe, universe)} universe ({len(available_symbols)} symbols) "
@@ -663,7 +667,7 @@ elif st.session_state.active_view == 'compare':
 
         # Overlay equity curves
         if equity_curves:
-            st.markdown("### 📈 Equity Curves Comparison")
+            st.markdown("### :material/show_chart: Equity Curves Comparison")
             fig = go.Figure()
             colors = ['dodgerblue', 'orange', 'mediumpurple', 'green', 'red', 'cyan']
             for i, (name, curve) in enumerate(equity_curves.items()):
@@ -700,7 +704,7 @@ elif st.session_state.active_view == 'optimize':
         status_text.text(msg)
 
     if opt_mode == "Grid Search":
-        st.markdown(f"### 🔬 Grid Search — {selected_strategy} on {symbol}")
+        st.markdown(f"### :material/grid_on: Grid Search — {selected_strategy} on {symbol}")
         st.markdown(f"Optimizing for **{selected_objective_label}**")
 
         results_df = grid_search(
@@ -726,7 +730,7 @@ elif st.session_state.active_view == 'optimize':
             st.warning("No results. Ensure data exists for the selected symbol and timeframe.")
         else:
             best = results_df.iloc[0]
-            st.success(f"✅ Tested {len(results_df)} parameter combinations")
+            st.success(f"Tested {len(results_df)} parameter combinations", icon=":material/check_circle:")
 
             param_cols = [c for c in results_df.columns if c not in
                           ('return_pct', 'sharpe_ratio', 'max_drawdown', 'win_rate',
@@ -742,7 +746,7 @@ elif st.session_state.active_view == 'optimize':
             with col4:
                 st.metric("Max Drawdown", f"{best['max_drawdown']:.2f}%")
 
-            st.markdown("### 📋 Top Results")
+            st.markdown("### :material/leaderboard: Top Results")
             display_cols = param_cols + ['return_pct', 'sharpe_ratio', 'max_drawdown', 'win_rate', 'profit_factor', 'total_trades', 'alpha']
             top_df = results_df[display_cols].head(50).copy()
             for c in ['return_pct', 'max_drawdown', 'win_rate', 'alpha']:
@@ -751,7 +755,7 @@ elif st.session_state.active_view == 'optimize':
             top_df['profit_factor'] = top_df['profit_factor'].apply(lambda x: f"{x:.2f}" if x != float('inf') else "∞")
             st.dataframe(top_df, use_container_width=True, height=350)
 
-            st.markdown(f"### 📊 {selected_objective_label} by Parameter Combination")
+            st.markdown(f"### :material/bar_chart: {selected_objective_label} by Parameter Combination")
             fig = go.Figure()
             fig.add_trace(go.Bar(
                 x=[", ".join(f"{k}={r[k]}" for k in param_cols) for _, r in results_df.head(30).iterrows()],
@@ -764,7 +768,7 @@ elif st.session_state.active_view == 'optimize':
 
     else:
         # ─── Walk-Forward ───────────────────────────────────────────
-        st.markdown(f"### 🔬 Walk-Forward Optimization — {selected_strategy} on {symbol}")
+        st.markdown(f"### :material/timeline: Walk-Forward Optimization — {selected_strategy} on {symbol}")
         st.markdown(f"**{n_splits}** rolling windows, **{train_pct:.0%}** train / **{1-train_pct:.0%}** test, optimizing for **{selected_objective_label}**")
 
         wf_result = walk_forward(
@@ -795,7 +799,7 @@ elif st.session_state.active_view == 'optimize':
         elif not windows:
             st.warning("No results. Ensure data exists for the selected symbol and timeframe.")
         else:
-            st.success(f"✅ Walk-forward complete — {summary['total_windows']} windows")
+            st.success(f"Walk-forward complete — {summary['total_windows']} windows", icon=":material/check_circle:")
 
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -805,7 +809,7 @@ elif st.session_state.active_view == 'optimize':
             with col3:
                 st.metric("Consistency (Positive OOS Windows)", f"{summary['consistency_pct']:.0f}%")
 
-            st.markdown("### 📋 Window Detail")
+            st.markdown("### :material/table_rows: Window Detail")
             window_rows = []
             for w in windows:
                 window_rows.append({
@@ -819,7 +823,7 @@ elif st.session_state.active_view == 'optimize':
                 })
             st.dataframe(pd.DataFrame(window_rows), use_container_width=True, height=250)
 
-            st.markdown("### 📊 In-Sample vs. Out-of-Sample Return by Window")
+            st.markdown("### :material/bar_chart: In-Sample vs. Out-of-Sample Return by Window")
             fig = go.Figure()
             fig.add_trace(go.Bar(x=[f"W{w.window_id}" for w in windows], y=summary['train_returns'],
                                  name='Train (In-Sample)', marker_color='rgba(100,149,237,0.6)'))
@@ -834,7 +838,7 @@ elif st.session_state.active_view == 'optimize':
 
 elif st.session_state.active_view == 'live':
     # ─── Live Paper Trading View ───────────────────────────────────
-    st.markdown("### 📡 Live Paper Trading — Account & Session History")
+    st.markdown("### :material/sensors: Live Paper Trading — Account & Session History")
 
     # Moomoo keeps a separate paper account per market, each in its own
     # currency. This view was hardwired to Hong Kong, so the S&P 100 forward
@@ -842,7 +846,7 @@ elif st.session_state.active_view == 'live':
     # filtered to the chosen market too: HK equity is ~HKD 1,000,000 and the
     # capped US session ~USD 100,000, so one combined curve would be meaningless.
     live_mkt = st.radio("Paper account", ["HK", "US"], horizontal=True,
-                        format_func=lambda m: {"HK": "🇭🇰 Hong Kong (HKD)", "US": "🇺🇸 United States (USD)"}[m])
+                        format_func=lambda m: {"HK": "Hong Kong (HKD)", "US": "United States (USD)"}[m])
     CCY = "USD" if live_mkt == "US" else "HKD"
 
     # Broker state (requires OpenD).
@@ -883,7 +887,7 @@ elif st.session_state.active_view == 'live':
         pnl_pct = (acc.get('total_assets', initial) - initial) / initial * 100
         with col1:
             st.metric("Total Assets", f"{CCY} {acc.get('total_assets', 0):,.2f}",
-                      f"{pnl_pct:+.3f}% all-time", delta_color="normal" if pnl_pct >= 0 else "inverse")
+                      f"{pnl_pct:+.3f}% all-time")
         with col2:
             st.metric("Cash", f"{CCY} {acc.get('cash', 0):,.2f}")
         with col3:
@@ -1091,9 +1095,9 @@ elif st.session_state.active_view == 'overview':
     # The Research Studies view shows one CSV at a time, so the project's
     # overall record was never visible in one place. This stacks every
     # study that reached the two-configuration standard into one table.
-    from core.results_index import load_all, summary
+    from core.results_index import load_all, summary, load_search_correction
 
-    st.markdown("### 📋 All Results Overview — every backtest against the validation standard")
+    st.markdown("### :material/dashboard: All Results Overview — every backtest against the validation standard")
 
     show_superseded = st.checkbox("Include superseded runs (pre-audit studies)", value=False)
     rdf = load_all(current_only=not show_superseded)
@@ -1116,7 +1120,8 @@ elif st.session_state.active_view == 'overview':
         picked = st.multiselect("Filter by strategy family", fams, default=fams)
         view_df = rdf[rdf.family.isin(picked)] if picked else rdf
 
-        tab1, tab2, tab3 = st.tabs(["Config A vs Config B", "Pass rate by family", "Full table"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Config A vs Config B", "Pass rate by family", "Full table",
+                                          "Corrected for the search"])
 
         with tab1:
             st.markdown("Both configurations must be positive, so **only the top-right quadrant passes**.")
@@ -1177,11 +1182,58 @@ elif st.session_state.active_view == 'overview':
             st.download_button("Download this table as CSV", tbl.to_csv(index=False),
                                "all_results_overview.csv", "text/csv")
 
+        with tab4:
+            # Passing the standard is not the end of the test. Many combinations
+            # were tried, and the best of many will look good by luck alone.
+            sc = load_search_correction()
+            if not sc:
+                st.info("No Reality Check result found. Run `scripts/research/reality_check_study.py`.")
+            else:
+                st.markdown("Many combinations were tried, and the best of many looks good by luck alone. "
+                            "**White's Reality Check** asks how often the best of the same number of "
+                            "combinations with *no edge at all* would score as well as the real winner.")
+                passed = all(c['p_value'] < 0.05 for c in sc['configs'])
+                cols = st.columns(len(sc['configs']) + 3)
+                for col, c in zip(cols, sc['configs']):
+                    col.metric(f"By luck · {c['n_windows']} windows", f"{c['p_value']:.1%}",
+                               help="How often the best of the same number of combinations with no edge "
+                                    "scored as well as the real winner.")
+                cols[-3].metric("Needed to pass", "under 5%")
+                cols[-2].metric("Verdict", "Passes" if passed else "Does not pass")
+                if sc['pbo']:
+                    cols[-1].metric("PBO · S&P 100", f"{sc['pbo']['pbo']:.3f}",
+                                    help="Probability of Backtest Overfitting: how often the settings the search "
+                                         "picks land in the bottom half on unseen data. Pure noise gives 0.5.")
+                ccols = st.columns(len(sc['configs']))
+                for col, c in zip(ccols, sc['configs']):
+                    names = list(c['means']); vals = list(c['means'].values())
+                    f4 = go.Figure(go.Bar(
+                        y=names, x=vals, orientation='h',
+                        marker_color=['#2E7D32' if n == c['best'] else '#B8B3AA' for n in names],
+                        hovertemplate='%{y}<br>%{x:+.2f}% per window<extra></extra>'))
+                    if c['luck_p95'] is not None:
+                        f4.add_vline(x=c['luck_p95'], line_dash="dot", line_color="#C62828")
+                        f4.add_annotation(x=c['luck_p95'], y=1.0, yref='paper', yanchor='bottom', xanchor='right',
+                                          text="luck alone reaches this 5% of the time", showarrow=False,
+                                          font=dict(color="#C62828", size=12))
+                    f4.add_vline(x=0, line_color="#6B6B63", line_width=1)
+                    f4.update_layout(height=350, margin=dict(l=10, r=20, t=64, b=10),
+                                     title=dict(text=c['name'], font=dict(size=14), y=0.97),
+                                     xaxis_title="mean out-of-sample return per window (%)")
+                    col.plotly_chart(f4, use_container_width=True)
+                    col.caption(f"Winner: **{c['best']}** at {c['best_mean']:+.2f}% per window. Luck matched or "
+                                f"beat it in {c['p_value']:.1%} of {sc['n_boot']:,} redraws. Tested alone, as if "
+                                f"nothing else had been tried, that figure would be {c['naive_p_value']:.1%}.")
+                st.caption(f"The green bar is the winner. To pass, it would have to sit to the right of the dotted "
+                           f"line. {sc['configs'][0]['n_candidates']} combinations: cross-sectional reversal and "
+                           f"momentum on each of 4 stock universes, all over the same 3 years ending {sc['end']}. "
+                           f"Source: `results/{sc['file']}`.")
+
 
 elif st.session_state.active_view == 'research':
     # ─── Research Studies Viewer ────────────────────────────────────
     import json
-    st.markdown("### 📊 Research Studies — Validation Results")
+    st.markdown("### :material/insights: Research Studies — Validation Results")
 
     # Headline: current allocation verdict, if it exists
     alloc_path = Path(__file__).parent.parent / 'config' / 'best_tool_allocation.json'
@@ -1214,32 +1266,32 @@ elif st.session_state.active_view == 'research':
     else:
         import re
         FRIENDLY_NAMES = {
-            'best_tool_new_stocks_allocation': '🆕 Allocation — New Sectors',
-            'best_tool_new_stocks_full': '🆕 Full Comparison — New Sectors',
-            'best_tool_robust_v2_allocation': '✅ Allocation — Robust, 3yr Data (current)',
-            'best_tool_robust_v2_full': '✅ Full Comparison — Robust, 3yr Data (current)',
+            'best_tool_new_stocks_allocation': 'Allocation — New Sectors',
+            'best_tool_new_stocks_full': 'Full Comparison — New Sectors',
+            'best_tool_robust_v2_allocation': 'Allocation — Robust, 3yr Data (current)',
+            'best_tool_robust_v2_full': 'Full Comparison — Robust, 3yr Data (current)',
             'best_tool_robust_allocation': 'Allocation — Robust, 1yr Data (superseded)',
             'best_tool_robust_full': 'Full Comparison — Robust, 1yr Data (superseded)',
             'best_tool_allocation': 'Allocation — Single Config (superseded)',
             'best_tool_full': 'Full Comparison — Single Config (superseded)',
-            'fixed_split_combo_summary': '🔀 Fixed-Split 50/50 Combo — Summary',
-            'fixed_split_combo_windows': '🔀 Fixed-Split 50/50 Combo — Per-Window Detail',
-            'ml_classifier': '🤖 ML Direction Classifier — Walk-Forward',
-            'cross_sectional_walkforward': '📈 Cross-Sectional Reversal — Walk-Forward (superseded)',
-            'cross_sectional_robust': '📈 Cross-Sectional Reversal — Robust, HK 19 / US 15',
-            'cross_sectional_sp100': '📈 Cross-Sectional Reversal — Robust, US S&P 100',
-            'cross_sectional_hsi': '📈 Cross-Sectional Reversal — Robust, HK Hang Seng Index',
-            'cross_sectional_momentum_robust': '🚀 Cross-Sectional Momentum — Robust, HK 19 / US 15',
-            'cross_sectional_corrected': '⭐ Cross-Sectional CORRECTED — both directions, S&P 100 + Hang Seng (current)',
-            'cross_sectional_cost_sensitivity': '💰 Cross-Sectional — Cost Sensitivity of the S&P 100 result',
-            'cross_sectional_momentum_broad': '🚀 Cross-Sectional Momentum — Broad universes (superseded)',
-            'buy_hold_risk_overlay_robust': '🛡️ Buy & Hold + Risk Overlay — Robust, HK 19 / US 15',
-            'model_selector_windows': '❌ Adaptive Selector — Per-Window (failed)',
-            'model_selector_summary': '❌ Adaptive Selector — Summary (failed)',
-            'hmm_regime': '🧠 HMM vs Rule — Head-to-Head',
-            'hmm_forced_3state': '🧠 HMM Forced 3-State Test',
-            'pairs_walkforward': '👥 Pairs Trading — Walk-Forward',
-            'pairs_scan': '👥 Pairs Trading — Cointegration Scan',
+            'fixed_split_combo_summary': 'Fixed-Split 50/50 Combo — Summary',
+            'fixed_split_combo_windows': 'Fixed-Split 50/50 Combo — Per-Window Detail',
+            'ml_classifier': 'ML Direction Classifier — Walk-Forward',
+            'cross_sectional_walkforward': 'Cross-Sectional Reversal — Walk-Forward (superseded)',
+            'cross_sectional_robust': 'Cross-Sectional Reversal — Robust, HK 19 / US 15',
+            'cross_sectional_sp100': 'Cross-Sectional Reversal — Robust, US S&P 100',
+            'cross_sectional_hsi': 'Cross-Sectional Reversal — Robust, HK Hang Seng Index',
+            'cross_sectional_momentum_robust': 'Cross-Sectional Momentum — Robust, HK 19 / US 15',
+            'cross_sectional_corrected': 'Cross-Sectional, corrected — both directions, S&P 100 + Hang Seng (current, headline)',
+            'cross_sectional_cost_sensitivity': 'Cross-Sectional — Cost Sensitivity of the S&P 100 result',
+            'cross_sectional_momentum_broad': 'Cross-Sectional Momentum — Broad universes (superseded)',
+            'buy_hold_risk_overlay_robust': 'Buy & Hold + Risk Overlay — Robust, HK 19 / US 15',
+            'model_selector_windows': 'Adaptive Selector — Per-Window (failed)',
+            'model_selector_summary': 'Adaptive Selector — Summary (failed)',
+            'hmm_regime': 'HMM vs Rule — Head-to-Head',
+            'hmm_forced_3state': 'HMM Forced 3-State Test',
+            'pairs_walkforward': 'Pairs Trading — Walk-Forward',
+            'pairs_scan': 'Pairs Trading — Cointegration Scan',
             'regime_switch_1h': 'Regime Switch — 1h Scan',
         }
 
@@ -1266,7 +1318,7 @@ elif st.session_state.active_view == 'research':
             # on "Allocation — Robust, 1yr Data (superseded)", the least
             # relevant study in the project.
             options.sort(key=lambda x: ('superseded' in x[0].lower() or 'failed' in x[0].lower(),
-                                        not x[0].startswith('⭐'), not x[0].startswith('✅'), x[0]))
+                                        'headline' not in x[0], '(current)' not in x[0], x[0]))
 
         choice_label = st.selectbox("Select a study", [o[0] for o in options])
         chosen_file = dict(options)[choice_label]
@@ -1290,4 +1342,4 @@ elif st.session_state.active_view == 'research':
                 st.plotly_chart(fig, use_container_width=True)
 
 else:
-    st.info("👆 Select a **strategy** and adjust parameters on the sidebar, then click **Run Backtest**, **Compare All Strategies**, or **Run Optimization**.")
+    st.info("Select a **strategy** and adjust parameters on the sidebar, then click **Run Backtest**, **Compare All Strategies**, or **Run Optimization**.", icon=":material/arrow_back:")

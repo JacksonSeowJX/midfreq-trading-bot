@@ -67,7 +67,7 @@ def main():
         page.wait_for_selector('text=Strategy Control Panel', timeout=60_000)
 
         # All Results Overview
-        page.get_by_role('button', name='📋 All Results Overview').click()
+        page.get_by_role('button', name='All Results Overview').click()
         settle(page, 'Results tested')
         grab_main(page, out / 'overview.png'); print("  overview.png")
 

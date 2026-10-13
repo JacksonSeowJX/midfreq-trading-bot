@@ -1,0 +1,12 @@
+# Dashboard theme. The colours match the report's figures; src/ui.py holds the
+# rest of the styling (cards, headings, sidebar).
+[theme]
+base = "light"
+primaryColor = "#1F4E79"
+backgroundColor = "#FAF9F6"
+secondaryBackgroundColor = "#F2EFE9"
+textColor = "#1F2328"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

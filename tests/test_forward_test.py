@@ -83,3 +83,22 @@ def test_a_log_line_cut_short_by_a_crash_is_skipped(tmp_path):
     f = next(tmp_path.glob('session_*.jsonl'))
     f.write_text(f.read_text() + '{"type": "candle_close", "symbol": "US.A')
     assert ft.load(tmp_path)['pnl'] == 10.0
+
+
+def test_search_correction_reads_the_newest_reality_check(tmp_path):
+    from core import results_index as ri
+    assert ri.load_search_correction(tmp_path) is None
+    cfg = lambda p, best: {'p_value': p, 'naive_p_value': 0.02, 'best_candidate': best, 'observed_max_mean': 6.15,
+                           'n_windows': 9, 'n_candidates': 2, 'bootstrap_max_quantiles': {'p95': 7.48},
+                           'candidate_means': {'CS-Reversal x sp100': 6.15, 'CS-Momentum x hsi': -7.6}}
+    (tmp_path / 'reality_check_20260928_000000.json').write_text(json.dumps(
+        {'n_boot': 5000, 'common_end_date': None, 'by_config': {'A (9 windows)': cfg(0.5, 'CS-Momentum x hsi')}}))
+    (tmp_path / 'reality_check_20260929_000000.json').write_text(json.dumps(
+        {'n_boot': 20000, 'common_end_date': '2026-08-28 16:00:00',
+         'by_config': {'A (9 windows)': cfg(0.094, 'CS-Reversal x sp100')}}))
+    (tmp_path / 'reality_check_cache.json').write_text('{}')          # the cache is not a result
+    sc = ri.load_search_correction(tmp_path)
+    c = sc['configs'][0]
+    assert sc['file'] == 'reality_check_20260929_000000.json' and sc['end'] == '2026-08-28' and sc['pbo'] is None
+    assert (c['p_value'], c['best'], c['luck_p95']) == (0.094, 'Reversal, S&P 100', 7.48)
+    assert list(c['means']) == ['Momentum, Hang Seng', 'Reversal, S&P 100']      # sorted, worst first
