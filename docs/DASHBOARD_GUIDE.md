@@ -96,7 +96,7 @@ Studies are listed current-first. Anything marked *superseded* was produced befo
 
 ## Sidebar controls
 
-1. **Universe** — HK live roster (19), US 15 large caps, S&P 100, or Hang Seng Index (88). Sets
+1. **Market and universe** — HK live roster (19), US 15 large caps, S&P 100, or Hang Seng Index (88). Sets
    the currency and the default commission.
 2. **Symbol** — the stock, for single-stock strategies.
 3. **Strategy** and its parameters.

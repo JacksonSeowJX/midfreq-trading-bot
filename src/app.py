@@ -54,8 +54,9 @@ UNIVERSE_LABELS = {
 _universes = config.list_universes()
 _u_opts = [u for u in ['hk_live', 'us_15', 'sp100', 'hsi'] if u in _universes] or _universes
 universe = st.sidebar.selectbox(
-    "Universe", _u_opts, index=0,
-    format_func=lambda u: UNIVERSE_LABELS.get(u, u))
+    "Market and universe", _u_opts, index=0,
+    format_func=lambda u: UNIVERSE_LABELS.get(u, u),
+    help="Hong Kong or US stocks. The symbol list, the currency and the default fee all follow this choice.")
 try:
     available_symbols = config.get_universe(universe, with_data_only=True)
     _desc = config.describe_universe(universe)
@@ -418,7 +419,7 @@ def plot_equity_curve(equity_data):
         marker=dict(size=4), name='Equity'
     ))
     fig.add_hline(y=initial_capital, line_dash="dash", line_color="gray", annotation_text="Initial Capital")
-    fig.update_layout(title='Equity Curve', yaxis_title='Portfolio Value (HKD)', height=350, margin=dict(l=0, r=0, t=40, b=0))
+    fig.update_layout(title='Equity Curve', yaxis_title=f'Portfolio Value ({_ccy})', height=350, margin=dict(l=0, r=0, t=40, b=0))
     return fig
 
 
@@ -677,7 +678,7 @@ elif st.session_state.active_view == 'compare':
                     name=name
                 ))
             fig.add_hline(y=initial_capital, line_dash="dash", line_color="gray", annotation_text="Initial Capital")
-            fig.update_layout(yaxis_title='Portfolio Value (HKD)', height=400, margin=dict(l=0, r=0, t=10, b=0))
+            fig.update_layout(yaxis_title=f'Portfolio Value ({_ccy})', height=400, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(fig, use_container_width=True)
     else:
         st.warning("No results to compare. Ensure data exists for the selected symbol and timeframe.")
@@ -965,7 +966,7 @@ elif st.session_state.active_view == 'live':
                                  annotation_text=f"US${ftd['capital']:,.0f} allocated",
                                  annotation_position="bottom right")
                     _f.update_layout(height=300, yaxis_title="USD", xaxis_title=None,
-                                     margin=dict(l=0, r=0, t=10, b=0), showlegend=False)
+                                     margin=dict(l=0, r=28, t=10, b=0), showlegend=False)
                     st.plotly_chart(_f, use_container_width=True)
                 _tab_t, _tab_h = st.tabs(["Trades", "Holdings at the last recorded candle"])
                 with _tab_t:
@@ -1009,8 +1010,9 @@ elif st.session_state.active_view == 'live':
             start = next((e for e in events if e['type'] == 'session_start'), {})
             end = next((e for e in events if e['type'] == 'session_end'), {})
             candles = sum(1 for e in events if e['type'] == 'candle_close')
+            day, clock = f.stem.split('_')[1:3]            # session_<YYYYMMDD>_<HHMMSS>_<strategy>_...
             rows.append({
-                'Session': f.stem.replace('session_', ''),
+                'Started (SGT)': f"{day[:4]}-{day[4:6]}-{day[6:]} {clock[:2]}:{clock[2:4]}",
                 'Strategy': start.get('strategy', '?'),
                 'Symbols': (', '.join(start.get('symbols', [])) if len(start.get('symbols', [])) <= 3
                             else f"{len(start['symbols'])} symbols ({start['symbols'][0]}, …)"),
@@ -1019,7 +1021,7 @@ elif st.session_state.active_view == 'live':
                 'Trades': str(end.get('trades', 'running' if not end else 0)),
                 'End Assets': f"{CCY} {end['account'].get('total_assets', 0):,.0f}" if end.get('account') else '—',
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=280)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=280, hide_index=True)
 
         # Account equity over time, from the BROKER's own figure.
         #
@@ -1067,7 +1069,7 @@ elif st.session_state.active_view == 'live':
             fig.add_hline(y=first, line_dash="dot", line_color="#6B6B63",
                           annotation_text="starting equity", annotation_position="bottom right")
             fig.update_layout(height=340, yaxis_title=CCY, xaxis_title=None,
-                              margin=dict(l=0, r=0, t=10, b=0), showlegend=False)
+                              margin=dict(l=0, r=28, t=10, b=0), showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
             st.caption("Total account value as reported by the broker at the start and end of each "
                        "session. Flat stretches are days when no position was held or no session ran.")
