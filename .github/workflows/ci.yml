@@ -61,7 +61,8 @@ jobs:
       - name: Tests against the installed release
         run: |
           rm -rf packages/*/src      # import the installed wheels, not the source tree
-          "$RUNNER_TEMP/midfreq/current/.venv/bin/python" -m pytest -q -p no:cacheprovider
+          # the VM bundle's packages and the cross-package tests; apps/api is not on the VM
+          "$RUNNER_TEMP/midfreq/current/.venv/bin/python" -m pytest -q -p no:cacheprovider packages tests
 
   # The dashboard front end (apps/web): Node 22 LTS, the versions in its package-lock.json.
   # Its API types must be regenerated from apps/api/openapi.json whenever the contract changes.
