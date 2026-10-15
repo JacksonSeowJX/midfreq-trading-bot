@@ -1,5 +1,5 @@
 """
-DataEngine: merges bar streams from any number of instruments and venues into one stream in UTC
+DataEngine: merges market-data streams (bars, quotes, trades, book snapshots) from any number of instruments and venues into one stream in UTC
 time order (a k-way heap merge), and groups bars that share a timestamp into TimeSlices.
 
 Ordering is by ts_init, then by the order the streams were added, then by position in the stream,
@@ -20,9 +20,11 @@ from mft.model.identifiers import InstrumentId
 
 @dataclass(frozen=True)
 class TimeSlice:
-    """Every bar with one ts_event, in delivery order."""
+    """Everything with one timestamp, in delivery order: `bars` holds the bars, `data` every item
+    (bars, quotes, trades, book snapshots). len() counts bars."""
     ts_event: int
     bars: Tuple[Bar, ...]
+    data: Tuple[object, ...] = ()
 
     def __iter__(self):
         return iter(self.bars)
@@ -45,8 +47,9 @@ class DataEngine:
     def __init__(self):
         self._streams: List[List[Bar]] = []
 
-    def add(self, bars: Sequence[Bar]) -> None:
-        stream = list(bars)
+    def add(self, items: Sequence[object]) -> None:
+        """One stream of market data: bars, QuoteTicks, TradeTicks or OrderBookDepths, in any mix."""
+        stream = list(items)
         if not stream:
             return
         if any(stream[i].ts_init > stream[i + 1].ts_init for i in range(len(stream) - 1)):
@@ -60,7 +63,8 @@ class DataEngine:
     def instruments(self) -> List[InstrumentId]:
         seen: Dict[InstrumentId, None] = {}
         for s in self._streams:
-            seen.setdefault(s[0].bar_type.instrument_id, None)
+            for item in s:
+                seen.setdefault(item.instrument_id, None)
         return list(seen)
 
     def iter_bars(self, start_ns: Optional[int] = None, end_ns: Optional[int] = None) -> Iterator[Bar]:
@@ -83,13 +87,17 @@ class DataEngine:
                 heapq.heappush(heap, (streams[i][j + 1].ts_init, i, j + 1))
 
     def iter_slices(self, start_ns: Optional[int] = None, end_ns: Optional[int] = None) -> Iterator[TimeSlice]:
-        batch: List[Bar] = []
+        batch: List[object] = []
         current = None
-        for bar in self.iter_bars(start_ns, end_ns):
-            if current is not None and bar.ts_init != current:
-                yield TimeSlice(current, tuple(batch))
+        for item in self.iter_bars(start_ns, end_ns):
+            if current is not None and item.ts_init != current:
+                yield self._slice(current, batch)
                 batch = []
-            current = bar.ts_init
-            batch.append(bar)
+            current = item.ts_init
+            batch.append(item)
         if batch:
-            yield TimeSlice(current, tuple(batch))
+            yield self._slice(current, batch)
+
+    @staticmethod
+    def _slice(ts: int, batch: List[object]) -> TimeSlice:
+        return TimeSlice(ts, tuple(b for b in batch if isinstance(b, Bar)), tuple(batch))

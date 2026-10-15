@@ -13,13 +13,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Iterable, List, Optional
+from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 
 from mft.model.enums import AggregationSource, BarAggregation, PriceType
 from mft.model.identifiers import InstrumentId
+
+if TYPE_CHECKING:
+    from mft.model.enums import OrderSide
 
 _AGG_SECONDS = {
     BarAggregation.SECOND: 1,
@@ -187,3 +190,77 @@ def frame_to_bars(df: pd.DataFrame, bar_type: BarType) -> List[Bar]:
         Bar(bar_type, float(o), float(h), float(lo), float(c), float(v), int(te), int(ti))
         for o, h, lo, c, v, te, ti in zip(*cols, ts_event, ts_init)
     ]
+
+
+# ── tick and order-book data ─────────────────────────────────────────
+# Finer data than bars, for venues and periods where it exists. Each carries ts_event (when the
+# venue stamped it) and ts_init (when we created it), UTC nanoseconds, like Bar, so the DataEngine
+# can merge all of them into one time-ordered stream.
+
+@dataclass(frozen=True, slots=True)
+class QuoteTick:
+    """Top of book: the best bid and ask and the size displayed at each."""
+    instrument_id: InstrumentId
+    bid: float
+    ask: float
+    bid_size: float
+    ask_size: float
+    ts_event: int
+    ts_init: int
+
+    @property
+    def mid(self) -> float:
+        return (self.bid + self.ask) / 2.0
+
+    @property
+    def spread(self) -> float:
+        return self.ask - self.bid
+
+
+@dataclass(frozen=True, slots=True)
+class TradeTick:
+    """One printed trade. `aggressor_side` is the side that crossed the spread (BUY = a buyer lifted
+    the offer), or None when the venue does not say."""
+    instrument_id: InstrumentId
+    price: float
+    size: float
+    aggressor_side: Optional["OrderSide"]
+    ts_event: int
+    ts_init: int
+    trade_id: Optional[str] = None
+
+
+@dataclass(frozen=True, slots=True)
+class BookLevel:
+    price: float
+    size: float
+
+
+@dataclass(frozen=True, slots=True)
+class OrderBookDepth:
+    """An L2 snapshot: aggregated size per price, best level first on each side."""
+    instrument_id: InstrumentId
+    bids: Tuple[BookLevel, ...]
+    asks: Tuple[BookLevel, ...]
+    ts_event: int
+    ts_init: int
+
+    @property
+    def best_bid(self) -> Optional[float]:
+        return self.bids[0].price if self.bids else None
+
+    @property
+    def best_ask(self) -> Optional[float]:
+        return self.asks[0].price if self.asks else None
+
+    def size_at(self, side: "OrderSide", price: float) -> float:
+        """Displayed size at `price` on the bid side (BUY) or the ask side (SELL)."""
+        levels = self.bids if side.value == "BUY" else self.asks
+        return sum(l.size for l in levels if l.price == price)
+
+
+MarketData = Union[Bar, QuoteTick, TradeTick, OrderBookDepth]
+
+
+def instrument_of(item: "MarketData") -> InstrumentId:
+    return item.instrument_id
