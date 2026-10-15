@@ -181,3 +181,21 @@ The system standardizes all OHLCV data to the following schema:
 - `low`
 - `close`
 - `volume`
+
+## mft: Venue-Based Engine (in development)
+
+`src/mft/` is a second engine, modelled on NautilusTrader, that sits beside `src/core/` without changing it. Trading happens on explicit **venues** (XHKG, XNAS, XNYS, XSES, XSHG, XSHE, XTKS, and the crypto exchanges BINANCE, COINBASE, KRAKEN, OKX) in **instruments** such as `00700.XHKG`, from **bars** whose timestamp is their close in true UTC, through **orders** that a risk engine can deny and a simulated venue can reject. Each venue's timezone, trading sessions, currency, board-lot rule and fees are in `config/venues.json`.
+
+- **Connectors** for Moomoo, IBKR and yfinance (wrapping the existing providers), Binance (its public REST API) and ccxt (Coinbase, Kraken, OKX, ...) share one contract and are tested against it with fake transports.
+- **Ingestion** into a Parquet catalog keyed by bar type, plus a read-only reader for the existing `data/` cache that converts its local-time stamps to UTC.
+- **Backtest engine** with a message bus, a data engine that merges venues in UTC order, one simulated exchange per venue, a risk engine reusing `core.risk_manager`, and one cash account per currency (no FX conversion).
+- **Every core strategy runs unchanged** through a legacy adapter, with trade lists and final equity identical to `core.backtester`; cross-sectional reversal and the moving-average crossover are also ported natively.
+
+Live trading stays on `core` until the forward test ends. See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the design and how it maps to NautilusTrader.
+
+```bash
+cd src
+python -m mft.data venues
+python -m mft.data fetch --venue XHKG --symbols 00700 00005 --bar 1-HOUR --start 2024-01-01 --client moomoo
+python -m mft.data fetch --venue BINANCE --symbols BTCUSDT ETHUSDT --bar 1-HOUR --start 2024-01-01
+```
