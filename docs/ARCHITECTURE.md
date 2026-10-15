@@ -31,7 +31,7 @@ multi-exchange system needs were implicit:
 |---|---|---|
 | `model.identifiers`: `Venue`, `Symbol`, `InstrumentId`, `StrategyId`, `ClientId`, `ClientOrderId` | same names | Venues are ISO 10383 MICs (XHKG, XNAS, XNYS, XSES, XSHG, XSHE, XTKS) or crypto exchange names (BINANCE, COINBASE, KRAKEN, OKX). `InstrumentId.from_str` splits on the last dot, so `BRK.B.XNYS` works |
 | `model.instruments`: `Equity`, `CurrencyPair` | `Equity`, `CurrencyPair` | Price increment, board lot or size step, minimum notional, currency. `make_qty` rounds down to a tradable amount |
-| `model.data`: `BarSpecification`, `BarType`, `Bar` | same | `BarType` string form `00700.XHKG-1-HOUR-LAST-EXTERNAL`; `ts_event` = bar close, `ts_init` = creation time, both UTC ns. Prices are floats (Nautilus uses fixed point) |
+| `model.data`: `BarSpecification`, `BarType`, `Bar`, `QuoteTick`, `TradeTick`, `OrderBookDepth`, `BookLevel` | same (`OrderBookDepth10` for the book) | `BarType` string form `00700.XHKG-1-HOUR-LAST-EXTERNAL`; `ts_event` = bar close (or the tick's time), `ts_init` = creation time, both UTC ns. Prices are floats (Nautilus uses fixed point) |
 | `model.orders`: `Order`, `OrderFactory`; `model.enums` | same | MARKET and LIMIT; GTC, DAY, IOC |
 | `model.events`: `OrderSubmitted`, `OrderAccepted`, `OrderDenied`, `OrderRejected`, `OrderCanceled`, `OrderFilled` | same | Denied = stopped by the risk engine; rejected = refused by the venue |
 | `model.signals.Signal` | `Signal` (custom data) | `value` may be an immutable ranking, not only a scalar |
@@ -44,7 +44,8 @@ multi-exchange system needs were implicit:
 | `cache.Cache` (strategies get a read-only view) | `Cache` | |
 | `backtest.DataEngine` | `DataEngine` | k-way heap merge of all bar streams in UTC order |
 | `backtest.SimulatedExchange` | `SimulatedExchange` | One per venue |
-| `backtest.models.FillModel` | `FillModel` | Here it also chooses the fill timing (bar close or next bar's open) |
+| `backtest.fill_models`: `BarFillModel`, `QuoteFillModel`, `TradeFillModel`, `OrderBookFillModel`, `AutoFillModel`; `backtest.MarketState` | `FillModel` and the matching engine's book types | One model per kind of market data; see "Fill models and slippage models" |
+| `backtest.slippage`: `FixedBpsSlippage`, `SpreadSlippage`, `SquareRootImpactSlippage`, ... | (part of `FillModel`) | Trading costs a bar or trade price leaves out, as a separate, swappable model |
 | `risk.RiskEngine` | `RiskEngine` | Rules from `core.risk_manager` |
 | `execution.ExecutionEngine` | `ExecutionEngine` | |
 | `accounting`: `Account`, `Position`, `Portfolio` | `Account`, `Position`, `Portfolio` | Accounts are per currency, not per venue (see below) |
@@ -190,19 +191,19 @@ print(result.summary())          # per currency: HKD and USD
 result.trades()                  # every fill, with the balance after it
 ```
 
-For each timestamp the engine moves the clock, and for each bar lets the venue fill orders resting
-from earlier bars, stores the bar, runs risk exits and publishes it; then it publishes the
-`TimeSlice` and records equity per currency.
+For each timestamp the engine moves the clock, and for each data item (bar, quote, trade or book
+snapshot) lets the venue fill orders resting from earlier data, stores the item, runs risk exits on
+bars and publishes it; then it publishes the `TimeSlice` and records equity per currency.
 
-- **Fill models.** `FillModel(timing="close")` (default) fills a market order at the close of the bar
-  it was decided on, plus slippage, as `core.backtester` does. `timing="next_open"` fills at the
-  instrument's next bar's open, which removes the assumption that one can trade at the price that
-  triggered the decision. Limit orders rest and fill when a later bar trades through the limit (at the
-  limit as maker, or at the open as taker if the bar gaps through). DAY orders expire when the venue's
-  local date rolls over.
-- **Venue rules.** Quantities are rounded down to whole board lots or size steps; orders below one lot
-  or below a minimum notional are rejected; a buy the currency account cannot pay for, or a sell of
-  more than is held (no short selling), is rejected.
+- **Fills.** Each venue has a fill model and a slippage model (next section). The default is the
+  original behaviour: a market order fills at the close of the bar it was decided on, with no
+  slippage unless one is given. Orders can fill in parts (`PARTIALLY_FILLED`, with a volume-weighted
+  average price); IOC remainders are cancelled; DAY orders expire when the venue's local date rolls
+  over.
+- **Venue rules.** Quantities are rounded down to whole board lots or size steps; a fill below a
+  minimum notional, a buy the currency account cannot pay for, or a sell of more than is held (no
+  short selling) is refused; if part of the order has already filled, the rest is cancelled with the
+  reason.
 - **Risk.** `RiskConfig(max_drawdown_pct=...)` uses `core.risk_manager.RiskManager.is_trading_halted`
   per currency: while halted, orders that add exposure are denied and reducing orders pass.
   `stop_loss_pct`, `trailing_stop_pct` and `take_profit_pct` apply `RiskManager.check_exit_signals` to
@@ -211,6 +212,59 @@ from earlier bars, stores the bar, runs risk exits and publishes it; then it pub
 - **Results.** `BacktestResult` holds the fills, the orders, an equity curve per currency, and metrics
   per currency computed by `core.portfolio.Portfolio.calculate_metrics` plus `core.backtester`'s
   equal-weight benchmark, so a Sharpe ratio means the same thing from either engine.
+
+## Fill models and slippage models
+
+How an order fills depends on what data the backtest has, so the venue's **fill model** is chosen by
+data type; what trading costs the fill price leaves out is a separate **slippage model**. Both are
+passed to `add_venue`:
+
+```python
+from mft.backtest import AutoFillModel, BarFillModel, SquareRootImpactSlippage, SpreadSlippage
+
+engine.add_venue("XHKG", {"HKD": 1_000_000}, fill_model=BarFillModel(timing="next_open"),
+                 slippage_model=SpreadSlippage())
+engine.add_venue("BINANCE", {"USDT": 100_000}, fill_model=AutoFillModel(),
+                 slippage_model=SquareRootImpactSlippage(k=0.5))
+```
+
+Fill models implement `fill(order, market_state) -> list[Fill]`. The exchange calls it when an order
+arrives and again on each new data item for that instrument while the order rests; returning a list
+lets an order fill in part, at several prices, or not yet. `MarketState` holds the instrument's last
+bar, recent closes, best bid and ask, last trade and book, and records how much of the current
+quote, print or book level our own orders have already taken, so two orders cannot use the same
+liquidity.
+
+| Model | Data | Market orders | Limit orders |
+|---|---|---|---|
+| `BarFillModel` (default) | bars | at the decision bar's close (`timing="close"`), or the next bar's open (`"next_open"`) | along an assumed intrabar path, O-H-L-C or O-L-H-C (whichever extreme is nearer the open first): at the limit as maker, or at the open as taker if the bar gaps through. Optional `prob_fill_on_touch` (seeded) for a bar that only touches the limit; optional `max_volume_share` caps each bar's fill, the rest stays open |
+| `QuoteFillModel` | top of book | buy at the ask, sell at the bid, at most the displayed size; the rest waits for later quotes | fill when the opposite quote crosses: at the quote if marketable on arrival, otherwise at the limit as maker |
+| `TradeFillModel` | trade prints | at the next print | when a trade prints through the limit, or at it with the other side aggressing; at most `participation` of the printed size |
+| `OrderBookFillModel` | L2 snapshots | walk the opposite levels, one fill per level (so the average is volume-weighted); the rest waits for the next snapshot when depth runs out | take what is marketable, then queue behind the size displayed at the limit price; trades at the price consume the queue before filling the order, a print through it fills it, and the queue shrinks as displayed size falls |
+| `AutoFillModel` | any | per instrument, the finest data present: book > quotes > trades > bars | as the chosen model |
+| `LegacyFillModel` | bars | at the price the core strategy passed, no lot rounding (legacy adapter) | |
+
+`FillModel(timing=..., slippage_bps=...)` called directly still builds a `BarFillModel`, so code
+written before these models existed keeps working.
+
+Slippage models implement `adjust(price, side, qty, market_state, instrument) -> price` and never
+move the price in the trader's favour. They apply only to fills whose price does not already include
+the cost of trading: bar and trade fills. Quote fills already pay the spread and book fills the
+depth.
+
+| Model | Cost |
+|---|---|
+| `NoSlippage` | none |
+| `FixedBpsSlippage(bps=5.0)` | a fixed number of basis points, with `core.backtester`'s exact arithmetic |
+| `FixedTickSlippage(ticks=1)` | whole price increments of the instrument |
+| `SpreadSlippage(assumed_half_spread_bps=3.33)` | half the quoted spread when quotes exist, else the assumed half-spread (3.33 bps is the median measured on the Hong Kong stocks) |
+| `VolatilitySlippage(fraction=0.1)` | a share of the last bar's high-low range |
+| `SquareRootImpactSlippage(k=1.0)` | half-spread + k x sigma x price x sqrt(qty / bar volume), the square-root impact law; sigma from recent close-to-close returns |
+| `RandomSlippage(mean_bps, std_bps, seed)` | a seeded draw around a mean, never negative, for robustness runs |
+
+Defaults: without arguments a venue uses `BarFillModel()` at the bar close and no slippage, exactly as
+before, so existing results do not change; a fill model built with `slippage_bps` keeps that cost as
+`FixedBpsSlippage`. `FixedBpsSlippage()` on its own defaults to the 5 bps the studies use.
 
 ## Running core strategies unchanged
 
@@ -272,7 +326,8 @@ end of the S&P 100 history).
 
 - Live trading: no `ExecutionClient` is implemented; live orders stay on `core.live_engine` and
   `core.order_gateway` until the forward test ends. `subscribe_bars` on a data client is reserved.
-- FX conversion, margin, short selling, partial fills and order-book simulation.
+- FX conversion, margin and short selling. Order-book simulation uses L2 snapshots (aggregated size
+  per price), not individual orders (L3), so queue position is estimated from displayed size.
 - HKEX's price-dependent tick table (one price increment per venue is used).
 - Calibrated fees for XSES, XSHG, XSHE, XTKS and the crypto venues.
 
