@@ -1,5 +1,5 @@
 {
- "saved_at": "2026-10-14 04:01:04.592900",
+ "saved_at": "2026-10-15 04:01:04.743088",
  "positions": {
   "US.INTC": {
    "qty": 302.0,
@@ -16,10 +16,10 @@
  },
  "peak_prices": {
   "US.INTC": 125.22,
-  "US.CAT": 774.24,
-  "US.AMD": 605.53
+  "US.CAT": 866.62,
+  "US.AMD": 655.6
  },
- "cross_section_count": 63,
+ "cross_section_count": 70,
  "next_rebalance_at": 76,
  "cash": 4738.620650000026
 }
