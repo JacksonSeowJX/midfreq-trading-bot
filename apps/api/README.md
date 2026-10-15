@@ -23,6 +23,21 @@ Live trading is shown from two independent sources, side by side, so they can be
 
 The API never talks to the trading bot process.
 
+Only the trading VM reaches OpenD, so it also publishes each account with `publish: true` every
+5 minutes as `broker_<id>.json` beside the session logs (`midfreq.data.snapshots`, run by
+`ops/vm/broker_snapshot.sh`); the record store lists and reads them (`broker_snapshots()`,
+`read_broker_snapshot()`). An account is then served with `kind` `live` (read through its gateway
+now) or `snapshot` (the published file, `as_of` its read time; the web app shows the age), by
+`MIDFREQ_DASHBOARD_ACCOUNTS` (`Settings.accounts_enabled`, `Settings.snapshot_accounts_only`):
+
+- `on` (default): live; an account whose gateway cannot be read is served from its snapshot if
+  there is one (`available`, with the live failure as `reason`);
+- `snapshots` (the hosted dashboard): only the configured accounts with a snapshot, from the file;
+  no gateway is ever probed;
+- `off`: no accounts.
+
+A snapshot that cannot be read is 503 with the reason. See ops/README.md, Broker snapshots.
+
 ## Routes
 
 | Route | Source |
@@ -31,8 +46,8 @@ The API never talks to the trading bot process.
 | `GET /api/forward-test?market=US` | `midfreq.research.forward_test.load` over the record; 404 if there is none |
 | `GET /api/sessions?market=&limit=` | session summaries, newest first; `crashed` = its console log has a Traceback or CRITICAL line |
 | `GET /api/sessions/{id}` | one session: the broker's totals at start and end, its trades, event counts; 404 for an id not in the record |
-| `GET /api/accounts` | configured accounts with an availability probe (all probes in parallel, bounded by `probe_timeout`) |
-| `GET /api/accounts/{id}?order_days=` | snapshot, positions, orders; 404 unknown id, 503 if it cannot be read now (or within `account_timeout`) |
+| `GET /api/accounts` | configured accounts with an availability probe (all probes in parallel, bounded by `probe_timeout`) and `kind` (`live` or `snapshot`, above) |
+| `GET /api/accounts/{id}?order_days=` | snapshot, positions, orders, live or from the published snapshot; 404 unknown id, 503 if it cannot be read now (or within `account_timeout`) and has no readable snapshot |
 | `GET /api/results/overview?current_only=` | `midfreq.research.results_index`: every result held to the two-configuration standard, plus the Reality Check |
 | `GET /api/research/files` | CSV and JSON files in `results/`, newest first, with the research view's labels |
 | `GET /api/research/files/{name}?limit=` | one file: CSV as columns and rows (NaN as null, at most `limit` rows), JSON parsed |

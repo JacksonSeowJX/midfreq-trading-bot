@@ -43,7 +43,8 @@ mkdir -p "$OUT/wheels" "$OUT/ops/vm" dist
 for p in packages/*/; do uv build "$p" --wheel --quiet --out-dir "$OUT/wheels"; done
 rm -f "$OUT/wheels/.gitignore"
 cp ops/run_sp100_forward_test.sh ops/run_daily_candidates.sh "$OUT/ops/"
-cp ops/vm/install_release.sh ops/vm/crontab.txt ops/vm/maintain.sh ops/vm/memlog.sh ops/vm/tidy_home.sh ops/vm/sync_logs.sh "$OUT/ops/vm/"
+cp ops/vm/install_release.sh ops/vm/crontab.txt ops/vm/maintain.sh ops/vm/memlog.sh ops/vm/tidy_home.sh ops/vm/sync_logs.sh \
+   ops/vm/broker_snapshot.sh "$OUT/ops/vm/"
 cp ops/vm/requirements-vm.txt "$OUT/"
 mkdir -p "$OUT/defaults"
 git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, never local edits

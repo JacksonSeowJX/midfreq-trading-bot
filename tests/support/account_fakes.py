@@ -192,3 +192,23 @@ def ccxt_order(order_id: str, ts: pd.Timestamp, side: str = "buy", amount: float
 def ccxt_spot_market(base: str, quote: str) -> Dict[str, Any]:
     return {"id": f"{base}-{quote}", "symbol": f"{base}/{quote}", "base": base, "quote": quote,
             "spot": True, "swap": False}
+
+
+# ── a registry over the fakes ────────────────────────────────────────
+
+def fake_account_registry(opend: FakeOpenD, exchange: Optional[FakeAccountExchange] = None,
+                          now_ns=None):
+    """A ConnectorRegistry whose moomoo connector reaches `opend` and whose ccxt connector builds
+    `exchange`, for midfreq.data.adapters.accounts.create_account_client(..., registry=)."""
+    from midfreq.data.adapters.ccxt.connector import CcxtConnector
+    from midfreq.data.adapters.moomoo.connector import MoomooConnector
+    from midfreq.data.adapters.registry import ConnectorRegistry
+
+    clock = {} if now_ns is None else {"now_ns": now_ns}
+    reg = ConnectorRegistry()
+    reg.register("moomoo", lambda config=None, **kw: MoomooConnector(
+        {"host": "127.0.0.1", "port": 11111}, trade_transport=opend, **clock, **kw))
+    if exchange is not None:
+        reg.register("ccxt", lambda config=None, **kw: CcxtConnector(
+            config, account_exchange_factory=exchange.factory, **clock, **kw))
+    return reg

@@ -2,10 +2,11 @@
 The bot's own record, behind one interface.
 
 The trading bot writes a JSON-lines log per session (live_sessions/session_*.jsonl) and its
-console output (console_*.log). The API reads them through a RecordStore and never talks to
-the bot process. The record is either a local folder (the VM's, or this machine's copy fetched
-with ops/fetch_live_logs.sh) or a Cloud Storage bucket the VM uploads to (GcsMirrorRecordStore),
-so a hosted dashboard need not share a disk with the VM.
+console output (console_*.log); beside them the VM publishes each broker account it can read as
+broker_<account id>.json every few minutes (midfreq.data.snapshots). The API reads them through a
+RecordStore and never talks to the bot process. The record is either a local folder (the VM's,
+or this machine's copy fetched with ops/fetch_live_logs.sh) or a Cloud Storage bucket the VM
+uploads to (GcsMirrorRecordStore), so a hosted dashboard need not share a disk with the VM.
 
 A store only lists and reads files by name. Ids that are not in its own listing are refused,
 which is what keeps a request from naming a path outside the record.
@@ -21,10 +22,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 SESSION_GLOB = "session_*.jsonl"
 CONSOLE_GLOB = "console_*.log"
+BROKER_GLOB = "broker_*.json"
 
 
 class RecordStore(ABC):
-    """Read-only access to the session logs and console logs of the trading bot."""
+    """Read-only access to the session logs and console logs of the trading bot, and the broker
+    snapshots published beside them."""
 
     @abstractmethod
     def available(self) -> bool:
@@ -45,6 +48,14 @@ class RecordStore(ABC):
     @abstractmethod
     def read_console_log(self, name: str) -> str:
         """A console log's text. KeyError if `name` is not in console_logs()."""
+
+    @abstractmethod
+    def broker_snapshots(self) -> List[str]:
+        """File names of the published broker snapshots (broker_<account id>.json)."""
+
+    @abstractmethod
+    def read_broker_snapshot(self, name: str) -> str:
+        """A broker snapshot's text. KeyError if `name` is not in broker_snapshots()."""
 
     @abstractmethod
     def local_dir(self) -> Path:
@@ -80,6 +91,14 @@ class LocalDirRecordStore(RecordStore):
 
     def read_console_log(self, name: str) -> str:
         if name not in self.console_logs():
+            raise KeyError(name)
+        return (self.root / name).read_text(errors="replace")
+
+    def broker_snapshots(self) -> List[str]:
+        return self._names(BROKER_GLOB)
+
+    def read_broker_snapshot(self, name: str) -> str:
+        if name not in self.broker_snapshots():
             raise KeyError(name)
         return (self.root / name).read_text(errors="replace")
 
@@ -167,6 +186,14 @@ class GcsMirrorRecordStore(RecordStore):
     def read_console_log(self, name: str) -> str:
         self.refresh()
         return self._local.read_console_log(name)
+
+    def broker_snapshots(self) -> List[str]:
+        self.refresh()
+        return self._local.broker_snapshots()
+
+    def read_broker_snapshot(self, name: str) -> str:
+        self.refresh()
+        return self._local.read_broker_snapshot(name)
 
     def local_dir(self) -> Path:
         self.refresh()

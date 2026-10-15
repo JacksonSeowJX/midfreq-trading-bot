@@ -110,8 +110,8 @@ line and the secret.
 The dashboard (apps/web over apps/api) also runs on **Cloud Run** as a public, read-only site,
 separate from the trading VM. It shows the research results built into its image and the bot's
 record from a private Cloud Storage bucket, `gs://midfreq-trading-bot-live-sessions/live_sessions/`,
-which it mirrors at most once a minute. It has no broker account panels: they need OpenD, which
-only the VM and a laptop have (run the dashboard locally for those).
+which it mirrors at most once a minute. It cannot reach OpenD, so its broker account panels show
+the snapshots the VM publishes into that record (Broker snapshots, below).
 
 ```
 VM  --(sync_logs.sh, every 2 min, uploader account: this bucket only)-->  bucket
@@ -126,13 +126,45 @@ Cloud Run (dashboard-runtime account: read this bucket only)  <--  browser
   `./ops/fetch_live_logs.sh && gcloud storage rsync live_sessions gs://midfreq-trading-bot-live-sessions/live_sessions`.
   From the cutover the VM uploads every 2 minutes (`vm/sync_logs.sh`, step 4b below).
 
+### Broker snapshots
+
+Only the VM reaches OpenD, so it reads the broker accounts and publishes them for both dashboards:
+
+```
+VM cron, every 5 min: vm/broker_snapshot.sh = python -m midfreq.data.snapshots
+  -> ~/midfreq/runtime/live_sessions/broker_<id>.json     one per account with `publish: true`
+  -> vm/sync_logs.sh (every 2 min) -> bucket -> hosted dashboard (mirror, at most 1 min old)
+  -> ops/fetch_live_logs.sh -> a laptop's live_sessions/
+```
+
+- Which accounts: `publish: true` in the `accounts` section of the runtime's
+  `config/connections.yaml`: `moomoo-us` and `moomoo-hk`. Per account and run, one connection to
+  OpenD and four read-only queries (balance, positions, today's orders, order history), one
+  account after the other; a running session is never touched.
+- The file is the account as the API serves it (balance, positions, orders of the last 14 days),
+  `as_of` the time it was read, and `published_by`; no option or secret is ever in it. It is
+  replaced atomically. An account that cannot be read (OpenD down or logged out) keeps its
+  previous file, so the dashboards show the last snapshot and its age; the reason goes to
+  `~/midfreq/logs/broker_snapshot.log`, which stays empty while all is well.
+- What a dashboard shows depends on `MIDFREQ_DASHBOARD_ACCOUNTS`:
+
+  | Value | Where | Accounts |
+  |---|---|---|
+  | `on` (default) | a laptop, the VM | read live through OpenD; an account that cannot be read is shown from its snapshot, if there is one (`kind: snapshot`) |
+  | `snapshots` | Cloud Run (set in `dashboard/Dockerfile`) | only the configured accounts that have a snapshot, from the file; no gateway is ever probed |
+  | `off` | anywhere | none |
+
+- Nothing to do on the VM before the cutover: the script ships in the release, its cron line
+  comes with `vm/crontab.txt` (step 4) and the upload with step 4b. Until then there are no
+  snapshots, and the hosted dashboard lists no accounts.
+
 ## Cutover runbook (Phase 2)
 
 Planned for Saturday 17 Oct 2026, after the report's final forward-test numbers are taken from
 the old setup. No session runs at weekends; the first session on releases is Monday 21:35 SGT.
 
 **1. Release v0.1.1** (laptop; it is the first release with `vm/crontab.txt`, `maintain.sh`,
-`memlog.sh` and `tidy_home.sh`)
+`memlog.sh`, `tidy_home.sh`, `sync_logs.sh` and `broker_snapshot.sh`)
 
 ```bash
 ./ops/set_version.sh 0.1.1 && git commit -am "Release 0.1.1" && git push origin main
@@ -157,10 +189,16 @@ files the runtime lacks. Copy those in on the VM (`-n` never overwrites, so
 
 ```bash
 cp -n ~/midfreq/current/defaults/config/* ~/midfreq/runtime/config/
+grep -c 'publish: true' ~/midfreq/runtime/config/connections.yaml     # 2: the broker snapshots
 ```
 
+`connections.yaml` is newer than the old clone, so it is normally among the files copied. If the
+`grep` prints 0, the runtime has an older one: take the release's
+(`cp ~/midfreq/current/defaults/config/connections.yaml ~/midfreq/runtime/config/`).
+
 **4. Schedule** (VM): replace the crontab with the versioned one, which runs everything from
-`~/midfreq/current` and drops the disabled git jobs.
+`~/midfreq/current` and drops the disabled git jobs. It includes the broker snapshots
+(`vm/broker_snapshot.sh`, every 5 minutes).
 
 ```bash
 crontab ~/midfreq/current/ops/vm/crontab.txt && crontab -l
@@ -180,6 +218,16 @@ gcloud compute ssh trading-bot --zone asia-southeast1-b --command \
   "chmod 600 ~/midfreq/secrets/uploader.json && echo gs://$P-live-sessions/live_sessions > ~/midfreq/secrets/bucket \
    && ~/midfreq/current/ops/vm/sync_logs.sh && echo uploaded"
 ```
+
+Then, within 5 minutes of step 4, the broker snapshots (VM):
+
+```bash
+ls ~/midfreq/runtime/live_sessions/broker_*.json     # broker_moomoo-hk.json, broker_moomoo-us.json
+cat ~/midfreq/logs/broker_snapshot.log               # empty; otherwise it says why an account was not read
+```
+
+The next upload puts them in the bucket, and the hosted dashboard's Live page shows both
+accounts as snapshots with their age.
 
 **5. Tidy the home folder** (VM): dry run first, read it, then apply.
 
@@ -228,6 +276,7 @@ resumes from the current rebalance clock and positions.
 | `vm/maintain.sh` | VM (cron, 17:05) | Monthly archive of `~/midfreq/logs/*.log` into `~/midfreq/archive` (12 kept), SDK/OpenD log retention (36 h / 14 days), a line in `logs/health.log` |
 | `vm/memlog.sh` | VM (cron, every minute) | RAM and top processes into `~/midfreq/logs/memlog.txt` (~10 days) |
 | `vm/sync_logs.sh` | VM (cron, every 2 min) | Uploads `runtime/live_sessions` to the hosted dashboard's bucket with its own gcloud config; never deletes; does nothing until configured |
+| `vm/broker_snapshot.sh` | VM (cron, every 5 min) | Writes each `publish: true` broker account as `runtime/live_sessions/broker_<id>.json` (`python -m midfreq.data.snapshots`, see Broker snapshots); keeps the last file when OpenD cannot be read; logs only failures |
 | `dashboard/` | laptop | `setup_gcp.sh` (one-time cloud setup), `deploy_dashboard.sh`, the Dockerfile and Cloud Build config of the hosted dashboard |
 | `vm/tidy_home.sh` | VM (once, cutover) | Moves the home folder into the layout below; dry run unless `--apply` |
 | `vm/preflight.sh`, `vm/postclose.sh`, `vm/git_selfheal.sh`, `vm/deploy_lib.sh` | not installed | The pull-based deploy (disabled in Phase 0) and its CI gate; deleted in Phase 3 |

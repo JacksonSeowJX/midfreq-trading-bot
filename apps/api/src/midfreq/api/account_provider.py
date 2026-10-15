@@ -7,6 +7,9 @@ An AccountProvider lists the configured accounts and makes a read-only AccountCl
 midfreq.data.adapters.accounts.create_account_client. The factory is imported only when an
 account is actually read, so listing accounts never loads a broker SDK. Tests replace the
 provider through the `get_account_provider` dependency and use fake clients.
+
+The snapshots the VM publishes of these accounts (broker_<id>.json, in the bot's record) are not
+a provider: the accounts router reads them from the record store (routers/accounts.py).
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -60,7 +63,7 @@ class ConfiguredAccounts(AccountProvider):
 
 
 class NoAccounts(AccountProvider):
-    """No broker accounts: a deployment with no gateway or keys (the hosted dashboard). The
+    """No broker accounts, not even published snapshots (MIDFREQ_DASHBOARD_ACCOUNTS=off). The
     account panels then say none are configured instead of probing a gateway that is not there."""
 
     def accounts(self) -> List[AccountEntry]:

@@ -1,11 +1,14 @@
-"""The VM's schedule and maintenance scripts (ops/vm/crontab.txt, maintain.sh, tidy_home.sh).
+"""The VM's schedule and maintenance scripts (ops/vm/crontab.txt, maintain.sh, tidy_home.sh,
+sync_logs.sh, broker_snapshot.sh).
 
-Each script runs for real in a temporary home folder; nothing here touches the VM.
+Each script runs for real in a temporary home folder; nothing here touches the VM or OpenD.
 """
 import os
 import re
 import shutil
+import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -196,3 +199,64 @@ def test_sync_logs_never_deletes_from_the_bucket():
 
 def test_the_schedule_sets_a_path_with_gcloud():
     assert "PATH=/usr/local/bin:/usr/bin:/bin:/snap/bin" in (VM / "crontab.txt").read_text()
+
+
+# ── broker_snapshot.sh ───────────────────────────────────────────────────────
+
+def test_broker_snapshots_are_published_every_five_minutes_into_their_own_log():
+    (line,) = [l for l in active_lines() if "broker_snapshot.sh" in l]
+    assert line.split()[:5] == ["*/5", "*", "*", "*", "*"]
+    assert line.endswith(">> $HOME/midfreq/logs/broker_snapshot.log 2>&1")
+
+
+def _closed_port() -> int:
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+@pytest.fixture
+def snapshot_home(tmp_path):
+    """A VM home in miniature: `current/.venv/bin/python` runs this interpreter (which has the
+    packages), and runtime/config is the repository's, with OpenD on a port nothing listens on."""
+    h = tmp_path / "midfreq"
+    py = h / "current" / ".venv" / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    py.chmod(0o755)
+    shutil.copytree(repo_root() / "config", h / "runtime" / "config")
+    (h / "runtime" / "live_sessions").mkdir()
+    port = _closed_port()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MIDFREQ_")}
+    env.update(MIDFREQ_HOME=str(h), MIDFREQ_MOOMOO_PORT=str(port))
+    return h, env
+
+
+def broker_snapshot(env):
+    return subprocess.run(["bash", str(VM / "broker_snapshot.sh")], env=env, capture_output=True, text=True,
+                          timeout=120)
+
+
+def test_broker_snapshot_does_nothing_when_no_account_publishes(snapshot_home):
+    h, env = snapshot_home
+    conns = h / "runtime" / "config" / "connections.yaml"
+    conns.write_text(conns.read_text().replace("publish: true", "publish: false"))
+    r = broker_snapshot(env)
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+    assert list((h / "runtime" / "live_sessions").iterdir()) == []
+
+
+def test_broker_snapshot_logs_an_unreachable_gateway_and_keeps_the_last_snapshot(snapshot_home):
+    h, env = snapshot_home
+    last = h / "runtime" / "live_sessions" / "broker_moomoo-us.json"
+    last.write_text('{"as_of": "2026-10-16T20:00:00+00:00"}\n')
+    r = broker_snapshot(env)
+    assert r.returncode == 1 and r.stderr == ""
+    lines = r.stdout.splitlines()
+    assert len(lines) == 2                                                  # moomoo-us and moomoo-hk
+    for line, account in zip(lines, ("moomoo-us", "moomoo-hk")):
+        assert re.match(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d broker snapshot " + account + ": OpenD is not reachable", line)
+    assert last.read_text() == '{"as_of": "2026-10-16T20:00:00+00:00"}\n'
+    assert sorted(p.name for p in last.parent.iterdir()) == ["broker_moomoo-us.json"]

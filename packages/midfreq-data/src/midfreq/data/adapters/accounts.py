@@ -7,6 +7,7 @@ read-only AccountClient for each, made by the account's connector.
         label: Moomoo paper (US)
         connector: moomoo            # a connector name the registry knows
         options: {market: US}        # passed to that connector's account_client()
+        publish: true                # the VM publishes it as a snapshot (midfreq.data.snapshots)
       okx:
         label: OKX
         connector: ccxt
@@ -15,7 +16,8 @@ read-only AccountClient for each, made by the account's connector.
 
 `secrets` are the NAMES of environment variables (or untracked .env entries) that hold a
 read-only key; their values never appear in the file. Adding a venue is a connector with an
-account_client() and an entry here, no dashboard code.
+account_client() and an entry here, no dashboard code. `publish` (default false) is read only
+by the snapshot publisher, never passed to the connector.
 
 `connections` (a dict as load_connections() returns, or a path to a YAML file) replaces reading the
 accounts section from config/connections.yaml; tests pass one. Connector settings such as OpenD's
@@ -37,7 +39,8 @@ __all__ = ["account_config", "account_ids", "create_account_client", "load_accou
 
 
 def load_accounts(connections: Connections = None) -> Dict[str, Dict[str, Any]]:
-    """Account id -> its entry, normalised to {id, label, connector, options, secrets}, in file order."""
+    """Account id -> its entry, normalised to {id, label, connector, options, secrets, publish},
+    in file order."""
     if connections is None or isinstance(connections, (str, Path)):
         connections = load_connections(Path(connections) if connections is not None else None)
     section = connections.get("accounts") or {}
@@ -55,8 +58,12 @@ def _normalise(account_id: str, entry: Any) -> Dict[str, Any]:
         raise ValueError(f"account {account_id!r}: `options` must be a mapping")
     if not isinstance(secrets, list) or not all(isinstance(s, str) for s in secrets):
         raise ValueError(f"account {account_id!r}: `secrets` must be a list of environment variable names")
+    publish = entry.get("publish", False)
+    if not isinstance(publish, bool):
+        raise ValueError(f"account {account_id!r}: `publish` must be true or false, got {publish!r}")
     return {"id": account_id, "label": str(entry.get("label") or account_id),
-            "connector": str(entry["connector"]), "options": dict(options), "secrets": list(secrets)}
+            "connector": str(entry["connector"]), "options": dict(options), "secrets": list(secrets),
+            "publish": publish}
 
 
 def account_ids(connections: Connections = None) -> List[str]:
@@ -65,7 +72,8 @@ def account_ids(connections: Connections = None) -> List[str]:
 
 
 def account_config(account_id: str, connections: Connections = None) -> Dict[str, Any]:
-    """One account's entry: {'id', 'label', 'connector', 'options', 'secrets'}. KeyError if unknown."""
+    """One account's entry: {'id', 'label', 'connector', 'options', 'secrets', 'publish'}. KeyError
+    if unknown."""
     accounts = load_accounts(connections)
     try:
         return accounts[account_id]

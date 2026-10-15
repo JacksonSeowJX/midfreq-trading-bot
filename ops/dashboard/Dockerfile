@@ -1,7 +1,8 @@
 # The hosted dashboard: the web app (apps/web) built with Node, served with the API (apps/api)
 # by one Python process. Built by ops/dashboard/deploy_dashboard.sh through Cloud Build from
-# committed code only, and run on Cloud Run, where the bot's record comes from the Cloud
-# Storage bucket the VM uploads to and there are no broker account panels.
+# committed code only (plus the price cache, which is not in git), and run on Cloud Run, where
+# the bot's record and the broker snapshots come from the Cloud Storage bucket the VM uploads to,
+# and visitors may run backtests and comparisons but not optimizations.
 
 FROM node:22-slim AS web
 WORKDIR /src
@@ -22,10 +23,14 @@ COPY apps/api apps/api
 RUN uv sync --frozen --no-dev --package midfreq-api --extra gcs --no-editable
 COPY config config
 COPY results results
+# the price cache for backtests (copied into the build by deploy_dashboard.sh; may be empty)
+COPY data data
 COPY --from=web /src/apps/web/dist apps/web/dist
 ENV PATH=/app/.venv/bin:$PATH \
     MIDFREQ_ROOT=/app \
-    MIDFREQ_DASHBOARD_ACCOUNTS=off \
+    MIDFREQ_DASHBOARD_ACCOUNTS=snapshots \
+    MIDFREQ_DASHBOARD_JOBS=backtest,compare \
+    MIDFREQ_DASHBOARD_MAX_JOBS=1 \
     PYTHONUNBUFFERED=1
 RUN useradd --system --uid 10001 app && chown -R app /app
 USER app

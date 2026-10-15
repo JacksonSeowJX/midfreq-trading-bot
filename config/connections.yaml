@@ -31,15 +31,21 @@ ccxt:
 # Accounts the dashboard shows (read-only: balance, positions, orders), each through a
 # connector's AccountClient (midfreq.data.adapters). Adding a venue is an entry here plus,
 # for an exchange, a READ-ONLY API key in the environment; no dashboard code changes.
+#
+# publish: true -> the trading VM, the only machine that reaches OpenD, writes the account to
+# live_sessions/broker_<id>.json every 5 minutes (ops/vm/broker_snapshot.sh), and the hosted
+# dashboard shows that snapshot. One connection and four read-only queries per account and run.
 accounts:
   moomoo-us:
     label: Moomoo paper (US)
     connector: moomoo
     options: {market: US}
+    publish: true
   moomoo-hk:
     label: Moomoo paper (HK)
     connector: moomoo
     options: {market: HK}
+    publish: true
   # okx:
   #   label: OKX
   #   connector: ccxt

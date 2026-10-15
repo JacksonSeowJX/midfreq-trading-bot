@@ -36,6 +36,30 @@ def test_the_local_store_refuses_anything_it_did_not_list(repo):
 def test_a_missing_folder_is_an_empty_unavailable_record(tmp_path):
     store = LocalDirRecordStore(tmp_path / "nowhere")
     assert not store.available() and store.session_ids() == [] and store.console_logs() == []
+    assert store.broker_snapshots() == []
+
+
+def test_the_local_store_lists_and_reads_broker_snapshots_only(repo):
+    record = repo / "live_sessions"
+    (record / "broker_moomoo-us.json").write_text('{"id": "moomoo-us"}\n')
+    (record / ".broker_moomoo-us.json.x1y2.tmp").write_text("{")        # the publisher's half-written file
+    (record / "broker_old.json.bak").write_text("{}")
+    store = LocalDirRecordStore(record)
+    assert store.broker_snapshots() == ["broker_moomoo-us.json"]
+    assert store.read_broker_snapshot("broker_moomoo-us.json") == '{"id": "moomoo-us"}\n'
+    assert len(store.console_logs()) == 4 and len(store.session_ids()) == 3     # unchanged
+
+
+@pytest.mark.parametrize("bad", ["broker_okx.json", "broker_moomoo-us", ".broker_moomoo-us.json.x1y2.tmp",
+                                 "state_crosssectionalreversal.json", f"{FIRST}.jsonl", "",
+                                 "../config/connections.yaml", "broker_../../config/connections.json"])
+def test_the_local_store_refuses_snapshot_names_it_did_not_list(repo, bad):
+    record = repo / "live_sessions"
+    (record / "broker_moomoo-us.json").write_text("{}")
+    (record / ".broker_moomoo-us.json.x1y2.tmp").write_text("{")
+    (repo / "config" / "connections.json").write_text("{}")
+    with pytest.raises(KeyError):
+        LocalDirRecordStore(record).read_broker_snapshot(bad)
 
 
 class _Blob:
@@ -75,6 +99,7 @@ def gcs(tmp_path):
     b = _Bucket()
     b.objects = {"live_sessions/session_20261015_213502_x_1.jsonl": ('{"type": "session_start"}\n', 1),
                  "live_sessions/console_sp100_reversal_20261015_213501.log": ("ok\n", 1),
+                 "live_sessions/broker_moomoo-us.json": ('{"id": "moomoo-us"}\n', 1),
                  "live_sessions/nested/ignored.jsonl": ("x", 1),
                  "other/session_elsewhere.jsonl": ("x", 1)}
     now = [0.0]
@@ -91,7 +116,20 @@ def test_a_gcs_record_is_mirrored_and_read_like_a_folder(gcs):
     assert store.read_session("session_20261015_213502_x_1").startswith('{"type"')
     with pytest.raises(KeyError):
         store.read_session("../../etc/passwd")
+    assert store.broker_snapshots() == ["broker_moomoo-us.json"]
+    assert store.read_broker_snapshot("broker_moomoo-us.json") == '{"id": "moomoo-us"}\n'
+    with pytest.raises(KeyError):
+        store.read_broker_snapshot("broker_../../etc/passwd")
     assert b.lists == 1                                                     # one listing within max_age
+
+
+def test_a_republished_snapshot_reaches_the_mirror_on_the_next_refresh(gcs):
+    store, b, now = gcs
+    assert store.read_broker_snapshot("broker_moomoo-us.json") == '{"id": "moomoo-us"}\n'
+    b.objects["live_sessions/broker_moomoo-us.json"] = ('{"id": "moomoo-us", "v": 2}\n', 2)
+    assert store.read_broker_snapshot("broker_moomoo-us.json") == '{"id": "moomoo-us"}\n'     # within max_age
+    now[0] = 61
+    assert store.read_broker_snapshot("broker_moomoo-us.json") == '{"id": "moomoo-us", "v": 2}\n'
 
 
 def test_the_mirror_refreshes_only_changed_objects_and_drops_deleted_ones(gcs):

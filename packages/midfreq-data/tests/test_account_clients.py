@@ -491,7 +491,7 @@ class TestAccountsFactory:
                                                           "nowhere", "bloomberg"]
         assert accounts.account_config("paper-us", connections_file) == {
             "id": "paper-us", "label": "Paper (US)", "connector": "moomoo", "options": {"market": "US"},
-            "secrets": []}
+            "secrets": [], "publish": False}
         okx = accounts.account_config("okx", str(connections_file))
         assert okx["label"] == "okx" and okx["secrets"] == list(OKX_ENV)
         with pytest.raises(KeyError, match="unknown account 'nope'"):
@@ -500,12 +500,15 @@ class TestAccountsFactory:
     def test_a_dict_works_like_the_file(self):
         conns = {"accounts": {"a": {"connector": "moomoo"}}}
         assert accounts.load_accounts(conns) == {"a": {"id": "a", "label": "a", "connector": "moomoo",
-                                                       "options": {}, "secrets": []}}
+                                                       "options": {}, "secrets": [], "publish": False}}
         assert accounts.account_ids({}) == []
         with pytest.raises(ValueError, match="needs a `connector`"):
             accounts.load_accounts({"accounts": {"a": {"label": "no connector"}}})
         with pytest.raises(ValueError, match="secrets"):
             accounts.load_accounts({"accounts": {"a": {"connector": "ccxt", "secrets": "OKX_KEY"}}})
+        assert accounts.account_config("a", {"accounts": {"a": {"connector": "moomoo", "publish": True}}})["publish"]
+        with pytest.raises(ValueError, match="`publish` must be true or false"):
+            accounts.load_accounts({"accounts": {"a": {"connector": "moomoo", "publish": "yes"}}})
 
     def test_create_moomoo_account(self, connections_file, fake_registry):
         client = accounts.create_account_client("paper-us", connections_file, registry=fake_registry)

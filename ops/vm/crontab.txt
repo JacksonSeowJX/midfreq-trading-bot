@@ -21,6 +21,11 @@ PATH=/usr/local/bin:/usr/bin:/bin:/snap/bin
 # uploader key is installed; ops/README.md).
 */2 * * * *  $HOME/midfreq/current/ops/vm/sync_logs.sh >> $HOME/midfreq/logs/sync_logs.log 2>&1
 
+# The broker accounts with `publish: true` (runtime/config/connections.yaml) as snapshots in
+# runtime/live_sessions/broker_<id>.json, for the dashboards, every 5 minutes. Read-only; only
+# failures are logged.
+*/5 * * * *  $HOME/midfreq/current/ops/vm/broker_snapshot.sh >> $HOME/midfreq/logs/broker_snapshot.log 2>&1
+
 # RAM, swap and the largest processes, once a minute (keeps ~10 days).
 * * * * *  $HOME/midfreq/current/ops/vm/memlog.sh
 

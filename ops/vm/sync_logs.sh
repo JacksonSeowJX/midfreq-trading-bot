@@ -22,4 +22,4 @@ if [ ! -f "$CLOUDSDK_CONFIG/.activated" ]; then
     gcloud auth activate-service-account --key-file "$SECRETS/uploader.json" --quiet
     touch "$CLOUDSDK_CONFIG/.activated"
 fi
-gcloud storage rsync "$SRC" "$(head -1 "$SECRETS/bucket")" --quiet
+gcloud storage rsync "$SRC" "$(head -1 "$SECRETS/bucket")" --quiet --exclude "(^|/)\\."   # skip temporary files (snapshots write .broker_*.tmp first)
