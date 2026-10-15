@@ -9,6 +9,7 @@
 #     current -> releases/<version>    what cron runs: ~/midfreq/current/ops/...
 #     previous                         the release current pointed at before the last switch
 #     runtime/                 config/, data/, live_sessions/ (MIDFREQ_ROOT); never touched here
+#     logs/, archive/, backups/  operations logs, their monthly archive, hand-made backups
 #
 # Switching `current` takes effect at the next session; a running session keeps the code it
 # started with, because its release folder is never changed. Rolling back is switching back.
@@ -25,7 +26,7 @@ set -euo pipefail
 HOME_DIR=${MIDFREQ_HOME:-$HOME/midfreq}
 PYTHON_BASE=${PYTHON_BASE:-python3}
 REL="$HOME_DIR/releases"
-mkdir -p "$REL"
+mkdir -p "$REL" "$HOME_DIR/logs" "$HOME_DIR/archive" "$HOME_DIR/backups"
 
 current() { [ -L "$HOME_DIR/current" ] && basename "$(readlink "$HOME_DIR/current")" || echo none; }
 

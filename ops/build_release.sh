@@ -8,6 +8,7 @@
 #     ops/run_sp100_forward_test.sh        the session launchers cron runs
 #     ops/run_daily_candidates.sh
 #     ops/vm/install_release.sh            installs this bundle (run by ops/deploy.sh)
+#     ops/vm/crontab.txt                   the VM's schedule; maintain.sh, memlog.sh, tidy_home.sh
 #     defaults/config/                     config/ as committed, for setting up a runtime folder
 #
 # CI runs this on a vX.Y.Z tag and attaches the bundle to the GitHub Release; run it
@@ -41,7 +42,7 @@ mkdir -p "$OUT/wheels" "$OUT/ops/vm" dist
 uv build --all-packages --wheel --quiet --out-dir "$OUT/wheels"
 rm -f "$OUT/wheels/.gitignore"
 cp ops/run_sp100_forward_test.sh ops/run_daily_candidates.sh "$OUT/ops/"
-cp ops/vm/install_release.sh "$OUT/ops/vm/"
+cp ops/vm/install_release.sh ops/vm/crontab.txt ops/vm/maintain.sh ops/vm/memlog.sh ops/vm/tidy_home.sh "$OUT/ops/vm/"
 cp ops/vm/requirements-vm.txt "$OUT/"
 mkdir -p "$OUT/defaults"
 git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, never local edits

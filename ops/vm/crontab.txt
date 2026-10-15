@@ -1,0 +1,23 @@
+# The VM's whole schedule, versioned with the code. Installed (replacing the old one) with
+#     crontab ~/midfreq/current/ops/vm/crontab.txt
+# and checked by tests/e2e/test_vm_schedule.py. Times are the VM's clock, Asia/Singapore (SGT).
+# Nothing here talks to GitHub: code arrives only as releases (ops/README.md).
+#
+# m  h      dom mon dow  command
+SHELL=/bin/bash
+
+# S&P 100 forward test. Fires at 21:35 and 22:35 because the US open moves with daylight
+# saving (09:30 ET = 21:30 SGT under EDT, 22:30 SGT under EST); the launcher only proceeds
+# within 30 minutes after the open, so exactly one of the two runs.
+35 21,22 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime $HOME/midfreq/current/ops/run_sp100_forward_test.sh --scheduled >> $HOME/midfreq/logs/cron_sp100.log 2>&1
+
+# Hong Kong roster: paused while the S&P 100 test runs (the two exceed the account's
+# 100-symbol subscription quota). To resume, remove the leading "#PAUSED ".
+#PAUSED 25 9 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime $HOME/midfreq/current/ops/run_daily_candidates.sh >> $HOME/midfreq/logs/cron_roster.log 2>&1
+
+# RAM, swap and the largest processes, once a minute (keeps ~10 days).
+* * * * *  $HOME/midfreq/current/ops/vm/memlog.sh
+
+# Daily maintenance at 17:05, when no session runs: monthly log archive, OpenD and moomoo SDK
+# log retention, one health line.
+5 17 * * *  $HOME/midfreq/current/ops/vm/maintain.sh >> $HOME/midfreq/logs/maintain.log 2>&1

@@ -37,7 +37,13 @@ On the VM:
     MANIFEST                 version, commit, wheel checksums
   current -> releases/0.1.0
   previous                   the release before the last switch
-  runtime/                 MIDFREQ_ROOT: config/, data/ (bar cache), live_sessions/
+  runtime/                 MIDFREQ_ROOT: config/, data/ (bar cache), live_sessions/ (kept forever)
+  logs/                    operations logs: cron_sp100.log, deploy.log, maintain.log, health.log, memlog.txt
+  archive/                 monthly .log.gz of logs/ (12 per log), legacy-home tarball
+  bin/                     deploy_gate.sh only (installed by hand, never by a release)
+  backups/                 crontab and ~/bin from before the cutover, authorized_keys
+~/opend/                   the OpenD program (systemd service opend.service)
+~/.com.moomoo.OpenD/       OpenD's own logs and cache (retention in vm/maintain.sh)
 ```
 
 Code and data are separate: a release never writes to `runtime/`, and nothing in `runtime/`
@@ -101,76 +107,73 @@ line and the secret.
 
 ## Cutover runbook (Phase 2)
 
-Only after the forward test's last session has ended, on a weekday before 21:00 SGT or at a
-weekend.
+Planned for Saturday 17 Oct 2026, after the report's final forward-test numbers are taken from
+the old setup. No session runs at weekends; the first session on releases is Monday 21:35 SGT.
 
-**On a laptop**
+**1. Release v0.1.1** (laptop; it is the first release with `vm/crontab.txt`, `maintain.sh`,
+`memlog.sh` and `tidy_home.sh`)
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0        # versions already say 0.1.0
-# wait for the Release workflow to pass, then fetch the final logs for the record
-./ops/fetch_live_logs.sh
+./ops/set_version.sh 0.1.1 && git commit -am "Release 0.1.1" && git push origin main
+# Actions -> Release -> Run workflow, version 0.1.1; wait for it to pass
+./ops/fetch_live_logs.sh                       # the old setup's final logs, for the record
 ```
 
-**On the VM** (`gcloud compute ssh trading-bot --zone asia-southeast1-b`)
+**2. Runtime folder** (VM: `gcloud compute ssh trading-bot --zone asia-southeast1-b`)
 
 ```bash
-pgrep -f "[r]un_live" && echo "a session is running: stop here"
+pgrep -af "[r]un_live" && echo "a session is running: stop here"
 mkdir -p ~/backup_cutover && crontab -l > ~/backup_cutover/crontab.txt
-
-# the runtime folder: copies, so the old clone stays intact for rollback
 mkdir -p ~/midfreq/runtime
+# copies, so the old clone stays intact for rollback (about 45 MB)
 cp -a ~/midfreq-trading-bot/config ~/midfreq-trading-bot/data ~/midfreq-trading-bot/live_sessions ~/midfreq/runtime/
-df -h /                                          # the bar cache is copied once; check space first
 ```
 
-**On a laptop**
+**3. Deploy v0.1.1** (Actions -> Deploy -> `deploy`, `0.1.1`, approve; or `./ops/deploy.sh v0.1.1`).
+The installer must report `127.0.0.1:11111, trading environment SIMULATE` and lists the config
+files the runtime lacks. Copy those in on the VM (`-n` never overwrites, so
+`sp100_forward_test.json` stays the VM's own):
 
 ```bash
-./ops/deploy.sh v0.1.0
-```
-
-The installer notes config files the runtime lacks (the old clone has no `connections.yaml` or
-`venues.json`) and prints the OpenD address and trading environment the release will use;
-it must say `127.0.0.1:11111, trading environment SIMULATE`. Copy the missing files in:
-
-```bash
-# on the VM; -n never overwrites, so sp100_forward_test.json stays the VM's own
 cp -n ~/midfreq/current/defaults/config/* ~/midfreq/runtime/config/
 ```
 
-**Cron on the VM** (`crontab -e`): the session line now runs the current release against the
-runtime folder; times are unchanged.
-
-```cron
-# before
-35 21,22 * * 1-5 cd ~/midfreq-trading-bot && PYTHON=~/midfreq-trading-bot/.venv/bin/python ./scripts/live/run_sp100_forward_test.sh --scheduled >> ~/cron_sp100.log 2>&1
-# after
-35 21,22 * * 1-5 MIDFREQ_ROOT=$HOME/midfreq/runtime $HOME/midfreq/current/ops/run_sp100_forward_test.sh --scheduled >> $HOME/cron_sp100.log 2>&1
-```
-
-Remove the commented-out `preflight.sh` and `postclose.sh` lines. `memlog.sh` and the 17:05
-log cleanup stay.
-
-**Verify**
+**4. Schedule** (VM): replace the crontab with the versioned one, which runs everything from
+`~/midfreq/current` and drops the disabled git jobs.
 
 ```bash
-# on the VM
-DRY_RUN=1 FAKE_ET=$(TZ=America/New_York date +%Y-%m-%d)T09:35:01 MIDFREQ_ROOT=$HOME/midfreq/runtime \
-    ~/midfreq/current/ops/run_sp100_forward_test.sh --scheduled
+crontab ~/midfreq/current/ops/vm/crontab.txt && crontab -l
 ```
 
-It must print `midfreq.live.run_live importable with /home/.../midfreq/releases/0.1.0/.venv/bin/python`
-and a duration ending one to two minutes after 16:00 ET. After the first real session
-(`ops/fetch_live_logs.sh`): 7 candles per symbol in `runtime/data`, the rebalance clock
-advanced by 7, bot positions equal to the broker's.
+**5. Tidy the home folder** (VM): dry run first, read it, then apply.
 
-**Then:** delete the VM's GitHub SSH key from the GitHub account (it can push to this
-repository), and after a week of normal sessions, `rm -rf ~/midfreq-trading-bot`.
+```bash
+~/midfreq/current/ops/vm/tidy_home.sh            # the plan; anything unexpected is "left alone"
+~/midfreq/current/ops/vm/tidy_home.sh --apply
+```
 
-**Rollback during cutover:** `crontab ~/backup_cutover/crontab.txt` restores the old session
-line, which runs the untouched old clone (its state file is in the old clone; copy
-`~/midfreq/runtime/live_sessions/state_*.json` back over it first if a new-model session ran).
+**6. Verify** (VM)
+
+```bash
+DRY_RUN=1 FAKE_ET=2026-10-19T09:35:01 MIDFREQ_ROOT=$HOME/midfreq/runtime \
+    ~/midfreq/current/ops/run_sp100_forward_test.sh --scheduled
+~/midfreq/current/ops/vm/maintain.sh && tail -1 ~/midfreq/logs/health.log
+```
+
+The dry run must print `midfreq.live.run_live importable with .../midfreq/releases/0.1.1/.venv/bin/python`
+and duration 386; the health line must say `opend=up release=0.1.1`. Also run the Deploy
+workflow's `status`. After Monday's session (`./ops/fetch_live_logs.sh`): 7 new candles per
+symbol, the rebalance clock advanced by 7, bot positions equal to the broker's.
+
+**7. Afterwards:** remove the VM's own GitHub SSH key (the one its old clone used to push:
+`~/.ssh/id_*` on the VM and its entry under GitHub -> Settings -> SSH keys or the repository's
+deploy keys); after a week of normal sessions, `rm -rf ~/midfreq-trading-bot`.
+
+**Rollback** (any time before the old clone is removed): `mv ~/midfreq/backups/bin ~/bin` (if
+step 5 ran), `crontab ~/midfreq/backups/backup_cutover/crontab.txt` (or `~/backup_cutover/`
+before step 5), and copy `~/midfreq/runtime/live_sessions/state_*.json` back into
+`~/midfreq-trading-bot/live_sessions/` if a session ran on the release, so the old clone
+resumes from the current rebalance clock and positions.
 
 ## Scripts
 
@@ -185,7 +188,10 @@ line, which runs the untouched old clone (its state file is in the old clone; co
 | `vm/install_release.sh` | VM (via `deploy.sh` or the gate) | Installs a bundle, smoke-tests it, switches `current` |
 | `vm/deploy_gate.sh` | VM (the Deploy workflow's key) | The only command the workflow's SSH key may run |
 | `vm/requirements-vm.txt` | VM | The VM's pinned third-party versions (frozen from its venv 15 Oct 2026, plus PyYAML) |
-| `vm/memlog.sh` | VM (cron) | RAM and top processes once a minute |
+| `vm/crontab.txt` | VM | The whole schedule; installed with `crontab ~/midfreq/current/ops/vm/crontab.txt` |
+| `vm/maintain.sh` | VM (cron, 17:05) | Monthly archive of `~/midfreq/logs/*.log` into `~/midfreq/archive` (12 kept), SDK/OpenD log retention (36 h / 14 days), a line in `logs/health.log` |
+| `vm/memlog.sh` | VM (cron, every minute) | RAM and top processes into `~/midfreq/logs/memlog.txt` (~10 days) |
+| `vm/tidy_home.sh` | VM (once, cutover) | Moves the home folder into the layout below; dry run unless `--apply` |
 | `vm/preflight.sh`, `vm/postclose.sh`, `vm/git_selfheal.sh`, `vm/deploy_lib.sh` | not installed | The pull-based deploy (disabled in Phase 0) and its CI gate; deleted in Phase 3 |
 
 The launchers find their code from their own location (a checkout, or a release with `.venv/`
