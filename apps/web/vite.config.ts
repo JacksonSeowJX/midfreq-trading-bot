@@ -61,6 +61,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     restoreMocks: true,
+    testTimeout: 15000,               // room for the 5 s finds above on a slow CI machine
     env: { TZ: 'UTC' },
   },
 })

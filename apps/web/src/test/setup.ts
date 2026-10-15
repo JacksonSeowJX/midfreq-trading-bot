@@ -1,8 +1,12 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterAll, afterEach, beforeAll, vi } from 'vitest'
 import { server } from './handlers'
+
+// Pages load lazily (the guide, the run pages, the charts); on a slow CI machine the first
+// render of a chunk can take longer than Testing Library's default 1 s wait.
+configure({ asyncUtilTimeout: 5000 })
 
 // ── what jsdom lacks ───────────────────────────────────────────────────────
 
