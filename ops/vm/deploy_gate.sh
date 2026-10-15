@@ -46,6 +46,10 @@ installer() {
 case "$ACTION" in
     status)
         [ ${#ARGS[@]} -eq 1 ] || deny "status takes no arguments"
+        if ! ls -d "$HOME_DIR"/releases/*/ >/dev/null 2>&1; then
+            say "no release installed yet (runtime: $([ -d "$HOME_DIR/runtime" ] && echo set up || echo not set up))"
+            exit 0
+        fi
         installer --status ;;
     rollback)
         [ ${#ARGS[@]} -eq 1 ] || deny "rollback takes no arguments"
