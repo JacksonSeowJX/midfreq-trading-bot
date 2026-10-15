@@ -1,5 +1,7 @@
 // The single-symbol indicator strategies: SMA crossover, RSI, MACD, Bollinger Bands, z-score
 // mean reversion and the ensemble vote. Each follows its Python on_data line for line.
+#include <algorithm>
+
 #include "strategies.hpp"
 
 namespace midfreq::engine {

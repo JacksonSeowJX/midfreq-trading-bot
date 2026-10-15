@@ -2,6 +2,7 @@
 // (no running sums, which would round differently), with Python's slice semantics.
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <deque>
