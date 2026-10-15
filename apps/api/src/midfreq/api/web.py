@@ -12,6 +12,9 @@ from fastapi.responses import FileResponse
 # built files, never data.
 WEB_ROUTE = "/{path:path}"
 
+REVALIDATE = {"Cache-Control": "no-cache"}
+IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
+
 
 def mount_web(app: FastAPI, dist: Path) -> bool:
     """Serve `dist` at / if it holds a build (index.html). Call after the API routes are added,
@@ -28,7 +31,7 @@ def mount_web(app: FastAPI, dist: Path) -> bool:
         if path:
             f = (root / path).resolve()
             if f.is_file() and f.is_relative_to(root):
-                return FileResponse(f)
-        return FileResponse(index)
+                return FileResponse(f, headers=IMMUTABLE if path.startswith("assets/") else REVALIDATE)
+        return FileResponse(index, headers=REVALIDATE)
 
     return True

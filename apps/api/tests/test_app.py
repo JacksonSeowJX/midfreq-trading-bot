@@ -34,6 +34,13 @@ def test_the_built_web_app_is_served_with_a_single_page_fallback(web):
     assert "<title>midfreq</title>" in web.get("/live/sessions/abc").text
 
 
+def test_the_page_is_revalidated_and_the_hashed_bundles_are_cached(web):
+    # a stale index.html points at the previous build's bundles: a blank page after a deploy
+    for path in ("/", "/index.html", "/research", "/live/sessions/abc"):
+        assert web.get(path).headers["cache-control"] == "no-cache"
+    assert web.get("/assets/app.js").headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
 def test_the_web_app_never_shadows_the_api(web):
     assert web.get("/api/health").json()["status"] == "ok"
     missing = web.get("/api/no-such-route")
