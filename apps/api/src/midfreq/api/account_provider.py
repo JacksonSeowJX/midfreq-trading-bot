@@ -57,3 +57,14 @@ class ConfiguredAccounts(AccountProvider):
             return create_account_client(account_id, connections=self.connections_file)
         except ImportError as e:          # the connector's SDK is not installed here
             raise AccountUnavailableError(f"{account_id}: {e}") from e
+
+
+class NoAccounts(AccountProvider):
+    """No broker accounts: a deployment with no gateway or keys (the hosted dashboard). The
+    account panels then say none are configured instead of probing a gateway that is not there."""
+
+    def accounts(self) -> List[AccountEntry]:
+        return []
+
+    def client(self, account_id: str) -> AccountClient:
+        raise KeyError(account_id)

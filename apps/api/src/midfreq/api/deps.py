@@ -7,7 +7,7 @@ FastAPI dependencies: the seams tests and deployments replace (app.dependency_ov
 """
 from fastapi import Depends
 
-from midfreq.api.account_provider import AccountProvider, ConfiguredAccounts
+from midfreq.api.account_provider import AccountProvider, ConfiguredAccounts, NoAccounts
 from midfreq.api.settings import Settings, get_settings
 from midfreq.api.store import RecordStore, record_store_for
 
@@ -19,4 +19,6 @@ def get_record_store(settings: Settings = Depends(get_settings)) -> RecordStore:
 
 
 def get_account_provider(settings: Settings = Depends(get_settings)) -> AccountProvider:
+    if not settings.accounts_enabled:
+        return NoAccounts()
     return ConfiguredAccounts(settings.connections_file)

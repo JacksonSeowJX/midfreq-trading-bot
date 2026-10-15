@@ -162,3 +162,15 @@ def test_without_the_connectors_factory_accounts_are_listed_as_unavailable(clien
     r = client.get("/api/accounts/moomoo-us")
     assert r.status_code == 503 and "not installed" in r.json()["detail"]
     assert client.get("/api/accounts/nope").status_code == 404
+
+
+def test_accounts_can_be_switched_off_for_a_deployment_without_a_gateway(monkeypatch):
+    from midfreq.api.settings import default_settings
+    monkeypatch.setenv("MIDFREQ_DASHBOARD_ACCOUNTS", "off")
+    monkeypatch.setenv("MIDFREQ_LIVE_SESSIONS", "gs://b/live_sessions")
+    s = default_settings()
+    assert s.accounts_enabled is False and s.live_sessions == "gs://b/live_sessions"
+    from midfreq.api.account_provider import NoAccounts
+    from midfreq.api.deps import get_account_provider
+    assert isinstance(get_account_provider(s), NoAccounts)
+    assert get_account_provider(s).accounts() == []

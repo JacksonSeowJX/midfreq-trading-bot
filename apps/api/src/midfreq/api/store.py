@@ -3,16 +3,20 @@ The bot's own record, behind one interface.
 
 The trading bot writes a JSON-lines log per session (live_sessions/session_*.jsonl) and its
 console output (console_*.log). The API reads them through a RecordStore and never talks to
-the bot process. Today the record is a local folder (the VM's, or this machine's copy fetched
-with ops/fetch_live_logs.sh); a store backed by a GCS bucket the VM uploads to is the planned
-second implementation, so a hosted dashboard need not share a disk with the VM.
+the bot process. The record is either a local folder (the VM's, or this machine's copy fetched
+with ops/fetch_live_logs.sh) or a Cloud Storage bucket the VM uploads to (GcsMirrorRecordStore),
+so a hosted dashboard need not share a disk with the VM.
 
 A store only lists and reads files by name. Ids that are not in its own listing are refused,
 which is what keeps a request from naming a path outside the record.
 """
+import tempfile
+import threading
+import time
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 SESSION_GLOB = "session_*.jsonl"
 CONSOLE_GLOB = "console_*.log"
@@ -85,10 +89,96 @@ class LocalDirRecordStore(RecordStore):
         return f"LocalDirRecordStore({str(self.root)!r})"
 
 
+class GcsMirrorRecordStore(RecordStore):
+    """The record in a Cloud Storage bucket (gs://bucket/prefix), mirrored into a local cache
+    folder and read from there, for a dashboard that does not share a disk with the VM.
+
+    The VM uploads live_sessions/ to the bucket every few minutes (ops/vm/sync_logs.sh). Any
+    read refreshes the mirror if it is older than `max_age` seconds, downloading only objects
+    whose generation changed; objects deleted from the bucket are removed from the mirror. Reads
+    then go through a LocalDirRecordStore over the mirror, so ids are validated the same way.
+    Needs only read access to the bucket (roles/storage.objectViewer).
+    """
+
+    def __init__(self, source: str, mirror_dir: Optional[Path] = None, max_age: float = 60.0,
+                 client_factory: Optional[Callable[[], Any]] = None, clock: Callable[[], float] = time.monotonic):
+        if not source.startswith("gs://"):
+            raise ValueError(f"not a gs:// source: {source!r}")
+        bucket, _, prefix = source[len("gs://"):].partition("/")
+        self.bucket_name, self.prefix = bucket, prefix.strip("/") + "/" if prefix.strip("/") else ""
+        self.mirror = Path(mirror_dir) if mirror_dir else Path(tempfile.mkdtemp(prefix="midfreq-record-"))
+        self.max_age = max_age
+        self._client_factory = client_factory or _gcs_client
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._synced_at: Optional[float] = None
+        self._generations: Dict[str, int] = {}
+        self._ok = False
+        self._local = LocalDirRecordStore(self.mirror)
+
+    def refresh(self, force: bool = False) -> None:
+        with self._lock:
+            now = self._clock()
+            if not force and self._synced_at is not None and now - self._synced_at < self.max_age:
+                return
+            try:
+                bucket = self._client_factory().bucket(self.bucket_name)
+                seen = {}
+                for blob in bucket.list_blobs(prefix=self.prefix):
+                    name = blob.name[len(self.prefix):]
+                    if not name or "/" in name:          # only the files directly under the prefix
+                        continue
+                    seen[name] = blob.generation
+                    if self._generations.get(name) != blob.generation:
+                        self.mirror.mkdir(parents=True, exist_ok=True)
+                        blob.download_to_filename(str(self.mirror / name))
+                        self._generations[name] = blob.generation
+                for name in set(self._generations) - set(seen):
+                    (self.mirror / name).unlink(missing_ok=True)
+                    del self._generations[name]
+                self._ok = True
+            except Exception:
+                # keep serving the last mirror; available() reports whether one exists
+                self._ok = self._ok and self.mirror.is_dir()
+            self._synced_at = now
+
+    def available(self) -> bool:
+        self.refresh()
+        return self._ok
+
+    def session_ids(self) -> List[str]:
+        self.refresh()
+        return self._local.session_ids()
+
+    def read_session(self, session_id: str) -> str:
+        self.refresh()
+        return self._local.read_session(session_id)
+
+    def console_logs(self) -> List[str]:
+        self.refresh()
+        return self._local.console_logs()
+
+    def read_console_log(self, name: str) -> str:
+        self.refresh()
+        return self._local.read_console_log(name)
+
+    def local_dir(self) -> Path:
+        self.refresh()
+        return self.mirror
+
+    def __repr__(self) -> str:
+        return f"GcsMirrorRecordStore('gs://{self.bucket_name}/{self.prefix}')"
+
+
+def _gcs_client():
+    from google.cloud import storage          # the `gcs` extra; imported only for a gs:// source
+    return storage.Client()
+
+
+@lru_cache(maxsize=None)
 def record_store_for(source: str) -> RecordStore:
-    """The store for Settings.live_sessions: a local folder now. The GCS-backed store will be
-    chosen here for a gs://bucket/prefix source."""
+    """The store for Settings.live_sessions: a local folder, or gs://bucket/prefix (mirrored).
+    One store per source for the life of the process, so a bucket mirror is reused."""
     if str(source).startswith("gs://"):
-        raise NotImplementedError("a GCS-backed record store is not implemented yet; "
-                                  "point live_sessions at a local folder")
+        return GcsMirrorRecordStore(str(source))
     return LocalDirRecordStore(Path(source))

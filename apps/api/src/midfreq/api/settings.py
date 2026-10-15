@@ -6,6 +6,7 @@ receive the Settings through the `get_settings` dependency, which tests and othe
 replace with `app.dependency_overrides[get_settings] = lambda: Settings(...)`, or by passing
 Settings to `create_app`.
 """
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -20,7 +21,7 @@ DEV_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 @dataclass(frozen=True)
 class Settings:
     results_dir: Path
-    live_sessions: str                    # the bot's record: a local folder (a gs:// URL is reserved, see store.py)
+    live_sessions: str                    # the bot's record: a local folder or gs://bucket/prefix (store.py)
     data_dir: Path                        # the candle cache, data/<MARKET>_<CODE>/<interval>.parquet
     config_dir: Path
     web_dist: Optional[Path] = None       # the built web app (apps/web/dist), served at / when it exists
@@ -30,6 +31,7 @@ class Settings:
     probe_timeout: float = 3.0            # seconds an account's availability probe may take
     account_timeout: float = 20.0         # seconds reading one account's snapshot, positions and orders may take
     cors_origins: Tuple[str, ...] = DEV_ORIGINS
+    accounts_enabled: bool = True         # off where no broker gateway exists (the hosted dashboard)
 
     @property
     def connections_file(self) -> Path:
@@ -41,9 +43,14 @@ class Settings:
 
 
 def default_settings() -> Settings:
-    return Settings(results_dir=paths.results_dir(), live_sessions=str(paths.live_sessions_dir()),
+    """The repository's folders; two environment variables adapt it to a deployment:
+    MIDFREQ_LIVE_SESSIONS (a folder or gs://bucket/prefix for the bot's record) and
+    MIDFREQ_DASHBOARD_ACCOUNTS=off (no broker account panels, e.g. on Cloud Run)."""
+    return Settings(results_dir=paths.results_dir(),
+                    live_sessions=os.environ.get("MIDFREQ_LIVE_SESSIONS") or str(paths.live_sessions_dir()),
                     data_dir=paths.data_dir(), config_dir=paths.config_dir(),
-                    web_dist=paths.repo_root() / "apps" / "web" / "dist")
+                    web_dist=paths.repo_root() / "apps" / "web" / "dist",
+                    accounts_enabled=os.environ.get("MIDFREQ_DASHBOARD_ACCOUNTS", "on").lower() not in ("off", "0", "false"))
 
 
 @lru_cache(maxsize=None)

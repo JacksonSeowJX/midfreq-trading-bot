@@ -1,4 +1,6 @@
 """The bot's record: the forward test and the recorded sessions, read through a RecordStore."""
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -36,9 +38,86 @@ def test_a_missing_folder_is_an_empty_unavailable_record(tmp_path):
     assert not store.available() and store.session_ids() == [] and store.console_logs() == []
 
 
-def test_a_gcs_source_is_reserved_not_implemented():
-    with pytest.raises(NotImplementedError):
-        record_store_for("gs://bucket/live_sessions")
+class _Blob:
+    def __init__(self, bucket, name):
+        self.bucket, self.name = bucket, name
+        self.generation = bucket.objects[name][1]
+
+    def download_to_filename(self, path):
+        self.bucket.downloads.append(self.name)
+        Path(path).write_text(self.bucket.objects[self.name][0])
+
+
+class _Bucket:
+    """A fake Cloud Storage bucket: name -> (text, generation)."""
+    def __init__(self):
+        self.objects, self.downloads, self.lists, self.fail = {}, [], 0, False
+
+    def list_blobs(self, prefix=""):
+        if self.fail:
+            raise OSError("network down")
+        self.lists += 1
+        return [_Blob(self, n) for n in sorted(self.objects) if n.startswith(prefix)]
+
+
+class _Client:
+    def __init__(self, bucket):
+        self._bucket = bucket
+
+    def bucket(self, name):
+        assert name == "rec-bucket"
+        return self._bucket
+
+
+@pytest.fixture
+def gcs(tmp_path):
+    from midfreq.api.store import GcsMirrorRecordStore
+    b = _Bucket()
+    b.objects = {"live_sessions/session_20261015_213502_x_1.jsonl": ('{"type": "session_start"}\n', 1),
+                 "live_sessions/console_sp100_reversal_20261015_213501.log": ("ok\n", 1),
+                 "live_sessions/nested/ignored.jsonl": ("x", 1),
+                 "other/session_elsewhere.jsonl": ("x", 1)}
+    now = [0.0]
+    store = GcsMirrorRecordStore("gs://rec-bucket/live_sessions", mirror_dir=tmp_path / "mirror", max_age=60,
+                                 client_factory=lambda: _Client(b), clock=lambda: now[0])
+    return store, b, now
+
+
+def test_a_gcs_record_is_mirrored_and_read_like_a_folder(gcs):
+    store, b, now = gcs
+    assert store.available()
+    assert store.session_ids() == ["session_20261015_213502_x_1"]          # only files under the prefix
+    assert store.console_logs() == ["console_sp100_reversal_20261015_213501.log"]
+    assert store.read_session("session_20261015_213502_x_1").startswith('{"type"')
+    with pytest.raises(KeyError):
+        store.read_session("../../etc/passwd")
+    assert b.lists == 1                                                     # one listing within max_age
+
+
+def test_the_mirror_refreshes_only_changed_objects_and_drops_deleted_ones(gcs):
+    store, b, now = gcs
+    store.session_ids()
+    first = list(b.downloads)
+    b.objects["live_sessions/session_20261015_213502_x_1.jsonl"] = ('{"type": "session_end"}\n', 2)
+    del b.objects["live_sessions/console_sp100_reversal_20261015_213501.log"]
+    now[0] = 61
+    assert store.read_session("session_20261015_213502_x_1").startswith('{"type": "session_end"')
+    assert b.downloads[len(first):] == ["live_sessions/session_20261015_213502_x_1.jsonl"]
+    assert store.console_logs() == []
+
+
+def test_a_failed_refresh_keeps_serving_the_last_mirror(gcs):
+    store, b, now = gcs
+    store.session_ids()
+    b.fail, now[0] = True, 61
+    assert store.session_ids() == ["session_20261015_213502_x_1"]
+    assert store.available()
+
+
+def test_record_store_for_picks_the_store_by_source(tmp_path):
+    from midfreq.api.store import GcsMirrorRecordStore
+    assert isinstance(record_store_for(str(tmp_path)), LocalDirRecordStore)
+    assert isinstance(record_store_for("gs://some-bucket/live_sessions"), GcsMirrorRecordStore)
 
 
 # ── /api/sessions ───────────────────────────────────────────────────────────

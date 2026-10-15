@@ -5,6 +5,10 @@ description = "The dashboard's HTTP API: read-only views of research results, th
 requires-python = ">=3.10"
 dependencies = ["midfreq-core", "midfreq-data", "midfreq-strategies", "midfreq-backtest", "midfreq-research", "fastapi>=0.110", "uvicorn>=0.29"]
 
+[project.optional-dependencies]
+# the record in a Cloud Storage bucket (GcsMirrorRecordStore), for the hosted dashboard
+gcs = ["google-cloud-storage>=2"]
+
 [tool.uv.sources]
 midfreq-core = { workspace = true }
 midfreq-data = { workspace = true }
