@@ -29,6 +29,7 @@ from midfreq.data.adapters.base import (
     Connector, ConnectorCapabilities, ConnectorConfig, ConnectorError, DataClient,
     InstrumentProvider, RateLimitError,
 )
+from midfreq.data.connection_settings import connection_settings
 from midfreq.core.common.timestamps import ms_to_ns
 from midfreq.core.model.data import Bar, BarSpecification, BarType
 from midfreq.core.model.enums import BarAggregation
@@ -105,14 +106,26 @@ class CcxtConnector(Connector):
     def exchange(self, venue: "str | Venue"):
         key = str(as_venue(venue))
         if key not in self._exchanges:
-            opts = self.venue_spec(key).connector_options(self.name)
+            exchange_id = self.exchange_id(key)
             if ccxt is None:
                 raise ConnectorError("the ccxt connector needs the ccxt package: pip install ccxt")
-            cls = getattr(ccxt, opts["exchange_id"], None)
+            cls = getattr(ccxt, exchange_id, None)
             if cls is None:
-                raise ConnectorError(f"ccxt has no exchange {opts['exchange_id']!r}")
+                raise ConnectorError(f"ccxt has no exchange {exchange_id!r}")
             self._exchanges[key] = cls({"enableRateLimit": True, **self.config.options})
         return self._exchanges[key]
+
+    def exchange_id(self, venue: "str | Venue") -> str:
+        """The venue's `exchange_id` in config/venues.json, else `default_exchange` of the `ccxt`
+        entry in config/connections.yaml."""
+        opts = self.venue_spec(venue).connector_options(self.name)
+        if opts.get("exchange_id"):
+            return opts["exchange_id"]
+        exchange_id = connection_settings("ccxt", {"default_exchange": None})["default_exchange"]
+        if not exchange_id:
+            raise ConnectorError(f"{venue}: no ccxt exchange_id in config/venues.json and no "
+                                 "default_exchange in config/connections.yaml")
+        return exchange_id
 
     def markets(self, venue: "str | Venue") -> Dict[str, Dict[str, Any]]:
         key = str(as_venue(venue))

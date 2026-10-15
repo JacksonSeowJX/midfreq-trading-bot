@@ -6,12 +6,12 @@ The rules themselves are midfreq.core.risk_manager's, reused rather than rewritt
   while halted, orders that add exposure are DENIED and orders that reduce it still pass;
 - optional stop-loss / trailing-stop / take-profit exits (`RiskManager.check_exit_signals`),
   applied by the engine on every bar to open positions, so a native strategy gets the same exits
-  core strategies coded by hand;
+  candle strategies coded by hand;
 plus limits a production risk engine would have: maximum order notional per currency and maximum
 position size as a fraction of the account's equity.
 
 With the default RiskConfig nothing is checked beyond order validity, which is what the legacy
-adapter relies on: core strategies carry their own RiskManager, exactly as before.
+adapter relies on: candle strategies carry their own RiskManager, exactly as before.
 """
 from __future__ import annotations
 

@@ -1,4 +1,13 @@
-"""Event-driven backtesting: BacktestEngine and its simulated venues."""
+"""
+midfreq.backtest: running strategies over historical data.
+
+Two engines live here:
+- backtester.Backtester (with optimizer's grid search and walk-forward on top): the original
+  candle-by-candle loop for midfreq.strategies.candle_strategies classes.
+- BacktestEngine (re-exported below): the event-driven engine with simulated venues, fill and
+  slippage models and a risk engine, for midfreq.strategies.trading.Strategy subclasses.
+  legacy_adapter runs the candle strategies inside it with identical results.
+"""
 from midfreq.backtest.data_engine import DataEngine, TimeSlice
 from midfreq.backtest.engine import BacktestEngine, BacktestEngineConfig
 from midfreq.backtest.exchange import SimulatedExchange

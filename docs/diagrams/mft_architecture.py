@@ -5,7 +5,7 @@ It reuses the drawing helpers of the final report's figures (~/FYP/Report/genera
 the Stage grid, colours, Material Symbols icons and the fit check) so this figure matches the
 report's style; that file is imported read-only, not copied or changed.
 
-Usage:  python docs/diagrams/mft_architecture.py [path/to/generate_diagrams.py]
+Usage:  uv run python docs/diagrams/mft_architecture.py [path/to/generate_diagrams.py]
 Needs playwright with Chromium, like the report script.
 """
 import importlib.util
@@ -13,7 +13,9 @@ import os
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
+from midfreq.core import paths
+
+REPO = paths.repo_root()
 OUT = REPO / "docs" / "images" / "mft_architecture.png"
 DEFAULT_REPORT_SCRIPT = Path.home() / "FYP" / "Report" / "generate_diagrams.py"
 

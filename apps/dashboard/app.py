@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 from pathlib import Path
 import io, contextlib
 
-# Add project root to path so we can import modules when running via Streamlit
+# The midfreq packages come from the workspace venv; only ui.py needs the path
 import sys
 sys.path.append(str(Path(__file__).parent))  # ui.py sits next to this file
 
@@ -1088,8 +1088,8 @@ elif st.session_state.active_view == 'live':
         else:
             st.info("Not enough recorded candles yet to draw an equity curve.")
     else:
-        st.info(f"No {live_mkt} live sessions recorded yet. HK: `./scripts/live/run_daily_candidates.sh`; "
-                "US: `./scripts/live/run_sp100_forward_test.sh`. Session logs reach this machine through "
+        st.info(f"No {live_mkt} live sessions recorded yet. HK: `./ops/run_daily_candidates.sh`; "
+                "US: `./ops/run_sp100_forward_test.sh`. Session logs reach this machine through "
                 "the VM's daily 16:15 SGT upload, so pull the repo to see the latest.")
 
 elif st.session_state.active_view == 'overview':
@@ -1189,7 +1189,7 @@ elif st.session_state.active_view == 'overview':
             # were tried, and the best of many will look good by luck alone.
             sc = load_search_correction()
             if not sc:
-                st.info("No Reality Check result found. Run `scripts/research/reality_check_study.py`.")
+                st.info("No Reality Check result found. Run `research/studies/reality_check_study.py`.")
             else:
                 st.markdown("Many combinations were tried, and the best of many looks good by luck alone. "
                             "**White's Reality Check** asks how often the best of the same number of "
@@ -1264,7 +1264,7 @@ elif st.session_state.active_view == 'research':
     csv_files = sorted(results_dir.glob('*.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
 
     if not csv_files:
-        st.info("No research results found in results/. Run one of the studies in scripts/research/ first.")
+        st.info("No research results found in results/. Run one of the studies in research/studies/ first.")
     else:
         import re
         FRIENDLY_NAMES = {

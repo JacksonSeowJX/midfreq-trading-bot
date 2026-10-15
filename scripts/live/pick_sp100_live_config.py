@@ -26,9 +26,6 @@ import contextlib
 import sys
 import time
 from datetime import timedelta
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from midfreq.core.candle import Timeframe
 from midfreq.data.storage import DataStorage
@@ -37,8 +34,9 @@ from midfreq.backtest.backtester import Backtester
 from midfreq.core.config import ConfigLoader
 from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
 from midfreq.backtest.optimizer import generate_param_grid, _get_objective_value
+from midfreq.core.paths import repo_root
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = repo_root()
 STRATEGY = 'Cross-Sectional Reversal'
 US_COMMISSION = 0.00005     # moomoo SG: flat US$0.99 + 9% GST, as a fraction
 US_SLIPPAGE_BPS = 5.0       # half-spread; HK measured 3.33 bps median, 5.0 is conservative

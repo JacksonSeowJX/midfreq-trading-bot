@@ -16,15 +16,13 @@ The existing 19-stock HK universe (config/symbols.json) is a subset of
 this list and is skipped since it's already backfilled.
 
 Usage:
-    python3 scripts/data/backfill_hsi.py
+    uv run python scripts/data/backfill_hsi.py
 """
 import time
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from datetime import datetime, timedelta
 from midfreq.core.candle import Timeframe
+from midfreq.core.paths import data_dir
 from midfreq.data.storage import DataStorage
 from midfreq.data.providers.moomoo_provider import MoomooProvider
 
@@ -34,12 +32,12 @@ HSI_CODES = [s.replace("HK.", "") for s in ConfigLoader().get_universe("hsi")]
 
 
 def main():
-    provider = MoomooProvider(host='127.0.0.1', port=11111)
+    provider = MoomooProvider()   # OpenD host/port from config/connections.yaml
     storage = DataStorage()
 
     already_have = {
         p.name.replace("HK_", "") for p in
-        (Path(__file__).resolve().parents[2] / 'data').glob('HK_*')
+        data_dir().glob('HK_*')
         if (p / '1h.parquet').exists()
     }
     symbols = [f"HK.{c}" for c in HSI_CODES if c not in already_have]

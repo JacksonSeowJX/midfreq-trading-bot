@@ -25,7 +25,7 @@ Models:
 - OrderBookFillModel: market orders walk the L2 levels; limits wait in the queue behind the size
   displayed at their price and fill as trades consume it.
 - AutoFillModel: per instrument, the finest data present (book > quotes > trades > bars).
-- LegacyFillModel: fills at the price a core strategy passed, as midfreq.backtest.backtester did.
+- LegacyFillModel: fills at the price a candle strategy passed, as midfreq.backtest.backtester did.
 
 Slippage (midfreq.backtest.slippage) is added by the exchange only to fills flagged `apply_slippage`:
 bar and trade fills, whose price does not include the cost of crossing the spread. Quote and book
@@ -225,7 +225,7 @@ class BarFillModel(FillModel):
 
 
 class LegacyFillModel(BarFillModel):
-    """Fills at the price a core strategy passed to execute_trade, with midfreq.backtest.backtester's slippage
+    """Fills at the price a candle strategy passed to execute_trade, with midfreq.backtest.backtester's slippage
     arithmetic and no lot rounding (the original backtester traded odd lots)."""
 
     def __init__(self, timing: str = REFERENCE, slippage_bps: float = 0.0, round_lots: bool = False, **kwargs):

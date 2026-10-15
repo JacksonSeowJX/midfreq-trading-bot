@@ -5,7 +5,7 @@ A strategy reacts to data and decides; it does not touch cash or positions. It s
 bars (or slices, or signals) it needs, and expresses decisions as orders built by its
 `order_factory` and sent with `submit_order`. What happened to an order comes back as events
 (`on_order_filled`, `on_order_rejected`, ...). The `cache` and `portfolio` it sees are read-only
-views, so a strategy cannot, for example, give itself cash the way a core strategy could by
+views, so a strategy cannot, for example, give itself cash the way a candle strategy could by
 writing to `portfolio.cash`.
 
     class Momentum(Strategy):
@@ -48,7 +48,7 @@ class Strategy:
     def __init__(self, config: Optional[StrategyConfig] = None):
         self.config = config or StrategyConfig()
         self.id = StrategyId(self.config.strategy_id or f"{type(self).__name__}-{self.config.order_id_tag}")
-        self.log = logging.getLogger(f"mft.strategy.{self.id}")
+        self.log = logging.getLogger(f"midfreq.strategy.{self.id}")
         self._clock = None
         self._msgbus = None
         self._execution = None

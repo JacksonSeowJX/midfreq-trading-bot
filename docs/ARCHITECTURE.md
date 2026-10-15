@@ -1,22 +1,28 @@
-# mft: a venue-based trading engine
+# The venue-based trading engine
 
-`src/mft/` is a second, venue-based framework that sits beside the original `src/core/`. It is
+The venue-based engine is a second framework that sits beside the original candle backtester. It is
 modelled on [NautilusTrader](https://nautilustrader.io): a trade happens on a **venue**, in an
 **instrument**, from **bars** that know their source, through **orders** a risk engine can stop and
 a venue can reject. It is our own implementation of those ideas, not the `nautilus_trader` library.
 
-`core` is unchanged and still drives the live paper-trading engine and every reported result.
-`mft` reuses it (the data providers, `core.risk_manager`, `core.portfolio`'s metric code) and can run
-every `core` strategy unchanged, with identical results.
+The candle engine is unchanged and still drives the live paper-trading engine and every reported
+result. The venue engine reuses it (the data providers, `midfreq.core.risk_manager`,
+`midfreq.core.portfolio`'s metric code) and can run every candle strategy unchanged, with identical
+results.
 
-![mft architecture](images/mft_architecture.png)
+Both live in the workspace's six packages (`packages/midfreq-*`). The engine's model, venues, message
+bus and accounts are in `midfreq-core`; connectors, the catalog and the fetch command in
+`midfreq-data`; the Strategy API and native strategies in `midfreq-strategies`; the engine, simulated
+venues, fill and slippage models and the legacy adapter in `midfreq-backtest`.
+
+![Engine architecture](images/mft_architecture.png)
 
 ## Why a second engine
 
 The original framework grew around one broker and one market at a time, and several things that a
 multi-exchange system needs were implicit:
 
-| In `core` | In `mft` |
+| Candle engine | Venue engine |
 |---|---|
 | A symbol is a Moomoo string (`HK.00700`); the exchange, currency and trading hours are implied by the script | An `InstrumentId` (`00700.XHKG`) names the venue; the venue's spec gives its timezone, sessions, currency, lot rule and fees |
 | Candle timestamps are the exchange's local clock labelled UTC | `ts_event` is the bar's close in true UTC nanoseconds, so markets in different timezones interleave correctly |
@@ -27,32 +33,32 @@ multi-exchange system needs were implicit:
 
 ## Concepts, and how they map to NautilusTrader
 
-| `mft` | NautilusTrader | Notes |
+| Module (under `midfreq.`) | NautilusTrader | Notes |
 |---|---|---|
-| `model.identifiers`: `Venue`, `Symbol`, `InstrumentId`, `StrategyId`, `ClientId`, `ClientOrderId` | same names | Venues are ISO 10383 MICs (XHKG, XNAS, XNYS, XSES, XSHG, XSHE, XTKS) or crypto exchange names (BINANCE, COINBASE, KRAKEN, OKX). `InstrumentId.from_str` splits on the last dot, so `BRK.B.XNYS` works |
-| `model.instruments`: `Equity`, `CurrencyPair` | `Equity`, `CurrencyPair` | Price increment, board lot or size step, minimum notional, currency. `make_qty` rounds down to a tradable amount |
-| `model.data`: `BarSpecification`, `BarType`, `Bar`, `QuoteTick`, `TradeTick`, `OrderBookDepth`, `BookLevel` | same (`OrderBookDepth10` for the book) | `BarType` string form `00700.XHKG-1-HOUR-LAST-EXTERNAL`; `ts_event` = bar close (or the tick's time), `ts_init` = creation time, both UTC ns. Prices are floats (Nautilus uses fixed point) |
-| `model.orders`: `Order`, `OrderFactory`; `model.enums` | same | MARKET and LIMIT; GTC, DAY, IOC |
-| `model.events`: `OrderSubmitted`, `OrderAccepted`, `OrderDenied`, `OrderRejected`, `OrderCanceled`, `OrderFilled` | same | Denied = stopped by the risk engine; rejected = refused by the venue |
-| `model.signals.Signal` | `Signal` (custom data) | `value` may be an immutable ranking, not only a scalar |
-| `model.fees`: `PercentFeeModel`, `MakerTakerFeeModel` | `FeeModel` | |
-| `venues.VenueSpec` + `config/venues.json` | venue config of `BacktestVenueConfig` | Adds sessions, lot rule and per-connector symbol rules |
-| `adapters.base`: `Connector`, `ConnectorConfig`, `ConnectorCapabilities`, `InstrumentProvider`, `DataClient`, `ExecutionClient` (slot only) | `adapters/`: `InstrumentProvider`, `DataClient`, `ExecutionClient`, factories | See "Connectors" |
-| `adapters.registry.ConnectorRegistry` | client factories in a node config | The default connector per venue comes from `config/venues.json` |
-| `persistence.ParquetDataCatalog` | `ParquetDataCatalog` | `catalog/data/bar/<bar_type>/*.parquet`, `catalog/instruments/*.json` |
-| `common.msgbus.MessageBus` | `MessageBus` | Topic pub/sub with `*` and `?` wildcards; synchronous |
-| `cache.Cache` (strategies get a read-only view) | `Cache` | |
+| `core.model.identifiers`: `Venue`, `Symbol`, `InstrumentId`, `StrategyId`, `ClientId`, `ClientOrderId` | same names | Venues are ISO 10383 MICs (XHKG, XNAS, XNYS, XSES, XSHG, XSHE, XTKS) or crypto exchange names (BINANCE, COINBASE, KRAKEN, OKX). `InstrumentId.from_str` splits on the last dot, so `BRK.B.XNYS` works |
+| `core.model.instruments`: `Equity`, `CurrencyPair` | `Equity`, `CurrencyPair` | Price increment, board lot or size step, minimum notional, currency. `make_qty` rounds down to a tradable amount |
+| `core.model.data`: `BarSpecification`, `BarType`, `Bar`, `QuoteTick`, `TradeTick`, `OrderBookDepth`, `BookLevel` | same (`OrderBookDepth10` for the book) | `BarType` string form `00700.XHKG-1-HOUR-LAST-EXTERNAL`; `ts_event` = bar close (or the tick's time), `ts_init` = creation time, both UTC ns. Prices are floats (Nautilus uses fixed point) |
+| `core.model.orders`: `Order`, `OrderFactory`; `core.model.enums` | same | MARKET and LIMIT; GTC, DAY, IOC |
+| `core.model.events`: `OrderSubmitted`, `OrderAccepted`, `OrderDenied`, `OrderRejected`, `OrderCanceled`, `OrderFilled` | same | Denied = stopped by the risk engine; rejected = refused by the venue |
+| `core.model.signals.Signal` | `Signal` (custom data) | `value` may be an immutable ranking, not only a scalar |
+| `core.model.fees`: `PercentFeeModel`, `MakerTakerFeeModel` | `FeeModel` | |
+| `core.venues.VenueSpec` + `config/venues.json` | venue config of `BacktestVenueConfig` | Adds sessions, lot rule and per-connector symbol rules |
+| `data.adapters.base`: `Connector`, `ConnectorConfig`, `ConnectorCapabilities`, `InstrumentProvider`, `DataClient`, `ExecutionClient` (slot only) | `adapters/`: `InstrumentProvider`, `DataClient`, `ExecutionClient`, factories | See "Connectors" |
+| `data.adapters.registry.ConnectorRegistry` | client factories in a node config | The default connector per venue comes from `config/venues.json` |
+| `data.persistence.ParquetDataCatalog` | `ParquetDataCatalog` | `catalog/data/bar/<bar_type>/*.parquet`, `catalog/instruments/*.json` |
+| `core.common.msgbus.MessageBus` | `MessageBus` | Topic pub/sub with `*` and `?` wildcards; synchronous |
+| `core.cache.Cache` (strategies get a read-only view) | `Cache` | |
 | `backtest.DataEngine` | `DataEngine` | k-way heap merge of all bar streams in UTC order |
 | `backtest.SimulatedExchange` | `SimulatedExchange` | One per venue |
 | `backtest.fill_models`: `BarFillModel`, `QuoteFillModel`, `TradeFillModel`, `OrderBookFillModel`, `AutoFillModel`; `backtest.MarketState` | `FillModel` and the matching engine's book types | One model per kind of market data; see "Fill models and slippage models" |
 | `backtest.slippage`: `FixedBpsSlippage`, `SpreadSlippage`, `SquareRootImpactSlippage`, ... | (part of `FillModel`) | Trading costs a bar or trade price leaves out, as a separate, swappable model |
-| `risk.RiskEngine` | `RiskEngine` | Rules from `core.risk_manager` |
-| `execution.ExecutionEngine` | `ExecutionEngine` | |
-| `accounting`: `Account`, `Position`, `Portfolio` | `Account`, `Position`, `Portfolio` | Accounts are per currency, not per venue (see below) |
-| `trading.Strategy` | `Strategy` | `on_start`, `on_bar`, `on_signal`, `on_order_filled`, `subscribe_bars`, `submit_order`, `order_factory`, `cache`, `portfolio` |
+| `backtest.risk.RiskEngine` | `RiskEngine` | Rules from `midfreq.core.risk_manager` |
+| `backtest.execution.ExecutionEngine` | `ExecutionEngine` | |
+| `core.accounting`: `Account`, `Position`, `Portfolio` | `Account`, `Position`, `Portfolio` | Accounts are per currency, not per venue (see below) |
+| `strategies.trading.Strategy` | `Strategy` | `on_start`, `on_bar`, `on_signal`, `on_order_filled`, `subscribe_bars`, `submit_order`, `order_factory`, `cache`, `portfolio` |
 | `TimeSlice`, `Strategy.on_slice` | no equivalent | All bars sharing one `ts_event`, for cross-sectional decisions (the idea of LEAN's `Slice`) |
 | `backtest.BacktestEngine`, `BacktestResult` | `BacktestEngine` | `add_venue`, `add_instrument`, `add_data`, `add_strategy`, `run` |
-| `legacy.LegacyStrategyAdapter` | none | Runs `core.strategy` classes inside the engine |
+| `backtest.legacy_adapter.LegacyStrategyAdapter` | none | Runs candle-strategy classes inside the engine |
 
 Two deliberate differences from Nautilus:
 
@@ -101,7 +107,7 @@ the same file places a US symbol on XNAS or XNYS (default XNYS). Both venues sha
 currency and fee model, so this only affects the instrument id.
 
 ```bash
-cd src && python -m mft.data venues
+uv run python -m midfreq.data venues
 ```
 
 ## Connectors
@@ -146,7 +152,7 @@ What the wrappers fix in the providers they wrap, without modifying them:
 
 Adding a connector: subclass `Connector`, `DataClient` and `InstrumentProvider`; add the venue's
 connector settings to `config/venues.json`; register it in `adapters/registry.py`; and add a case to
-`tests/mft_engine/test_mft_connector_contract.py` with a fake transport that speaks the source's
+`packages/midfreq-data/tests/test_connector_contract.py` with a fake transport that speaks the source's
 format. The contract suite then checks symbol round-trips, pagination without gaps or duplicates,
 UTC close times (including the HKEX lunch break and a US daylight-saving change), instrument specs,
 unsupported intervals and venues, and rate-limit retry.
@@ -154,13 +160,12 @@ unsupported intervals and venues, and rate-limit retry.
 ## Ingestion
 
 ```bash
-cd src
-python -m mft.data fetch --venue XHKG --symbols 00700 00005 --bar 1-HOUR --start 2024-01-01 --client moomoo
+uv run python -m midfreq.data fetch --venue XHKG --symbols 00700 00005 --bar 1-HOUR --start 2024-01-01 --client moomoo
 python -m mft.data fetch --venue XNAS --symbols AAPL MSFT --bar 1-DAY --start 2020-01-01 --client yfinance
 python -m mft.data fetch --venue BINANCE --symbols BTCUSDT ETHUSDT --bar 1-HOUR --start 2024-01-01
 python -m mft.data fetch --venue KRAKEN --symbols BTC-USD --bar 1-HOUR --start 2024-06-01 --end 2024-06-30
 python -m mft.data fetch --venue XHKG --symbols 700 --bar 1-DAY --start 2024-01-01 --dry-run
-python -m mft.data migrate --legacy-dir ../data --catalog ../catalog --timeframes 1h --dry-run
+python -m mft.data migrate --legacy-dir data --catalog catalog --timeframes 1h --dry-run
 python -m mft.data catalog
 ```
 
@@ -172,9 +177,9 @@ so market data is not committed). `migrate` copies the legacy cache into the cat
 ## Backtesting
 
 ```python
-from mft.backtest import BacktestEngine, FillModel
-from mft.persistence import ParquetDataCatalog
-from mft.strategies import MACrossover, MACrossoverConfig
+from midfreq.backtest import BacktestEngine, FillModel
+from midfreq.data.persistence import ParquetDataCatalog
+from midfreq.strategies.event_driven import MACrossover, MACrossoverConfig
 
 catalog = ParquetDataCatalog("catalog")
 engine = BacktestEngine()
@@ -220,7 +225,7 @@ data type; what trading costs the fill price leaves out is a separate **slippage
 passed to `add_venue`:
 
 ```python
-from mft.backtest import AutoFillModel, BarFillModel, SquareRootImpactSlippage, SpreadSlippage
+from midfreq.backtest import AutoFillModel, BarFillModel, SquareRootImpactSlippage, SpreadSlippage
 
 engine.add_venue("XHKG", {"HKD": 1_000_000}, fill_model=BarFillModel(timing="next_open"),
                  slippage_model=SpreadSlippage())
@@ -266,20 +271,20 @@ Defaults: without arguments a venue uses `BarFillModel()` at the bar close and n
 before, so existing results do not change; a fill model built with `slippage_bps` keeps that cost as
 `FixedBpsSlippage`. `FixedBpsSlippage()` on its own defaults to the 5 bps the studies use.
 
-## Running core strategies unchanged
+## Running candle strategies unchanged
 
 ```python
-from mft.legacy import run_legacy_backtest
-from core.strategy import CrossSectionalReversal
+from midfreq.backtest.legacy_adapter import run_legacy_backtest
+from midfreq.strategies.candle_strategies import CrossSectionalReversal
 
 run = run_legacy_backtest(CrossSectionalReversal, sp100_symbols, "1h", "data",
                           initial_cash=100_000, commission_rate=0.00005, slippage_bps=5,
                           lookback=30, top_n=3, rebalance_every=19)
-run.metrics        # the dict core.backtester.Backtester.run returns
+run.metrics        # the dict midfreq.backtest.backtester.Backtester.run returns
 run.result         # the engine's own BacktestResult for the same run
 ```
 
-`LegacyStrategyAdapter` gives a core strategy a `LegacyPortfolio`, a real `core.portfolio.Portfolio`
+`LegacyStrategyAdapter` gives a candle strategy a `LegacyPortfolio`, a real `midfreq.core.portfolio.Portfolio`
 subclass whose `execute_trade` becomes a market order through the risk engine and the venue. The venue
 runs a `LegacyFillModel`: it fills at the price the strategy passed, with the original slippage
 wrapper's arithmetic, commission = value x rate, and no lot rounding (the original backtester traded
@@ -288,8 +293,8 @@ cash and positions change exactly as before; if the engine and the original book
 about a trade, `LegacyDivergenceError` stops the run. Candles reach the strategy with the original
 local-time timestamps.
 
-Evidence (`tests/mft_engine/test_mft_legacy_equivalence.py`, and with `MFT_SLOW=1`
-`test_mft_legacy_real_data.py`):
+Evidence (`tests/integration/test_legacy_equivalence.py`, and with `MIDFREQ_SLOW=1`
+`tests/slow/test_legacy_real_data.py`):
 
 - For all 13 strategies in `STRATEGY_REGISTRY`, on synthetic Hong Kong hourly data, US hourly data
   across a daylight-saving change with a risk manager, and US daily data with equal-dollar sizing:
@@ -304,28 +309,28 @@ Limitations of the adapter, by construction: a core strategy has one cash balanc
 must settle in one currency; and it groups "the same timestamp" by local-time stamps, so mixing
 venues in different timezones in one legacy strategy is not meaningful.
 
-## Native strategies (`mft.strategies`)
+## Native strategies (`midfreq.strategies.event_driven`)
 
 - `MACrossover`: the moving-average crossover rule, expressed as orders. Same trades and final equity
-  as `core.strategy.MovingAverageCrossover`.
+  as `midfreq.strategies.candle_strategies.MovingAverageCrossover`.
 - Cross-sectional reversal as two parts that talk through a `Signal`:
   `CrossSectionalRanker` receives each complete `TimeSlice` and, when a rebalance is due, publishes
   the universe ranked by return over `lookback` bars; `EqualWeightBasket` turns the ranking into orders
   (sell what left the basket, buy new members at an equal share of equity net of costs;
   `select="bottom"` is reversal, `"top"` momentum). Either half can be replaced on its own. On the
   synthetic data it makes the same trades as `CrossSectionalReversal` and `CrossSectionalMomentum`;
-  on the real S&P 100 history it reproduces all 2,828 of the core version's trades.
+  on the real S&P 100 history it reproduces all 2,828 of the candle version's trades.
 
-Differences from the core versions are deliberate: orders are rounded to whole board lots; a holding
+Differences from the candle versions are deliberate: orders are rounded to whole board lots; a holding
 missing from the current slice is valued at its last close rather than at zero; and because the
-ranking runs at the end of a slice, the final slice of the data can rebalance, which the core
+ranking runs at the end of a slice, the final slice of the data can rebalance, which the candle
 version, closing a cross-section only when the next one began, never reached (4 extra trades at the
 end of the S&P 100 history).
 
 ## Not in this version
 
-- Live trading: no `ExecutionClient` is implemented; live orders stay on `core.live_engine` and
-  `core.order_gateway` until the forward test ends. `subscribe_bars` on a data client is reserved.
+- Live trading: no `ExecutionClient` is implemented; live orders stay on `midfreq.live.live_engine` and
+  `midfreq.live.order_gateway` until the forward test ends. `subscribe_bars` on a data client is reserved.
 - FX conversion, margin and short selling. Order-book simulation uses L2 snapshots (aggregated size
   per price), not individual orders (L3), so queue position is estimated from displayed size.
 - HKEX's price-dependent tick table (one price increment per venue is used).
@@ -334,11 +339,11 @@ end of the S&P 100 history).
 ## Tests
 
 ```bash
-python -m pytest tests/ -q                       # default suite, hermetic and fast
-MFT_SLOW=1 MFT_DATA_DIR=/path/to/data python -m pytest tests/mft_engine/test_mft_legacy_real_data.py -q -s
+uv run pytest -q                                  # default suite, hermetic and fast
+MIDFREQ_SLOW=1 MIDFREQ_DATA_DIR=/path/to/data uv run pytest tests/slow -q -s
 ```
 
-The `mft` tests live in `tests/mft_engine/`. They use fake transports, temporary directories and
+The engine's tests live in each package's `tests/` and in `tests/integration` and `tests/slow`. They use fake transports, temporary directories and
 synthetic data; they never touch the network, a broker gateway or the real `data/` directory (the
 opt-in real-data test only reads it). The figure above is drawn by `docs/diagrams/mft_architecture.py`
 with the report's diagram helpers.

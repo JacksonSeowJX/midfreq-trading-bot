@@ -20,7 +20,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-REPO = Path(__file__).resolve().parent.parent
+from midfreq.core import paths
+
+REPO = paths.repo_root()
 RESULTS = REPO / 'results'
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent
 

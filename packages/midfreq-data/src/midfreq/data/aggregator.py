@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Dict, List, Optional
-from .models import Candle, Timeframe
+from midfreq.core.candle import Candle, Timeframe
 
 class TickAggregator:
     """

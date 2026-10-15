@@ -25,6 +25,7 @@ from midfreq.core.candle import Candle, Timeframe
 from midfreq.core.portfolio import Portfolio
 from midfreq.strategies.candle_strategies import BaseStrategy
 from midfreq.core.risk_manager import RiskManager
+from midfreq.core.paths import live_sessions_dir
 from midfreq.live.order_gateway import OrderGateway
 
 
@@ -309,7 +310,7 @@ class LiveTradingEngine:
                  strategy_class: Type[BaseStrategy],
                  symbols: list, timeframe: Timeframe = Timeframe.MIN_1,
                  risk_manager: Optional[RiskManager] = None,
-                 session_log_dir: str = "live_sessions",
+                 session_log_dir: Optional[str] = None,
                  commission_rate: float = Portfolio.HK_FEE_RATE,
                  capital_cap: Optional[float] = None,
                  stall_timeout_s: Optional[float] = None,
@@ -323,7 +324,9 @@ class LiveTradingEngine:
                      Timeframe.HOUR_1: 3600, Timeframe.DAY_1: 86400}.get(timeframe, 3600)
         self.stall_timeout_s = stall_timeout_s or _period_s * 1.25
 
-        log_dir = Path(session_log_dir)
+        # Default: the repository's live_sessions/, not one relative to the
+        # current directory (launched from elsewhere, that scattered state files).
+        log_dir = Path(session_log_dir) if session_log_dir else live_sessions_dir()
         log_dir.mkdir(exist_ok=True)
         strat_slug = strategy_class.__name__.lower()
         # Per-strategy position ownership persists across sessions here

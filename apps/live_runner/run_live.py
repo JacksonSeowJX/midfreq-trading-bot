@@ -6,22 +6,25 @@ orders in the SIMULATE environment.
 
 Requires: OpenD running + logged in, HK market hours (09:30-16:00 HKT).
 
-Usage:
-    python3 run_live.py                                   # defaults below
-    python3 run_live.py --strategy "RSI" --symbols HK.00700 HK.00005
-    python3 run_live.py --duration 30 --timeframe 1m
-    python3 run_live.py --list                            # show strategies
+OpenD host, port and trading environment come from the `moomoo` entry of
+config/connections.yaml (paper unless it says otherwise), and session logs go
+to the repository's live_sessions/ wherever this is launched from.
+
+Usage (from the repository root, after `uv sync`):
+    uv run python apps/live_runner/run_live.py            # defaults below
+    uv run python apps/live_runner/run_live.py --strategy "RSI" --symbols HK.00700 HK.00005
+    uv run python apps/live_runner/run_live.py --duration 30 --timeframe 1m
+    uv run python apps/live_runner/run_live.py --list     # show strategies
 """
 import sys
 import argparse
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
 sys.stdout.reconfigure(line_buffering=True)  # live output even when piped/backgrounded
 
 from midfreq.core.candle import Timeframe
 from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
 from midfreq.core.risk_manager import RiskManager, SizingMethod, create_position_sizer
-from midfreq.live.order_gateway import MoomooPaperGateway
+from midfreq.live.order_gateway import MoomooPaperGateway, moomoo_settings
+from midfreq.core.paths import live_sessions_dir
 from midfreq.core.portfolio import Portfolio
 from moomoo import TrdMarket
 from midfreq.live.live_engine import LiveTradingEngine
@@ -118,12 +121,14 @@ def main():
         trd_market, commission_rate = TrdMarket.HK, Portfolio.HK_FEE_RATE
     print(f"Market: {_mkt} | commission {commission_rate * 100:.3f}%/side")
 
-    provider = MoomooProvider()
-    gateway = MoomooPaperGateway(trd_market=trd_market)
+    opend = moomoo_settings()
+    provider = MoomooProvider(host=opend['host'], port=opend['port'])
+    gateway = MoomooPaperGateway(trd_market=trd_market, settings=opend)
 
     engine = LiveTradingEngine(
         provider=provider,
         gateway=gateway,
+        session_log_dir=str(live_sessions_dir()),
         commission_rate=commission_rate,
         capital_cap=args.capital,
         strategy_class=info['class'],

@@ -5,7 +5,7 @@ Kept for compatibility: the fill models now live in midfreq.backtest.fill_models
 - timing="close" (the default): fill at the close of the bar the decision was made on, as
   midfreq.backtest.backtester does;
 - timing="next_open": fill at the instrument's next bar's open;
-- LegacyFillModel: fill at the price the core strategy passed, without lot rounding.
+- LegacyFillModel: fill at the price the candle strategy passed, without lot rounding.
 """
 from midfreq.backtest.fill_models import (
     CLOSE, NEXT_OPEN, REFERENCE, AutoFillModel, BarFillModel, Fill, FillModel, LegacyFillModel,

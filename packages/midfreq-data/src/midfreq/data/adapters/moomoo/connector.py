@@ -27,6 +27,7 @@ from midfreq.data.adapters.base import (
     Connector, ConnectorCapabilities, ConnectorConfig, ConnectorError, DataClient,
     InstrumentProvider, QuotaExceededError, RateLimitError, bars_from_frame,
 )
+from midfreq.data.connection_settings import connection_settings
 from midfreq.core.model.data import Bar, BarType
 from midfreq.core.model.identifiers import InstrumentId, as_instrument_id, as_venue
 from midfreq.core.model.instruments import Equity, Instrument
@@ -52,11 +53,16 @@ _SNAPSHOT_BATCH = 400   # get_market_snapshot accepts at most 400 codes per call
 
 @dataclass
 class MoomooConnectorConfig(ConnectorConfig):
-    host: str = "127.0.0.1"
-    port: int = 11111
+    host: Optional[str] = None          # default: `moomoo` in config/connections.yaml
+    port: Optional[int] = None
     max_count: int = 1000               # bars per page; OpenD's maximum
     autype: str = "qfq"                 # forward-adjusted prices, as the existing provider requests
     min_request_interval: float = 0.5   # 60 history requests per 30 seconds
+
+    def __post_init__(self):
+        conn = connection_settings("moomoo", {"host": "127.0.0.1", "port": 11111},
+                                   host=self.host, port=self.port)
+        self.host, self.port = conn["host"], conn["port"]
 
 
 class MoomooConnector(Connector):

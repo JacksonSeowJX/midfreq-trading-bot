@@ -24,6 +24,7 @@ from midfreq.data.adapters.base import (
     Connector, ConnectorCapabilities, ConnectorConfig, ConnectorError, DataClient,
     InstrumentProvider, RateLimitError,
 )
+from midfreq.data.connection_settings import connection_settings
 from midfreq.core.common.timestamps import ms_to_ns
 from midfreq.core.model.data import Bar, BarType
 from midfreq.core.model.identifiers import InstrumentId, as_instrument_id, as_venue
@@ -69,7 +70,7 @@ class RequestsTransport:
 
 @dataclass
 class BinanceConnectorConfig(ConnectorConfig):
-    base_url: str = ""                  # default: the venue's base_url in config/venues.json
+    base_url: str = ""                  # default: `binance` in config/connections.yaml, then the venue's base_url
     klines_limit: int = 1000            # Binance's maximum per call
     timeout: float = 10.0
     min_request_interval: float = 0.1   # well inside 6,000 request weight per minute
@@ -104,7 +105,8 @@ class BinanceConnector(Connector):
         if self.config.base_url:
             return self.config.base_url.rstrip("/")
         spec = self.venue_spec(venue or self.served_venues()[0])
-        return spec.connector_options(self.name).get("base_url", "https://api.binance.com").rstrip("/")
+        fallback = spec.connector_options(self.name).get("base_url", "https://api.binance.com")
+        return connection_settings("binance", {"base_url": fallback})["base_url"].rstrip("/")
 
     def to_native(self, instrument_id) -> str:
         iid = as_instrument_id(instrument_id)

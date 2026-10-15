@@ -3,11 +3,11 @@ Moving-average crossover, written natively against the Strategy API.
 
 The rule is midfreq.strategies.candle_strategies.MovingAverageCrossover's: buy a fixed size when the fast simple moving
 average crosses above the slow one while flat, sell the whole position when it crosses back below.
-What changes is the shape. The core version computed the rule and filled the trade itself; here the
+What changes is the shape. The candle version computed the rule and filled the trade itself; here the
 strategy only submits orders, and the venue decides the fill (price, lot size, fees, cash).
 
-With the default fill model (bar close plus slippage) and the venue's fee rate equal to the core
-Portfolio's commission rate, it makes the same trades as the core version; the tests check that.
+With the default fill model (bar close plus slippage) and the venue's fee rate equal to the
+Portfolio's commission rate, it makes the same trades as the candle version; the tests check that.
 """
 from __future__ import annotations
 

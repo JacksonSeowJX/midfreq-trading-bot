@@ -4,8 +4,10 @@ Order Gateway Module
 Routes strategy signals to a broker for execution.
 
 MoomooPaperGateway targets Moomoo's SIMULATE (paper trading) environment
-via the OpenD gateway — real order API, simulated money. The same interface
-can later be implemented for TrdEnv.REAL.
+via the OpenD gateway — real order API, simulated money. Host, port, firm and
+trading environment come from the `moomoo` entry of config/connections.yaml
+(see moomoo_settings); TrdEnv.REAL is used only when that entry, or the
+MIDFREQ_MOOMOO_TRADING_ENV variable, says `real` explicitly.
 
 Note: Moomoo paper trading fills orders against the real live order book,
 so this is the closest possible rehearsal for real execution.
@@ -18,6 +20,35 @@ from moomoo import (
     OpenSecTradeContext, TrdEnv, TrdMarket, TrdSide, OrderType, ModifyOrderOp,
     SecurityFirm, RET_OK
 )
+
+from midfreq.core.connections import get_connection
+
+# Accepted spellings of connections.yaml's moomoo.trading_env. Anything else is
+# refused rather than guessed, so a typo can never select real money.
+_TRADING_ENVS = {'simulate': TrdEnv.SIMULATE, 'paper': TrdEnv.SIMULATE, 'real': TrdEnv.REAL}
+
+
+def moomoo_settings(conn: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    OpenD host, port, TrdEnv and SecurityFirm from the `moomoo` connection.
+
+    Every missing value falls back to the paper defaults (127.0.0.1:11111,
+    SIMULATE, FUTUSECURITIES), so the real environment is reached only when
+    trading_env is set to `real` on purpose.
+    """
+    if conn is None:
+        try:
+            conn = get_connection('moomoo')
+        except KeyError:
+            conn = {}
+    env = str(conn.get('trading_env') or 'simulate').strip().lower()
+    if env not in _TRADING_ENVS:
+        raise ValueError(f"moomoo trading_env must be one of {sorted(_TRADING_ENVS)}, got {env!r}")
+    firm = str(conn.get('security_firm') or 'FUTUSECURITIES').upper()
+    return {'host': str(conn.get('host') or '127.0.0.1'),
+            'port': int(conn.get('port') or 11111),
+            'trd_env': _TRADING_ENVS[env],
+            'security_firm': getattr(SecurityFirm, firm)}
 
 
 class OrderGateway(ABC):
@@ -48,7 +79,8 @@ class OrderGateway(ABC):
 
 class MoomooPaperGateway(OrderGateway):
     """
-    Paper trading gateway using Moomoo's SIMULATE environment.
+    Paper trading gateway using Moomoo's SIMULATE environment (REAL only if
+    the moomoo connection sets trading_env: real).
 
     Requires OpenD running and logged in. Orders are placed as NORMAL
     (limit) orders at the given price — Moomoo paper trading does not
@@ -57,10 +89,16 @@ class MoomooPaperGateway(OrderGateway):
     against the live book in almost all cases.
     """
 
-    def __init__(self, host: str = '127.0.0.1', port: int = 11111,
-                 trd_market: TrdMarket = TrdMarket.HK):
-        self.host = host
-        self.port = port
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None,
+                 trd_market: TrdMarket = TrdMarket.HK,
+                 settings: Optional[Dict[str, Any]] = None):
+        # Arguments override the connection settings; `settings` (a moomoo_settings()
+        # result) replaces reading config/connections.yaml.
+        cfg = settings if settings is not None else moomoo_settings()
+        self.host = host or cfg['host']
+        self.port = port or cfg['port']
+        self.trd_env = cfg['trd_env']
+        self.security_firm = cfg['security_firm']
         self.trd_market = trd_market
         self._trd_ctx: Optional[OpenSecTradeContext] = None
         self.order_log: List[Dict[str, Any]] = []
@@ -70,9 +108,10 @@ class MoomooPaperGateway(OrderGateway):
             self._trd_ctx = OpenSecTradeContext(
                 filter_trdmarket=self.trd_market,
                 host=self.host, port=self.port,
-                security_firm=SecurityFirm.FUTUSECURITIES
+                security_firm=self.security_firm
             )
-            print(f"Connected to Moomoo trade context (PAPER) on {self.host}:{self.port}")
+            mode = 'PAPER' if self.trd_env == TrdEnv.SIMULATE else 'REAL MONEY'
+            print(f"Connected to Moomoo trade context ({mode}) on {self.host}:{self.port}")
         return self._trd_ctx
 
     def close(self):
@@ -91,7 +130,7 @@ class MoomooPaperGateway(OrderGateway):
             code=symbol,
             trd_side=side,
             order_type=OrderType.NORMAL,
-            trd_env=TrdEnv.SIMULATE,
+            trd_env=self.trd_env,
         )
 
         result: Dict[str, Any] = {'timestamp': datetime.now(), 'symbol': symbol,
@@ -149,7 +188,7 @@ class MoomooPaperGateway(OrderGateway):
             """Latest known state of the order, returning as soon as it is final."""
             deadline = _time.time() + seconds
             while True:
-                ret, data = ctx.order_list_query(order_id=oid, trd_env=TrdEnv.SIMULATE,
+                ret, data = ctx.order_list_query(order_id=oid, trd_env=self.trd_env,
                                                  refresh_cache=True)
                 if ret == RET_OK and len(data):
                     row = data.iloc[0]
@@ -165,7 +204,7 @@ class MoomooPaperGateway(OrderGateway):
             # the strategy has moved on, as shares nobody is managing. Cancel
             # even when every status query failed, since then nothing is known.
             try:
-                ret, msg = ctx.modify_order(ModifyOrderOp.CANCEL, oid, 0, 0, trd_env=TrdEnv.SIMULATE)
+                ret, msg = ctx.modify_order(ModifyOrderOp.CANCEL, oid, 0, 0, trd_env=self.trd_env)
                 if ret != RET_OK:
                     print(f"  [!] cancel of unfilled remainder {oid} refused: {msg}")
             except Exception as e:
@@ -192,7 +231,7 @@ class MoomooPaperGateway(OrderGateway):
 
     def get_positions(self) -> Optional[Dict[str, Dict[str, float]]]:
         ctx = self._get_context()
-        ret, data = ctx.position_list_query(trd_env=TrdEnv.SIMULATE)
+        ret, data = ctx.position_list_query(trd_env=self.trd_env)
         if ret != RET_OK:
             # None = query failed = "no information". NEVER return {} here:
             # callers would interpret it as "account holds nothing" and
@@ -211,7 +250,7 @@ class MoomooPaperGateway(OrderGateway):
 
     def get_account_info(self) -> Optional[Dict[str, float]]:
         ctx = self._get_context()
-        ret, data = ctx.accinfo_query(trd_env=TrdEnv.SIMULATE)
+        ret, data = ctx.accinfo_query(trd_env=self.trd_env)
         if ret != RET_OK:
             print(f"  [!] Account query failed: {data}")
             return None
@@ -225,7 +264,7 @@ class MoomooPaperGateway(OrderGateway):
     def list_today_orders(self) -> List[Dict[str, Any]]:
         """Query today's orders (for reconciliation / display)."""
         ctx = self._get_context()
-        ret, data = ctx.order_list_query(trd_env=TrdEnv.SIMULATE)
+        ret, data = ctx.order_list_query(trd_env=self.trd_env)
         if ret != RET_OK:
             return []
         return data.to_dict('records')
@@ -237,7 +276,7 @@ class MoomooPaperGateway(OrderGateway):
         end = datetime.now()
         start = end - timedelta(days=days)
         ret, data = ctx.history_order_list_query(
-            trd_env=TrdEnv.SIMULATE,
+            trd_env=self.trd_env,
             start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d'))
         if ret != RET_OK:
             return []

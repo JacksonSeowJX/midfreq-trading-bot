@@ -29,6 +29,7 @@ from midfreq.data.adapters.base import (
     Connector, ConnectorCapabilities, ConnectorConfig, DataClient, InstrumentProvider,
     RateLimitError, bars_from_frame, time_windows,
 )
+from midfreq.data.connection_settings import connection_settings
 from midfreq.core.model.data import Bar, BarType
 from midfreq.core.model.identifiers import InstrumentId, as_instrument_id, as_venue
 from midfreq.core.model.instruments import Equity, Instrument
@@ -58,13 +59,18 @@ CHUNK_DAYS = {
 
 @dataclass
 class IBKRConnectorConfig(ConnectorConfig):
-    host: str = "127.0.0.1"
-    port: int = 7497
-    client_id: int = 1
+    host: Optional[str] = None           # default: `ibkr` in config/connections.yaml
+    port: Optional[int] = None
+    client_id: Optional[int] = None
     use_rth: bool = True                 # regular trading hours only, as the provider requests
     what_to_show: str = "TRADES"
     min_request_interval: float = 10.0   # 60 historical requests per 10 minutes
     chunk_days: Optional[int] = None     # override the per-bar-size request window (tests)
+
+    def __post_init__(self):
+        conn = connection_settings("ibkr", {"host": "127.0.0.1", "port": 7497, "client_id": 1},
+                                   host=self.host, port=self.port, client_id=self.client_id)
+        self.host, self.port, self.client_id = conn["host"], conn["port"], conn["client_id"]
 
 
 def _make_provider(config: IBKRConnectorConfig):

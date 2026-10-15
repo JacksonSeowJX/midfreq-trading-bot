@@ -4,12 +4,9 @@ config/symbols.json (market="US", status="backtest-only" — not part of
 the live roster, research only). Mirrors backfill_data.py's HK plan.
 
 Usage:
-    python3 backfill_us_data.py
+    uv run python scripts/data/backfill_us_data.py
 """
 import time
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from datetime import datetime, timedelta
 from midfreq.core.candle import Timeframe
@@ -19,7 +16,7 @@ from midfreq.data.providers.moomoo_provider import MoomooProvider
 
 
 def main():
-    provider = MoomooProvider(host='127.0.0.1', port=11111)
+    provider = MoomooProvider()   # OpenD host/port from config/connections.yaml
     storage = DataStorage()
     config = ConfigLoader()
 

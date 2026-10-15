@@ -6,6 +6,7 @@ from moomoo import (
     CurKlineHandlerBase
 )
 from midfreq.data.base_provider import BaseDataProvider
+from midfreq.data.connection_settings import connection_settings
 from midfreq.core.candle import Timeframe, Candle
 
 
@@ -15,13 +16,15 @@ class MoomooProvider(BaseDataProvider):
     Supports free live data for SG and HK markets.
     
     Requires:
-        - OpenD gateway running locally (default: 127.0.0.1:11111)
+        - OpenD gateway running (host/port default to the `moomoo` entry of
+          config/connections.yaml, 127.0.0.1:11111)
         - Moomoo account logged in on OpenD
     """
     
-    def __init__(self, host: str = '127.0.0.1', port: int = 11111):
-        self.host = host
-        self.port = port
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None):
+        conn = connection_settings("moomoo", {"host": "127.0.0.1", "port": 11111}, host=host, port=port)
+        self.host = conn["host"]
+        self.port = conn["port"]
         self._quote_ctx = None
 
     # Mapping our Timeframe enum to Moomoo's KLType

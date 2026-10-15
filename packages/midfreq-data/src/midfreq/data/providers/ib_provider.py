@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional, List, Callable
 from ib_insync import IB, Stock, util
 from midfreq.data.base_provider import BaseDataProvider
+from midfreq.data.connection_settings import connection_settings
 from midfreq.core.candle import Timeframe, Candle
 from midfreq.data.aggregator import TickAggregator
 
@@ -10,11 +11,15 @@ from midfreq.data.aggregator import TickAggregator
 util.startLoop()
 
 class IBProvider(BaseDataProvider):
-    def __init__(self, host: str = '127.0.0.1', port: int = 7497, client_id: int = 1):
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None,
+                 client_id: Optional[int] = None):
+        # Unset arguments come from the `ibkr` entry of config/connections.yaml.
+        conn = connection_settings("ibkr", {"host": "127.0.0.1", "port": 7497, "client_id": 1},
+                                   host=host, port=port, client_id=client_id)
         self.ib = IB()
-        self.host = host
-        self.port = port
-        self.client_id = client_id
+        self.host = conn["host"]
+        self.port = conn["port"]
+        self.client_id = conn["client_id"]
         self._streaming_contracts = {}
         self._aggregators = {}
         self._on_candle_callbacks: List[Callable[[Candle], None]] = []

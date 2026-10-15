@@ -16,7 +16,7 @@ Quota: one historical K-line slot per symbol that does not already hold
 one. Re-requesting a symbol that holds a slot is free.
 
 Usage:
-    python3 scripts/data/fill_live_cache_gaps.py --since 2026-10-02 [--dry-run]
+    uv run python scripts/data/fill_live_cache_gaps.py --since 2026-10-02 [--dry-run]
 """
 import argparse
 import json
@@ -26,12 +26,10 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / 'src'))
-
 import pandas as pd
 
 from midfreq.core.candle import Timeframe
+from midfreq.core.paths import config_dir, data_dir
 from midfreq.data.storage import DataStorage
 
 
@@ -56,8 +54,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
     ap.add_argument('--since', required=True, help='first day to check, YYYY-MM-DD')
     ap.add_argument('--dry-run', action='store_true', help='report what is missing, write nothing')
-    ap.add_argument('--data-dir', default=str(REPO / 'data'), help='cache to fill (default: this repo)')
-    ap.add_argument('--config', default=str(REPO / 'config' / 'sp100_forward_test.json'),
+    ap.add_argument('--data-dir', default=str(data_dir()), help='cache to fill (default: this repo)')
+    ap.add_argument('--config', default=str(config_dir() / 'sp100_forward_test.json'),
                     help='file whose "symbols" list is filled (default: the forward-test universe)')
     args = ap.parse_args()
 
@@ -69,7 +67,7 @@ def main():
 
     from midfreq.data.providers.moomoo_provider import MoomooProvider
     from moomoo import RET_OK
-    provider = MoomooProvider(host='127.0.0.1', port=11111)
+    provider = MoomooProvider()   # OpenD host/port from config/connections.yaml
 
     def quota():
         ret, q = provider._get_context().get_history_kl_quota(get_detail=False)

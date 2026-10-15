@@ -19,25 +19,27 @@ Usage:
 """
 import sys
 import time
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from moomoo import OpenQuoteContext, TrdMarket, TrdEnv, RET_OK
-from midfreq.live.order_gateway import MoomooPaperGateway
+from midfreq.live.order_gateway import MoomooPaperGateway, moomoo_settings
 
 SYMBOL = sys.argv[1] if len(sys.argv) > 1 else 'HK.00700'
 QTY = int(sys.argv[2]) if len(sys.argv) > 2 else 100
 
 
 def main():
-    q = OpenQuoteContext(host='127.0.0.1', port=11111)
+    opend = moomoo_settings()
+    if opend['trd_env'] != TrdEnv.SIMULATE:
+        print("Refusing to run: this tool is for the paper (SIMULATE) account, but the "
+              "moomoo connection is set to trading_env: real.")
+        return 1
+    q = OpenQuoteContext(host=opend['host'], port=opend['port'])
     ret, snap = q.get_market_snapshot([SYMBOL]); q.close()
     if ret != RET_OK:
         print("snapshot failed:", snap); return 1
     px = float(snap['last_price'][0])
 
-    gw = MoomooPaperGateway(trd_market=TrdMarket.HK)
+    gw = MoomooPaperGateway(trd_market=TrdMarket.HK, settings=opend)
     held = (gw.get_positions() or {}).get(SYMBOL, {}).get('qty', 0)
     if held:
         print(f"ABORT: {SYMBOL} already held ({held}); not disturbing it"); gw.close(); return 1

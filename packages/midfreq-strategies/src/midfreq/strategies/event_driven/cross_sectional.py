@@ -16,12 +16,12 @@ desk splits it:
 Either half can be replaced on its own: a different ranking model with the same basket, or the
 same ranking feeding a long/short or risk-weighted construction.
 
-Against the core version: rankings, baskets, sizes and prices are the same (the tests check this
+Against the candle version: rankings, baskets, sizes and prices are the same (the tests check this
 on data where every instrument reports every bar). The differences are deliberate: the venue
-rounds orders to whole board lots (the core backtester traded odd lots in Hong Kong); the basket
+rounds orders to whole board lots (the candle backtester traded odd lots in Hong Kong); the basket
 values a holding that is missing from the current slice at its last close rather than at zero; and
 the ranking runs at the end of a slice, so the final slice of the data can rebalance, which the
-core version, closing a cross-section only when the next one began, never reached.
+candle version, closing a cross-section only when the next one began, never reached.
 """
 from __future__ import annotations
 

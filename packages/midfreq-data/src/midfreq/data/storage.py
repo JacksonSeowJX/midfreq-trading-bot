@@ -1,10 +1,14 @@
 import os
 import pandas as pd
 from pathlib import Path
+from typing import Optional
+
+from midfreq.core.paths import data_dir
 
 class DataStorage:
-    def __init__(self, base_path: str = "data"):
-        self.base_path = Path(base_path)
+    def __init__(self, base_path: Optional[str] = None):
+        # Default: the repository's data/ folder, wherever the caller's working directory is.
+        self.base_path = Path(base_path) if base_path is not None else data_dir()
         self.base_path.mkdir(exist_ok=True)
 
     def _get_file_path(self, symbol: str, timeframe: str) -> Path:

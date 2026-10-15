@@ -2,7 +2,7 @@
 ConnectorRegistry: connector name -> factory, and the choice of connector for a venue.
 
 The built-in connectors are registered by import path and only imported when first created, so
-`import mft` never pulls in the moomoo SDK, ib_insync (which starts an event loop on import) or
+`import midfreq.data` never pulls in the moomoo SDK, ib_insync (which starts an event loop on import) or
 ccxt. Which connector serves a venue by default is `default_connector` in config/venues.json; a
 caller (or the CLI's --connector/--client flag) can override it per call.
 """

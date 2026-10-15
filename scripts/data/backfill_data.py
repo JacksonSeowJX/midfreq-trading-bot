@@ -13,13 +13,11 @@ market hours. Rate limit: 100 kline requests per 60s window — the sleep
 between requests keeps us comfortably below it.
 
 Usage:
-    python3 backfill_data.py            # all symbols, all timeframes
-    python3 backfill_data.py HK.00700   # single symbol
+    uv run python scripts/data/backfill_data.py            # all symbols, all timeframes
+    uv run python scripts/data/backfill_data.py HK.00700   # single symbol
 """
 import time
 import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from datetime import datetime, timedelta
 from midfreq.core.candle import Timeframe
@@ -41,7 +39,7 @@ BACKFILL_PLAN = [
 
 
 def main():
-    provider = MoomooProvider(host='127.0.0.1', port=11111)
+    provider = MoomooProvider()   # OpenD host/port from config/connections.yaml
     storage = DataStorage()
     config = ConfigLoader()
 

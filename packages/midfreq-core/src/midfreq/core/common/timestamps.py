@@ -1,7 +1,7 @@
 """
 Timestamp conventions.
 
-Every timestamp inside `mft` is an integer count of nanoseconds since the Unix epoch in UTC, as in
+Every timestamp inside the venue engine is an integer count of nanoseconds since the Unix epoch in UTC, as in
 NautilusTrader. Integers sort and compare exactly, carry no timezone ambiguity, and are what the
 catalog stores. These helpers convert at the edges: user input (dates, strings, datetimes) and
 data sources (exchange-local clocks).

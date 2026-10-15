@@ -26,14 +26,13 @@ Usage:
 """
 import sys
 import time
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 import pandas as pd
 from moomoo import OpenQuoteContext, RET_OK
 
 from midfreq.core.config import ConfigLoader
+from midfreq.core.paths import data_dir, results_dir
+from midfreq.live.order_gateway import moomoo_settings
 
 
 def universe(market):
@@ -42,7 +41,7 @@ def universe(market):
         codes = [f"US.{t.replace('.', '')}" for t in SP100_TICKERS]
     else:
         codes = ConfigLoader().get_live_symbols(market='HK') or []
-    root = Path(__file__).resolve().parents[2] / 'data'
+    root = data_dir()
     return [c for c in codes if (root / c.replace('.', '_') / '1h.parquet').exists()]
 
 
@@ -56,7 +55,8 @@ def main():
         print(f"no {market} symbols with local data"); return
     print(f"{market}: {len(syms)} symbols, {n_samples} samples every {interval}s", flush=True)
 
-    quote = OpenQuoteContext(host='127.0.0.1', port=11111)
+    opend = moomoo_settings()
+    quote = OpenQuoteContext(host=opend['host'], port=opend['port'])
     rows = []
     for i in range(n_samples):
         # snapshot is capped per call, so chunk the universe
@@ -82,7 +82,7 @@ def main():
 
     df = pd.DataFrame(rows)
     stamp = time.strftime('%Y%m%d_%H%M%S')
-    out = Path(__file__).resolve().parents[2] / 'results' / f'spread_{market.lower()}_{stamp}.csv'
+    out = results_dir() / f'spread_{market.lower()}_{stamp}.csv'
     df.to_csv(out, index=False)
 
     per_sym = df.groupby('code')['half_spread_bps'].median().sort_values()

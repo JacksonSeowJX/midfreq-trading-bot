@@ -8,7 +8,7 @@ No code needs to be touched to use it.
 
 ```bash
 git pull                                   # latest code and live-session logs
-PYTHONPATH=src streamlit run src/app.py    # opens http://localhost:8501
+uv run streamlit run apps/dashboard/app.py # opens http://localhost:8501
 ```
 
 If the dashboard was already running, stop it (Ctrl+C) and start it again after `git pull`.

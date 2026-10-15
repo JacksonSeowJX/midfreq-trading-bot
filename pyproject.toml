@@ -64,12 +64,13 @@ testpaths = ["packages", "tests"]
 addopts = "--import-mode=importlib"
 # shared test helpers (fake connectors, synthetic markets) importable from any package's tests
 pythonpath = ["tests/support"]
-markers = ["slow: needs the real data/ cache (opt-in: MFT_SLOW=1)"]
+markers = ["slow: needs the real data/ cache (opt-in: MIDFREQ_SLOW=1)"]
 
 # Layering: a package may only import packages below it.
 #   apps / research  ->  live, backtest  ->  strategies, data  ->  core
 [tool.importlinter]
-root_packages = ["midfreq"]
+# midfreq is a PEP 420 namespace spread over six distributions, so list the portions
+root_packages = ["midfreq.core", "midfreq.data", "midfreq.strategies", "midfreq.backtest", "midfreq.live", "midfreq.research"]
 
 [[tool.importlinter.contracts]]
 name = "Package layers"

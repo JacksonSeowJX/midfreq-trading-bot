@@ -1,14 +1,13 @@
 """
-Command line for data ingestion. Run with src/ on the path:
+Command line for data ingestion. Run from the repository root:
 
-    cd src
-    python -m midfreq.data venues
-    python -m midfreq.data fetch --venue XHKG --symbols 00700 00005 --bar 1-HOUR --start 2024-01-01 --client moomoo
-    python -m midfreq.data fetch --venue XNAS --symbols AAPL MSFT --bar 1-DAY --start 2020-01-01 --client yfinance
-    python -m midfreq.data fetch --venue BINANCE --symbols BTCUSDT ETHUSDT --bar 1-HOUR --start 2024-01-01
-    python -m midfreq.data fetch --venue KRAKEN --symbols BTC-USD --bar 1-HOUR --start 2024-06-01 --end 2024-06-30
-    python -m midfreq.data migrate --legacy-dir ../data --catalog ../catalog --timeframes 1h --dry-run
-    python -m midfreq.data catalog
+    uv run python -m midfreq.data venues
+    uv run python -m midfreq.data fetch --venue XHKG --symbols 00700 00005 --bar 1-HOUR --start 2024-01-01 --client moomoo
+    uv run python -m midfreq.data fetch --venue XNAS --symbols AAPL MSFT --bar 1-DAY --start 2020-01-01 --client yfinance
+    uv run python -m midfreq.data fetch --venue BINANCE --symbols BTCUSDT ETHUSDT --bar 1-HOUR --start 2024-01-01
+    uv run python -m midfreq.data fetch --venue KRAKEN --symbols BTC-USD --bar 1-HOUR --start 2024-06-01 --end 2024-06-30
+    uv run python -m midfreq.data migrate --legacy-dir data --catalog catalog --timeframes 1h --dry-run
+    uv run python -m midfreq.data catalog
 
 `--client` and `--connector` are the same flag; without it the venue's default connector from
 config/venues.json is used. `--end` defaults to now, and a bare date means the whole of that day.

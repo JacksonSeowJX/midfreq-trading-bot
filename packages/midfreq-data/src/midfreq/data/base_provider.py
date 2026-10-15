@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 from datetime import datetime
 import pandas as pd
-from .models import Timeframe, Candle
+from midfreq.core.candle import Timeframe, Candle
 
 class BaseDataProvider(ABC):
     @abstractmethod

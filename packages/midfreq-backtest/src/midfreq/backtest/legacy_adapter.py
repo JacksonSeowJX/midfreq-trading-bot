@@ -1,7 +1,7 @@
 """
-Run the original midfreq.strategies.candle_strategies classes, unchanged, inside the new engine.
+Run the original midfreq.strategies.candle_strategies classes, unchanged, inside the event-driven BacktestEngine.
 
-A core strategy trades by calling `self.portfolio.execute_trade(symbol, is_buy, qty, price,
+A candle strategy trades by calling `self.portfolio.execute_trade(symbol, is_buy, qty, price,
 timestamp)` and reads cash and positions straight off that portfolio. LegacyStrategyAdapter gives
 it a LegacyPortfolio: a real midfreq.core.portfolio.Portfolio subclass whose `execute_trade` turns the call
 into a market order and sends it through the engine (RiskEngine, then the venue's
@@ -16,7 +16,7 @@ Bars reach the strategy as midfreq.core.candle.Candle objects with the timestamp
 exchange-local times tagged as UTC (`VenueSpec.to_legacy_index`), even though the engine itself
 runs on true UTC.
 
-Limitations, by construction: a core strategy has one cash balance, so all its instruments must
+Limitations, by construction: a candle strategy has one cash balance, so all its instruments must
 settle in one currency; and it groups "same timestamp" by its local-time stamps, so mixing venues
 in different timezones in one legacy strategy is not meaningful.
 """
@@ -48,7 +48,7 @@ class LegacyDivergenceError(AssertionError):
 
 
 class LegacyPortfolio(CorePortfolio):
-    """A core Portfolio whose trades are executed by the engine instead of by itself."""
+    """A midfreq.core Portfolio whose trades are executed by the engine instead of by itself."""
 
     def __init__(self, adapter: "LegacyStrategyAdapter", initial_cash: float, commission_rate: float):
         super().__init__(initial_cash=initial_cash, commission_rate=commission_rate)
@@ -60,7 +60,7 @@ class LegacyPortfolio(CorePortfolio):
         self._adapter._route_trade(symbol, is_buy, qty, price, timestamp, exit_reason)
 
     def book(self, symbol, is_buy, qty, price, timestamp, exit_reason=None):
-        """The original core bookkeeping, unchanged."""
+        """The original Portfolio bookkeeping, unchanged."""
         CorePortfolio.execute_trade(self, symbol, is_buy, qty, price, timestamp, exit_reason=exit_reason)
 
 
@@ -189,7 +189,7 @@ def run_legacy_backtest(strategy_class: Type, symbols: Sequence[str], timeframe:
                         end_date: Optional[TimeLike] = None, end_inclusive: bool = True,
                         venues: Optional[VenueRegistry] = None, **strategy_params) -> LegacyRun:
     """
-    The new engine's equivalent of `Backtester(storage, Portfolio(initial_cash, commission_rate),
+    The BacktestEngine equivalent of `Backtester(storage, Portfolio(initial_cash, commission_rate),
     risk_manager, slippage_bps).run(strategy_class, symbols, timeframe, start_date, end_date,
     end_inclusive, **strategy_params)`, reading the same data/ cache (read-only).
     """
@@ -201,7 +201,7 @@ def run_legacy_backtest(strategy_class: Type, symbols: Sequence[str], timeframe:
     ids = {s: reader.instrument_id(s) for s in symbols}
     currencies = {venues.get(i.venue).currency for i in ids.values()}
     if len(currencies) > 1:
-        raise ValueError(f"a core strategy has one cash balance; these symbols settle in {sorted(currencies)}")
+        raise ValueError(f"a candle strategy has one cash balance; these symbols settle in {sorted(currencies)}")
 
     engine = BacktestEngine(BacktestEngineConfig(venues=venues))
     fill_model = LegacyFillModel(slippage_bps=slippage_bps)

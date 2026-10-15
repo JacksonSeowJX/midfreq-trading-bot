@@ -19,7 +19,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
-REPO = Path(__file__).resolve().parent.parent
+from midfreq.core import paths
+
+REPO = paths.repo_root()
 RESULTS = REPO / 'results'
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent
 
@@ -134,7 +136,6 @@ def chart_rc():
     rc = latest_rc()
     if not rc or not rc.get('by_config'):
         print('rc chart SKIPPED — no reality_check_2*.json yet'); return
-    sys.path.insert(0, str(REPO / 'src'))
     from midfreq.research.reality_check import stationary_bootstrap_indices
     cfgs = list(rc['by_config'])
     fig, axes = plt.subplots(1, len(cfgs), figsize=(6.3*len(cfgs), 4.6), dpi=200, squeeze=False)
