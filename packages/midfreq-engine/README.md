@@ -3,7 +3,9 @@
 The backtester's hot path in C++17, behind a pybind11 module: the merged event stream, the event
 loop, portfolio accounting, the risk rules, the metrics and eleven of the thirteen candle
 strategies. It reproduces `midfreq.backtest.backtester.Backtester` exactly: the same trades, the
-same equity curve and the same metrics, bit for bit. It just does it 50 to 300 times faster.
+same equity curve and the same metrics, bit for bit, only faster: about 50 times for a 3-year
+S&P 100 backtest, 15 to 20 times for a small one (where loading the data dominates), and several
+hundred to over a thousand times for a grid search or a walk-forward.
 
 ```
 Python   midfreq.backtest.optimizer      grid_search, walk_forward      (unchanged API, engine=)
@@ -76,8 +78,10 @@ identical to Python's.
 Times include loading the data. The grid search picks the live parameters (30, 3, 19) on both
 engines, and the walk-forward reproduces the alpha study's in-sample and out-of-sample results.
 
-A single backtest is 50 to 60 times faster: the loop no longer goes through pandas' `iterrows`,
-pydantic candles and Python dicts. Optimisation gains far more, because the data is loaded and
+A large single backtest is about 50 times faster: the loop no longer goes through pandas'
+`iterrows`, pydantic candles and Python dicts. A small one (30 symbols, one year, 53k bars) is 13
+to 20 times faster, because reading the files and handing the trades back to Python are then
+most of the time (`tests/slow/test_native_real_data.py -s` prints these per strategy). Optimisation gains far more, because the data is loaded and
 merged once instead of once per parameter set, and the runs share it across cores with the GIL
 released.
 

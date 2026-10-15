@@ -106,7 +106,7 @@ packages/           seven installable packages, all under the `midfreq` namespac
   midfreq-backtest/   backtester, walk-forward optimiser, event-driven BacktestEngine
                       with fill and slippage models; the C++ engine's adapter (native.py)
   midfreq-engine/     the backtester's core in C++17 (CMake, pybind11): identical
-                      results, 50-300x faster; not part of the VM's release
+                      results, far faster; not part of the VM's release
   midfreq-live/       live trading engine and broker order gateway
   midfreq-research/   PBO, White's Reality Check, results index, forward-test read-back
 apps/

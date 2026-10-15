@@ -3,8 +3,9 @@
 The candle backtester's core also exists in C++17, in `packages/midfreq-engine`: the merged event
 stream, the event loop, portfolio accounting, the risk rules, the metrics and eleven of the
 thirteen candle strategies, behind a pybind11 module. It gives the same results as
-[the candle backtester](backtesting.md#the-candle-backtester), trade for trade and bit for bit,
-50 to 300 times faster, and a walk-forward about a thousand times faster.
+[the candle backtester](backtesting.md#the-candle-backtester), trade for trade and bit for bit:
+a 3-year S&P 100 backtest about 50 times faster, a small one 15 to 20 times, and a grid search or
+walk-forward several hundred to over a thousand times.
 
 ```python
 from midfreq.backtest.native import NativeBacktester, make_backtester
