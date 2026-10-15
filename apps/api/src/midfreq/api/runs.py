@@ -24,7 +24,7 @@ from midfreq.api import schemas as s
 from midfreq.api.convert import plain, records, utc
 from midfreq.api.labels import UNIVERSE_LABELS
 from midfreq.api.settings import Settings
-from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.native import make_backtester
 from midfreq.backtest.optimizer import OBJECTIVES, generate_param_grid, grid_search, walk_forward
 from midfreq.core.candle import Timeframe
 from midfreq.core.config import ConfigLoader
@@ -304,10 +304,11 @@ def _no_data(plan: Plan, symbols) -> RunError:
 
 def _simulate(plan: Plan, storage: DataStorage, run: Run, progress: Callable[[float], None]):
     """One backtest, as app.py's backtest view runs it. (portfolio, metrics); metrics is {} when
-    there were no candles."""
+    there were no candles. On the C++ engine when it is built and can run the strategy
+    (MIDFREQ_ENGINE, default "auto"); the results are the same either way."""
     portfolio = Portfolio(initial_cash=plan.initial_capital, commission_rate=plan.commission_rate)
-    backtester = Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_manager_for(run, plan.risk),
-                            slippage_bps=plan.slippage_bps)
+    backtester = make_backtester(storage, portfolio, risk_manager=risk_manager_for(run, plan.risk),
+                                 slippage_bps=plan.slippage_bps)
     with contextlib.redirect_stdout(io.StringIO()):          # the backtester narrates to stdout
         metrics = backtester.run(STRATEGY_REGISTRY[run.strategy]["class"], symbols=list(run.symbols),
                                  timeframe=Timeframe(plan.timeframe), start_date=plan.start, end_date=plan.end,

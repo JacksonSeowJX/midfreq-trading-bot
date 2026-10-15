@@ -3,7 +3,9 @@ midfreq.backtest: running strategies over historical data.
 
 Two engines live here:
 - backtester.Backtester (with optimizer's grid search and walk-forward on top): the original
-  candle-by-candle loop for midfreq.strategies.candle_strategies classes.
+  candle-by-candle loop for midfreq.strategies.candle_strategies classes. native.NativeBacktester
+  runs the same loop in C++ (packages/midfreq-engine) with identical results, and the optimiser
+  uses it by default where it can (native.BatchRunner; MIDFREQ_ENGINE=python turns it off).
 - BacktestEngine (re-exported below): the event-driven engine with simulated venues, fill and
   slippage models and a risk engine, for midfreq.strategies.trading.Strategy subclasses.
   legacy_adapter runs the candle strategies inside it with identical results.
