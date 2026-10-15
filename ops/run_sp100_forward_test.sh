@@ -26,13 +26,16 @@
 # Requires: OpenD running and logged in.
 
 set -u
-cd "$(dirname "$0")/.."
-
-# The workspace venv that `uv sync` builds at the repository root; set PYTHON
-# to use another interpreter (the VM used /opt/anaconda3/bin/python before
-# the monorepo layout, see ops/README.md).
-PY=${PYTHON:-.venv/bin/python}
-RUN_LIVE=apps/live_runner/run_live.py
+# The code: a checkout, or a release installed by ops/vm/install_release.sh. Both
+# keep this script in ops/ and their environment in .venv/ beside it; set PYTHON
+# to use another interpreter.
+HERE=$(cd "$(dirname "$0")/.." && pwd)
+PY=${PYTHON:-$HERE/.venv/bin/python}
+RUN_LIVE=midfreq.live.run_live
+# The data: config/, data/ and live_sessions/ under the runtime root. A release
+# names it with MIDFREQ_ROOT; a checkout is its own runtime root.
+cd "${MIDFREQ_ROOT:-$HERE}" || exit 1
+export MIDFREQ_ROOT=$(pwd)
 CFG=config/sp100_forward_test.json
 LOG_DIR=live_sessions
 mkdir -p "$LOG_DIR"
@@ -125,12 +128,13 @@ echo
 # starting a session (used to verify the 2026-10-05 scripts/ reorganisation).
 if [ "${DRY_RUN:-0}" = "1" ]; then
   echo "[dry run] working directory: $(pwd)"
-  [ -f "$RUN_LIVE" ] && echo "[dry run] $RUN_LIVE found" || { echo "[dry run] $RUN_LIVE MISSING"; exit 1; }
-  echo "[dry run] would run: $PY -u $RUN_LIVE --strategy \"Cross-Sectional Reversal\" --symbols <$NSYM symbols> --timeframe 1h --duration $DURATION --sizing equal-dollar --basket-size $TOP_N --capital $CAPITAL --stop-loss 0 --max-drawdown 15 --params lookback=$LOOKBACK top_n=$TOP_N rebalance_every=$REBAL"
+  "$PY" -c "import $RUN_LIVE" 2>/dev/null && echo "[dry run] $RUN_LIVE importable with $PY" \
+    || { echo "[dry run] $RUN_LIVE NOT importable with $PY"; exit 1; }
+  echo "[dry run] would run: $PY -u -m $RUN_LIVE --strategy \"Cross-Sectional Reversal\" --symbols <$NSYM symbols> --timeframe 1h --duration $DURATION --sizing equal-dollar --basket-size $TOP_N --capital $CAPITAL --stop-loss 0 --max-drawdown 15 --params lookback=$LOOKBACK top_n=$TOP_N rebalance_every=$REBAL"
   exit 0
 fi
 
-$PY -u "$RUN_LIVE" \
+$PY -u -m "$RUN_LIVE" \
     --strategy "Cross-Sectional Reversal" \
     --symbols $SYMBOLS \
     --timeframe 1h \

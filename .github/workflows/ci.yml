@@ -3,8 +3,8 @@
 #   research  Python 3.12 with the versions in uv.lock, the ones every reported result was
 #             produced with (the Mac's Anaconda). Also checks the package layering.
 #   vm        Python 3.10 with ops/vm/requirements-vm.txt, the versions the live engine runs
-#             on the GCP VM. The VM deploys a commit only after this workflow has passed on it
-#             (see ops/vm/ci_gate.sh), so this job is the deployment gate.
+#             on the GCP VM: builds the release bundle, installs it exactly as
+#             ops/vm/install_release.sh does on the VM, and runs the tests against it.
 #
 # The VM's daily session-log commits touch only live_sessions/ and are skipped.
 name: CI
@@ -41,21 +41,24 @@ jobs:
         run: uv run lint-imports
 
   vm:
-    name: vm (Python 3.10, live versions)
+    name: vm (Python 3.10, the release bundle as the VM installs it)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          cache: pip
-          cache-dependency-path: ops/vm/requirements-vm.txt
-      - name: Install as the VM does
+      - name: Build the bundle
+        run: ./ops/build_release.sh
+      - name: Install it as the VM would (smoke test and launcher dry run included)
         run: |
-          python -m pip install -r ops/vm/requirements-vm.txt
-          python -m pip install --no-deps $(for p in packages/*/; do printf -- '-e %s ' "$p"; done)
-      - name: Tests
-        run: python -m pytest -q -p no:cacheprovider
-      - name: Launcher dry run
-        run: DRY_RUN=1 FAKE_ET=2026-11-16T09:35:01 PYTHON=python ./ops/run_sp100_forward_test.sh --scheduled
+          mkdir -p "$RUNNER_TEMP/midfreq/runtime"
+          cp -R config "$RUNNER_TEMP/midfreq/runtime/"
+          MIDFREQ_HOME="$RUNNER_TEMP/midfreq" PYTHON_BASE=python3.10 \
+            ./ops/vm/install_release.sh dist/midfreq-*.tar.gz
+      - name: Tests against the installed release
+        run: |
+          rm -rf packages/*/src      # import the installed wheels, not the source tree
+          "$RUNNER_TEMP/midfreq/current/.venv/bin/python" -m pytest -q -p no:cacheprovider

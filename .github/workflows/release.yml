@@ -1,0 +1,55 @@
+# Release: on a vX.Y.Z tag, build the bundle the VM runs, prove it installs and passes the
+# tests exactly as it will on the VM, and publish it as a GitHub Release.
+#
+#   ops/set_version.sh X.Y.Z && git commit -am "Release X.Y.Z" && git tag vX.Y.Z
+#   git push origin main vX.Y.Z
+#
+# Deploying is a separate, manual step: ops/deploy.sh vX.Y.Z (see ops/README.md).
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"        # the VM's interpreter
+
+      - name: Tag matches the package versions
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          bad=$(grep -L "^version = \"$v\"" pyproject.toml packages/*/pyproject.toml || true)
+          [ -z "$bad" ] || { echo "tag $GITHUB_REF_NAME but these files say otherwise: $bad"; exit 1; }
+
+      - name: Build the bundle
+        run: ./ops/build_release.sh
+
+      - name: Install it as the VM would
+        run: |
+          mkdir -p "$RUNNER_TEMP/midfreq/runtime"
+          cp -R config "$RUNNER_TEMP/midfreq/runtime/"
+          MIDFREQ_HOME="$RUNNER_TEMP/midfreq" PYTHON_BASE=python3.10 \
+            ./ops/vm/install_release.sh "dist/midfreq-${GITHUB_REF_NAME#v}.tar.gz"
+
+      - name: Tests against the installed release
+        run: |
+          rm -rf packages/*/src      # import the installed wheels, not the source tree
+          "$RUNNER_TEMP/midfreq/current/.venv/bin/python" -m pytest -q -p no:cacheprovider
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" "dist/midfreq-$v.tar.gz" "dist/midfreq-$v.tar.gz.sha256" \
+            --title "$GITHUB_REF_NAME" --generate-notes

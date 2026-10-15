@@ -14,13 +14,16 @@
 # Requires: OpenD running + logged in.
 
 set -u
-cd "$(dirname "$0")/.."
-
-# The workspace venv that `uv sync` builds at the repository root; set PYTHON
-# to use another interpreter (the VM used /opt/anaconda3/bin/python before
-# the monorepo layout, see ops/README.md).
-PY=${PYTHON:-.venv/bin/python}
-RUN_LIVE=apps/live_runner/run_live.py
+# The code: a checkout, or a release installed by ops/vm/install_release.sh. Both
+# keep this script in ops/ and their environment in .venv/ beside it; set PYTHON
+# to use another interpreter.
+HERE=$(cd "$(dirname "$0")/.." && pwd)
+PY=${PYTHON:-$HERE/.venv/bin/python}
+RUN_LIVE=midfreq.live.run_live
+# The data: config/, data/ and live_sessions/ under the runtime root. A release
+# names it with MIDFREQ_ROOT; a checkout is its own runtime root.
+cd "${MIDFREQ_ROOT:-$HERE}" || exit 1
+export MIDFREQ_ROOT=$(pwd)
 LOG_DIR=live_sessions
 mkdir -p "$LOG_DIR"
 STAMP=$(date +%Y%m%d_%H%M%S)
@@ -40,15 +43,15 @@ fi
 
 echo "Launching daily candidates for ${DURATION} minutes (logs: $LOG_DIR/console_*_${STAMP}.log)"
 
-$PY -u "$RUN_LIVE" --strategy "Bollinger Bands" --symbols HK.09888 --timeframe 1h \
+$PY -u -m "$RUN_LIVE" --strategy "Bollinger Bands" --symbols HK.09888 --timeframe 1h \
     --duration "$DURATION" --qty 100 --stop-loss 3 --take-profit 5 --params bb_period=14 num_std=2.5 \
     > "$LOG_DIR/console_bollinger_09888_${STAMP}.log" 2>&1 &
 
-$PY -u "$RUN_LIVE" --strategy "RSI" --symbols HK.09888 --timeframe 1h \
+$PY -u -m "$RUN_LIVE" --strategy "RSI" --symbols HK.09888 --timeframe 1h \
     --duration "$DURATION" --qty 100 --stop-loss 3 --take-profit 5 --params rsi_period=18 oversold=29 overbought=84 \
     > "$LOG_DIR/console_rsi_09888_${STAMP}.log" 2>&1 &
 
-$PY -u "$RUN_LIVE" --strategy "Regime Switch" --symbols HK.00700 --timeframe 1h \
+$PY -u -m "$RUN_LIVE" --strategy "Regime Switch" --symbols HK.00700 --timeframe 1h \
     --duration "$DURATION" --qty 100 --stop-loss 3 \
     > "$LOG_DIR/console_regime_00700_${STAMP}.log" 2>&1 &
 

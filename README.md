@@ -86,7 +86,7 @@ Update 14 (18 Oct 26)
 - **Strategies** (`midfreq-strategies`: `candle_strategies.py`): 13 strategies behind one interface and a registry, so the backtester, optimiser, dashboard and live engine all run the same strategy code.
 - **Backtester** (`midfreq-backtest`: `backtester.py`; `midfreq-core`: `portfolio.py`, `risk_manager.py`): event-driven, with per-market fees checked against real fills (Hong Kong 0.16% and US 0.005% per side), slippage, board lots, stop-loss, trailing stop, take-profit, position sizing and a drawdown halt.
 - **Validation** (`midfreq-backtest`: `optimizer.py`; `midfreq-research`: `overfitting.py`, `reality_check.py`): grid search, walk-forward optimisation, Probability of Backtest Overfitting, and White's Reality Check.
-- **Live trading** (`midfreq-live`: `live_engine.py`, `order_gateway.py`; `apps/live_runner/run_live.py`): streams hourly candles, places marketable limit orders, records only what the broker confirms as filled, and keeps its state between daily sessions. Cron starts a session on the VM each US trading day, and the session logs are committed to `live_sessions/` daily.
+- **Live trading** (`midfreq-live`: `live_engine.py`, `order_gateway.py`; `apps/live_runner/run_live.py`): streams hourly candles, places marketable limit orders, records only what the broker confirms as filled, and keeps its state between daily sessions. Cron starts a session on the VM each US trading day; `ops/fetch_live_logs.sh` copies the session logs to a laptop. Code reaches the VM only as a versioned release deployed by hand (`ops/deploy.sh`, see [ops/README.md](ops/README.md)).
 - **Dashboard** (`apps/dashboard/app.py`): a Streamlit app for backtests, optimisation, the live accounts and every research result. See [docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md).
 
 ## Project Structure
@@ -105,10 +105,10 @@ packages/           six installable packages, all under the `midfreq` namespace,
   midfreq-research/   PBO, White's Reality Check, results index, forward-test read-back
 apps/
   dashboard/        Streamlit dashboard (see docs/DASHBOARD_GUIDE.md)
-  live_runner/      run_live.py, the live paper-trading entry point
+  live_runner/      run_live.py, runs `midfreq-live` (the live engine) from a checkout
 research/studies/   every study the final report draws on (superseded/: earlier
                     versions replaced after the 2026-09-08 testing audit)
-ops/                the VM's cron launchers and the deployment runbook
+ops/                the VM's session launchers, release build and deploy scripts, runbook
 scripts/
   live/             config picker, end-to-end replay test, real-broker order-path test,
                     trade-blotter export

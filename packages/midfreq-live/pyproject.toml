@@ -5,6 +5,9 @@ description = "Live trading: the live engine and the broker order gateway."
 requires-python = ">=3.10"
 dependencies = ["midfreq-core", "midfreq-data", "midfreq-strategies", "pandas>=2.1", "moomoo-api"]
 
+[project.scripts]
+midfreq-live = "midfreq.live.run_live:main"
+
 [tool.uv.sources]
 midfreq-core = { workspace = true }
 midfreq-data = { workspace = true }

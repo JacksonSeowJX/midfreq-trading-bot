@@ -20,8 +20,11 @@ refuse to run when it is set to `real`.
 
 ## Running
 
-    uv run python apps/live_runner/run_live.py --list
+    uv run midfreq-live --list                          # the runner, midfreq.live.run_live
     ./ops/run_sp100_forward_test.sh --scheduled        # as cron runs it; see ops/README.md
+
+On the VM the package is installed from a release's wheel, and cron runs the launcher from
+`~/midfreq/current/ops/` (see ops/README.md).
 
 ## Tests
 
