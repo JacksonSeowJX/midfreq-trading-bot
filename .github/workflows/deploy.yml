@@ -1,0 +1,94 @@
+# Deploy a published release to the trading VM, by hand: Actions -> Deploy -> Run workflow.
+#
+#   status    what the VM has installed, current and previous (changes nothing)
+#   deploy    install release vX.Y.Z and make it current from the next session
+#   stage     install and smoke-test vX.Y.Z, leave current as it is
+#   switch    make an installed release current
+#   rollback  make the previous release current again
+#
+# Two jobs: `plan` checks the inputs and shows what will run; `apply` runs it, and only after
+# approval, because it uses the `production` environment (Settings -> Environments: required
+# reviewer, main branch only). The VM accepts this workflow's SSH key for exactly one script,
+# ops/vm/deploy_gate.sh, which downloads the release from GitHub itself and checks its
+# checksum: the key cannot upload code or open a shell. ops/deploy.sh does the same from a
+# laptop. Setup: ops/README.md, "Deploy workflow".
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        type: choice
+        options: [status, deploy, stage, switch, rollback]
+        default: status
+      version:
+        description: "Release version X.Y.Z (for deploy, stage, switch)"
+        required: false
+      force:
+        description: "Deploy even while a trading session is running"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-vm
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      command: ${{ steps.plan.outputs.command }}
+    steps:
+      - id: plan
+        env:
+          ACTION: ${{ inputs.action }}
+          VERSION: ${{ inputs.version }}
+          FORCE: ${{ inputs.force }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          case "$ACTION" in
+            deploy|stage|switch)
+              [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$ACTION needs a version X.Y.Z, got '$VERSION'"; exit 1; } ;;
+            *) [ -z "$VERSION" ] || echo "::notice::version is ignored for $ACTION" ;;
+          esac
+          if [ "$ACTION" = deploy ] || [ "$ACTION" = stage ]; then
+            gh release view "v$VERSION" >/dev/null || { echo "::error::no published release v$VERSION"; exit 1; }
+          fi
+          case "$ACTION" in
+            status|rollback) cmd=$ACTION ;;
+            switch) cmd="switch $VERSION" ;;
+            deploy) cmd="deploy $VERSION" ;;
+            stage)  cmd="deploy $VERSION --stage" ;;
+          esac
+          if [ "$FORCE" = true ] && { [ "$ACTION" = deploy ] || [ "$ACTION" = stage ]; }; then cmd="$cmd --force"; fi
+          echo "command=$cmd" >> "$GITHUB_OUTPUT"
+          echo "### Will run on the VM: \`$cmd\`" >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - name: Run on the VM
+        env:
+          COMMAND: ${{ needs.plan.outputs.command }}
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.VM_KNOWN_HOSTS }}
+          VM: ${{ vars.VM_USER }}@${{ vars.VM_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          set -o pipefail
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=20 "$VM" "$COMMAND" 2>&1 | tee out.txt
+          { echo "### \`$COMMAND\`"; echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Forget the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

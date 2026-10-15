@@ -23,6 +23,9 @@ The VM never pulls code. A version is released, then deployed by hand:
    next session; a session already running keeps the code it started with.
 4. **Roll back.** `ops/deploy.sh --rollback` points `current` at the previous release again.
 
+Steps 2 and 4 can also be run from GitHub: Actions -> **Deploy** -> Run workflow (see
+"Deploy workflow" below). Both routes run the same installer on the VM.
+
 On the VM:
 
 ```
@@ -53,6 +56,48 @@ to `main`.
 | 1. Release tooling | 15 Oct 2026 | `midfreq-live` entry point; `build_release.sh`, `vm/install_release.sh`, `deploy.sh`, `set_version.sh`; release workflow; CI's `vm` job tests the installed bundle | **done** |
 | 2. Cutover | after the forward test (~13 Nov) | runbook below | to do |
 | 3. Clean up | after cutover | delete `vm/preflight.sh`, `vm/postclose.sh`, `vm/git_selfheal.sh`, `vm/deploy_lib.sh` and `tests/e2e/test_deploy_gate.py` (the pull-based deploy and its CI gate); stop committing to `live_sessions/` | to do |
+
+## Deploy workflow
+
+`.github/workflows/deploy.yml`, started by hand: Actions -> Deploy -> Run workflow, with an
+action (`status`, `deploy`, `stage`, `switch`, `rollback`), a version and a `force` box.
+
+1. **plan** checks the inputs and that the release is published, and shows the exact command.
+2. **apply** waits for approval (the `production` environment), then runs that command on the
+   VM over SSH and puts the VM's answer in the run summary.
+
+The workflow's SSH key can run one thing on the VM: `vm/deploy_gate.sh`. Its line in the VM's
+`~/.ssh/authorized_keys` is
+
+```
+command="/home/jacksonetherchainstake/midfreq/bin/deploy_gate.sh",restrict ssh-ed25519 AAAA... github-deploy midfreq-trading-bot
+```
+
+so whatever is sent arrives as `$SSH_ORIGINAL_COMMAND`, and the gate accepts only `status`,
+`rollback`, `switch X.Y.Z` and `deploy X.Y.Z [--stage] [--force]`. For a deploy the VM downloads
+the GitHub Release itself and checks its checksum; the key never uploads code, and `restrict`
+denies it a terminal and all forwarding. Tested 15 Oct 2026: arbitrary commands, a shell and a
+tunnel to OpenD's port were all refused. Every request is logged in `~/midfreq/deploy.log`.
+
+**Setup (done 15 Oct 2026 unless noted)**
+
+- Key pair: `~/.ssh/midfreq_github_deploy` on the laptop (ed25519, no passphrase).
+- VM: `~/midfreq/bin/deploy_gate.sh` (a copy of `vm/deploy_gate.sh`; reinstall by hand after
+  changing it) and the `authorized_keys` line above (backup of the file before:
+  `~/backup_20261015_deploykey/`).
+- GitHub, Settings -> Environments -> New environment `production`:
+  - Required reviewers: yourself. Deployment branches and tags: selected, `main`.
+  - Secret `VM_SSH_KEY`: the private key (`pbcopy < ~/.ssh/midfreq_github_deploy`).
+  - Variables `VM_HOST` = `34.126.79.81`, `VM_USER` = `jacksonetherchainstake`,
+    `VM_KNOWN_HOSTS` = `34.126.79.81 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOJK9cv/uXcuOnh9P83quhChMKiGwBS13GJHOWqqBGPa`
+    (the VM's host key, read from `/etc/ssh/ssh_host_ed25519_key.pub`).
+
+The VM's external IP is not reserved: if the VM is stopped and started it may change, and
+`VM_HOST` and `VM_KNOWN_HOSTS` must follow (or reserve the address in GCP).
+
+**Revoke:** delete the `github-deploy midfreq-trading-bot` line from the VM's
+`~/.ssh/authorized_keys` and the `VM_SSH_KEY` secret. **Rotate:** make a new key pair, swap the
+line and the secret.
 
 ## Cutover runbook (Phase 2)
 
@@ -137,7 +182,8 @@ line, which runs the untouched old clone (its state file is in the old clone; co
 | `deploy.sh` | laptop | Deploy, stage, switch, roll back, status (see The model) |
 | `build_release.sh` | CI, laptop | Builds `dist/midfreq-X.Y.Z.tar.gz` |
 | `set_version.sh` | laptop | One version on every package |
-| `vm/install_release.sh` | VM (via `deploy.sh`) | Installs a bundle, smoke-tests it, switches `current` |
+| `vm/install_release.sh` | VM (via `deploy.sh` or the gate) | Installs a bundle, smoke-tests it, switches `current` |
+| `vm/deploy_gate.sh` | VM (the Deploy workflow's key) | The only command the workflow's SSH key may run |
 | `vm/requirements-vm.txt` | VM | The VM's pinned third-party versions (frozen from its venv 15 Oct 2026, plus PyYAML) |
 | `vm/memlog.sh` | VM (cron) | RAM and top processes once a minute |
 | `vm/preflight.sh`, `vm/postclose.sh`, `vm/git_selfheal.sh`, `vm/deploy_lib.sh` | not installed | The pull-based deploy (disabled in Phase 0) and its CI gate; deleted in Phase 3 |
