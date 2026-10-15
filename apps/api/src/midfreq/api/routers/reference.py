@@ -39,6 +39,7 @@ def health(settings: Settings = Depends(get_settings), store: RecordStore = Depe
         "results": settings.results_dir.is_dir(),
         "live_sessions": store.available(),
         "data_cache": settings.data_dir.is_dir(),
+        "accounts": settings.accounts_enabled,     # false on the hosted dashboard (no broker gateway)
     })
 
 

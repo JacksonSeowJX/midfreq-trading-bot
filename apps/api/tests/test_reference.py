@@ -73,8 +73,9 @@ def test_bad_candle_requests_are_422(client, params):
 def test_health_reports_the_version_and_which_sources_exist(client, app, settings):
     h = client.get("/api/health").json()
     assert h == {"status": "ok", "version": "0.1.0",
-                 "sources": {"results": True, "live_sessions": True, "data_cache": True}}
+                 "sources": {"results": True, "live_sessions": True, "data_cache": True, "accounts": True}}
     app.dependency_overrides[get_settings] = lambda: replace(
-        settings, results_dir=settings.results_dir / "gone", live_sessions=str(settings.data_dir / "gone"))
+        settings, results_dir=settings.results_dir / "gone", live_sessions=str(settings.data_dir / "gone"),
+        accounts_enabled=False)
     assert client.get("/api/health").json()["sources"] == {"results": False, "live_sessions": False,
-                                                           "data_cache": True}
+                                                           "data_cache": True, "accounts": False}

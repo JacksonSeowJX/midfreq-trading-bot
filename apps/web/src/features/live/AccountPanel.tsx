@@ -2,7 +2,7 @@ import { PlugZapIcon } from 'lucide-react'
 import { ToggleGroup as ToggleGroupPrimitive } from 'radix-ui'
 import { useState } from 'react'
 import { isApiError } from '@/api/client'
-import { useAccount, useAccounts } from '@/api/queries'
+import { useAccount, useAccounts, useHealth } from '@/api/queries'
 import type { AccountInfo, AccountView, Order, Position } from '@/api/types'
 import { DataTable, type Column } from '@/components/DataTable'
 import { KpiCard, KpiGrid, KpiGridSkeleton } from '@/components/KpiCard'
@@ -161,6 +161,7 @@ function AccountBodySkeleton() {
 export function AccountPanel() {
   const { market } = useMarket()
   const accounts = useAccounts()
+  const health = useHealth()
   const [picked, setPicked] = useState<string | null>(null)
   const list = accounts.data ?? []
   const current = list.find((a) => a.id === picked) ?? defaultAccount(list, market)
@@ -181,10 +182,18 @@ export function AccountPanel() {
       <QueryState query={accounts} skeleton={<Skeleton className="h-12 w-full max-w-md" />}>
         {(all) =>
           all.length === 0 ? (
-            <EmptyState title="No broker accounts configured">
-              Add one to the <code className="font-mono">accounts</code> section of{' '}
-              <code className="font-mono">config/connections.yaml</code>.
-            </EmptyState>
+            health.data?.sources.accounts === false ? (
+              <EmptyState title="Broker accounts are not shown here">
+                Reading the broker account needs its gateway (Moomoo OpenD), which runs only on the
+                trading VM and on a local install of this dashboard. The bot record below is
+                complete without it.
+              </EmptyState>
+            ) : (
+              <EmptyState title="No broker accounts configured">
+                Add one to the <code className="font-mono">accounts</code> section of{' '}
+                <code className="font-mono">config/connections.yaml</code>.
+              </EmptyState>
+            )
           ) : (
             <AccountSelector accounts={all} value={current?.id ?? ''} onChange={setPicked} />
           )
