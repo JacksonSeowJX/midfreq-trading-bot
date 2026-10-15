@@ -1,0 +1,1802 @@
+{
+  "components": {
+    "schemas": {
+      "AccountInfo": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "id": {
+            "description": "key in the accounts section of config/connections.yaml",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "connector",
+          "available"
+        ],
+        "title": "AccountInfo",
+        "type": "object"
+      },
+      "AccountSnapshotOut": {
+        "properties": {
+          "cash": {
+            "title": "Cash",
+            "type": "number"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "market_value": {
+            "title": "Market Value",
+            "type": "number"
+          },
+          "total_assets": {
+            "title": "Total Assets",
+            "type": "number"
+          }
+        },
+        "required": [
+          "currency",
+          "total_assets",
+          "cash",
+          "market_value"
+        ],
+        "title": "AccountSnapshotOut",
+        "type": "object"
+      },
+      "AccountView": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "connector": {
+            "title": "Connector",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/OrderOut"
+            },
+            "title": "Orders",
+            "type": "array"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/PositionOut"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/AccountSnapshotOut"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "connector",
+          "as_of",
+          "snapshot",
+          "positions",
+          "orders"
+        ],
+        "title": "AccountView",
+        "type": "object"
+      },
+      "Candle": {
+        "properties": {
+          "c": {
+            "title": "C",
+            "type": "number"
+          },
+          "h": {
+            "title": "H",
+            "type": "number"
+          },
+          "l": {
+            "title": "L",
+            "type": "number"
+          },
+          "o": {
+            "title": "O",
+            "type": "number"
+          },
+          "t": {
+            "description": "the candle's close, as stored in the cache",
+            "format": "date-time",
+            "title": "T",
+            "type": "string"
+          },
+          "v": {
+            "title": "V",
+            "type": "number"
+          }
+        },
+        "required": [
+          "t",
+          "o",
+          "h",
+          "l",
+          "c",
+          "v"
+        ],
+        "title": "Candle",
+        "type": "object"
+      },
+      "EquityPoint": {
+        "properties": {
+          "pnl": {
+            "description": "profit since the test began, account currency",
+            "title": "Pnl",
+            "type": "number"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "value": {
+            "description": "capital + pnl",
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "timestamp",
+          "pnl",
+          "value"
+        ],
+        "title": "EquityPoint",
+        "type": "object"
+      },
+      "ForwardTest": {
+        "description": "The forward test as midfreq.research.forward_test.load computes it.",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "capital": {
+            "title": "Capital",
+            "type": "number"
+          },
+          "equity": {
+            "items": {
+              "$ref": "#/components/schemas/EquityPoint"
+            },
+            "title": "Equity",
+            "type": "array"
+          },
+          "first_trade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Trade"
+          },
+          "holdings": {
+            "items": {
+              "$ref": "#/components/schemas/Holding"
+            },
+            "title": "Holdings",
+            "type": "array"
+          },
+          "market": {
+            "title": "Market",
+            "type": "string"
+          },
+          "orders": {
+            "title": "Orders",
+            "type": "integer"
+          },
+          "pnl": {
+            "title": "Pnl",
+            "type": "number"
+          },
+          "pnl_pct": {
+            "title": "Pnl Pct",
+            "type": "number"
+          },
+          "realised": {
+            "title": "Realised",
+            "type": "number"
+          },
+          "rebalances": {
+            "title": "Rebalances",
+            "type": "integer"
+          },
+          "sessions": {
+            "title": "Sessions",
+            "type": "integer"
+          },
+          "started": {
+            "description": "first session date, YYYYMMDD",
+            "title": "Started",
+            "type": "string"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/ForwardTrade"
+            },
+            "title": "Trades",
+            "type": "array"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "market",
+          "capital",
+          "pnl",
+          "pnl_pct",
+          "value",
+          "sessions",
+          "rebalances",
+          "orders",
+          "realised",
+          "started",
+          "equity",
+          "trades",
+          "holdings"
+        ],
+        "title": "ForwardTest",
+        "type": "object"
+      },
+      "ForwardTrade": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "decided_on_candle": {
+            "title": "Decided On Candle",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "realised_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Realised Pct"
+          },
+          "realised_pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Realised Pnl"
+          },
+          "shares": {
+            "title": "Shares",
+            "type": "number"
+          },
+          "side": {
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "stock": {
+            "title": "Stock",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "decided_on_candle",
+          "side",
+          "stock",
+          "shares",
+          "price",
+          "value"
+        ],
+        "title": "ForwardTrade",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Health": {
+        "properties": {
+          "sources": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "which data sources this deployment can read: results, live_sessions, data_cache",
+            "title": "Sources",
+            "type": "object"
+          },
+          "status": {
+            "const": "ok",
+            "default": "ok",
+            "enum": [
+              "ok"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "sources"
+        ],
+        "title": "Health",
+        "type": "object"
+      },
+      "Holding": {
+        "properties": {
+          "bought_at": {
+            "title": "Bought At",
+            "type": "number"
+          },
+          "last_price": {
+            "title": "Last Price",
+            "type": "number"
+          },
+          "shares": {
+            "title": "Shares",
+            "type": "number"
+          },
+          "stock": {
+            "title": "Stock",
+            "type": "string"
+          },
+          "unrealised_pct": {
+            "title": "Unrealised Pct",
+            "type": "number"
+          },
+          "unrealised_pnl": {
+            "title": "Unrealised Pnl",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "stock",
+          "shares",
+          "bought_at",
+          "last_price",
+          "value",
+          "unrealised_pnl",
+          "unrealised_pct"
+        ],
+        "title": "Holding",
+        "type": "object"
+      },
+      "OrderOut": {
+        "properties": {
+          "average_fill_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Fill Price"
+          },
+          "created": {
+            "format": "date-time",
+            "title": "Created",
+            "type": "string"
+          },
+          "filled_quantity": {
+            "title": "Filled Quantity",
+            "type": "number"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "side": {
+            "title": "Side",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "updated": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated"
+          }
+        },
+        "required": [
+          "order_id",
+          "symbol",
+          "side",
+          "quantity",
+          "filled_quantity",
+          "status",
+          "created"
+        ],
+        "title": "OrderOut",
+        "type": "object"
+      },
+      "Overview": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ResultRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "search_correction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SearchCorrection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ResultsSummary"
+          }
+        },
+        "required": [
+          "summary",
+          "rows"
+        ],
+        "title": "Overview",
+        "type": "object"
+      },
+      "PositionOut": {
+        "properties": {
+          "average_price": {
+            "title": "Average Price",
+            "type": "number"
+          },
+          "instrument_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Id"
+          },
+          "market_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Price"
+          },
+          "market_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Value"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "unrealized_pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pnl"
+          }
+        },
+        "required": [
+          "symbol",
+          "quantity",
+          "average_price"
+        ],
+        "title": "PositionOut",
+        "type": "object"
+      },
+      "RealityCheckConfig": {
+        "properties": {
+          "best": {
+            "title": "Best",
+            "type": "string"
+          },
+          "best_mean": {
+            "title": "Best Mean",
+            "type": "number"
+          },
+          "luck_p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Luck P95"
+          },
+          "means": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Means",
+            "type": "object"
+          },
+          "n_candidates": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Candidates"
+          },
+          "n_windows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Windows"
+          },
+          "naive_p_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Naive P Value"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "p_value": {
+            "title": "P Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "p_value",
+          "best",
+          "best_mean",
+          "means"
+        ],
+        "title": "RealityCheckConfig",
+        "type": "object"
+      },
+      "ResearchFile": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "csv",
+              "json"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "human-readable name, as the Streamlit research view shows it",
+            "title": "Label",
+            "type": "string"
+          },
+          "modified": {
+            "format": "date-time",
+            "title": "Modified",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "study": {
+            "title": "Study",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "study",
+          "label",
+          "kind",
+          "size",
+          "modified"
+        ],
+        "title": "ResearchFile",
+        "type": "object"
+      },
+      "ResearchFileContent": {
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "data": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the parsed document, for JSON files",
+            "title": "Data"
+          },
+          "kind": {
+            "enum": [
+              "csv",
+              "json"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "ResearchFileContent",
+        "type": "object"
+      },
+      "ResultRow": {
+        "properties": {
+          "config_a_consistency": {
+            "title": "Config A Consistency",
+            "type": "number"
+          },
+          "config_a_oos": {
+            "title": "Config A Oos",
+            "type": "number"
+          },
+          "config_b_consistency": {
+            "title": "Config B Consistency",
+            "type": "number"
+          },
+          "config_b_oos": {
+            "title": "Config B Oos",
+            "type": "number"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "robust": {
+            "title": "Robust",
+            "type": "boolean"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "study": {
+            "title": "Study",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "worst_config": {
+            "title": "Worst Config",
+            "type": "number"
+          }
+        },
+        "required": [
+          "family",
+          "scope",
+          "strategy",
+          "subject",
+          "config_a_oos",
+          "config_a_consistency",
+          "config_b_oos",
+          "config_b_consistency",
+          "worst_config",
+          "robust",
+          "study",
+          "file"
+        ],
+        "title": "ResultRow",
+        "type": "object"
+      },
+      "ResultsSummary": {
+        "properties": {
+          "families": {
+            "title": "Families",
+            "type": "integer"
+          },
+          "pass_rate": {
+            "title": "Pass Rate",
+            "type": "number"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "integer"
+          },
+          "studies": {
+            "title": "Studies",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "passed",
+          "studies",
+          "families",
+          "pass_rate"
+        ],
+        "title": "ResultsSummary",
+        "type": "object"
+      },
+      "SearchCorrection": {
+        "properties": {
+          "configs": {
+            "items": {
+              "$ref": "#/components/schemas/RealityCheckConfig"
+            },
+            "title": "Configs",
+            "type": "array"
+          },
+          "end": {
+            "title": "End",
+            "type": "string"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "n_boot": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Boot"
+          },
+          "pbo": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pbo"
+          }
+        },
+        "required": [
+          "file",
+          "end",
+          "configs"
+        ],
+        "title": "SearchCorrection",
+        "type": "object"
+      },
+      "SessionDetail": {
+        "properties": {
+          "equity": {
+            "description": "the broker's account total at session start and end",
+            "items": {
+              "$ref": "#/components/schemas/EquityPoint"
+            },
+            "title": "Equity",
+            "type": "array"
+          },
+          "event_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Event Counts",
+            "type": "object"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SessionSummary"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/SessionTrade"
+            },
+            "title": "Trades",
+            "type": "array"
+          }
+        },
+        "required": [
+          "summary",
+          "equity",
+          "trades",
+          "event_counts"
+        ],
+        "title": "SessionDetail",
+        "type": "object"
+      },
+      "SessionSummary": {
+        "properties": {
+          "candles": {
+            "title": "Candles",
+            "type": "integer"
+          },
+          "crashed": {
+            "description": "its console log has a Traceback or CRITICAL line",
+            "title": "Crashed",
+            "type": "boolean"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "description": "the session log's file name without .jsonl",
+            "title": "Id",
+            "type": "string"
+          },
+          "market": {
+            "title": "Market",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "symbols": {
+            "title": "Symbols",
+            "type": "integer"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "market",
+          "strategy",
+          "symbols",
+          "candles",
+          "trades",
+          "crashed"
+        ],
+        "title": "SessionSummary",
+        "type": "object"
+      },
+      "SessionTrade": {
+        "properties": {
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "number"
+          },
+          "side": {
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestamp",
+          "symbol",
+          "side",
+          "qty",
+          "price"
+        ],
+        "title": "SessionTrade",
+        "type": "object"
+      },
+      "StrategyInfo": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyParam"
+            },
+            "title": "Params",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "params"
+        ],
+        "title": "StrategyInfo",
+        "type": "object"
+      },
+      "StrategyParam": {
+        "properties": {
+          "default": {
+            "title": "Default"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          }
+        },
+        "required": [
+          "name",
+          "default"
+        ],
+        "title": "StrategyParam",
+        "type": "object"
+      },
+      "Universe": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "market": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "symbols": {
+            "title": "Symbols",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "symbols"
+        ],
+        "title": "Universe",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Read-only views of research results, the trading bot's record and broker accounts.",
+    "title": "midfreq dashboard API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/accounts": {
+      "get": {
+        "description": "Configured accounts and whether each can be read now (a quick probe, never hangs).",
+        "operationId": "accounts_api_accounts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountInfo"
+                  },
+                  "title": "Response Accounts Api Accounts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Accounts",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/api/accounts/{account_id}": {
+      "get": {
+        "operationId": "account_api_accounts__account_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order_days",
+            "required": false,
+            "schema": {
+              "default": 14,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Order Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "no such account"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "the account cannot be read now (gateway down, no key)"
+          }
+        },
+        "summary": "Account",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/api/candles": {
+      "get": {
+        "operationId": "candles_api_candles_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timeframe",
+            "required": false,
+            "schema": {
+              "default": "1h",
+              "pattern": "^(1m|5m|1h|4h|1d)$",
+              "title": "Timeframe",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5000,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Candle"
+                  },
+                  "title": "Response Candles Api Candles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "no cached candles for this symbol"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Candles",
+        "tags": [
+          "reference"
+        ]
+      }
+    },
+    "/api/forward-test": {
+      "get": {
+        "operationId": "forward_test_api_forward_test_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "market",
+            "required": false,
+            "schema": {
+              "default": "US",
+              "pattern": "^(US|HK)$",
+              "title": "Market",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForwardTest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "no forward-test session for this market"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Forward Test",
+        "tags": [
+          "bot record"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "service"
+        ]
+      }
+    },
+    "/api/research/files": {
+      "get": {
+        "operationId": "research_files_api_research_files_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ResearchFile"
+                  },
+                  "title": "Response Research Files Api Research Files Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Research Files",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/research/files/{name}": {
+      "get": {
+        "operationId": "research_file_api_research_files__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5000,
+              "maximum": 50000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchFileContent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "no such file"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Research File",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/results/overview": {
+      "get": {
+        "operationId": "overview_api_results_overview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "current_only",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Current Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Overview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/sessions": {
+      "get": {
+        "description": "Recorded sessions, newest first.",
+        "operationId": "sessions_api_sessions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "market",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(US|HK)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Market"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SessionSummary"
+                  },
+                  "title": "Response Sessions Api Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sessions",
+        "tags": [
+          "bot record"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}": {
+      "get": {
+        "operationId": "session_api_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "no such session"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session",
+        "tags": [
+          "bot record"
+        ]
+      }
+    },
+    "/api/strategies": {
+      "get": {
+        "operationId": "strategies_api_strategies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StrategyInfo"
+                  },
+                  "title": "Response Strategies Api Strategies Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Strategies",
+        "tags": [
+          "reference"
+        ]
+      }
+    },
+    "/api/universes": {
+      "get": {
+        "operationId": "universes_api_universes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Universe"
+                  },
+                  "title": "Response Universes Api Universes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Universes",
+        "tags": [
+          "reference"
+        ]
+      }
+    }
+  }
+}

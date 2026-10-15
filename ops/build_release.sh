@@ -39,7 +39,8 @@ trap 'rm -rf "$STAGE"' EXIT
 OUT="$STAGE/$NAME"
 mkdir -p "$OUT/wheels" "$OUT/ops/vm" dist
 
-uv build --all-packages --wheel --quiet --out-dir "$OUT/wheels"
+# the six packages the VM runs (packages/*), not the dashboard API (apps/api)
+for p in packages/*/; do uv build "$p" --wheel --quiet --out-dir "$OUT/wheels"; done
 rm -f "$OUT/wheels/.gitignore"
 cp ops/run_sp100_forward_test.sh ops/run_daily_candidates.sh "$OUT/ops/"
 cp ops/vm/install_release.sh ops/vm/crontab.txt ops/vm/maintain.sh ops/vm/memlog.sh ops/vm/tidy_home.sh "$OUT/ops/vm/"

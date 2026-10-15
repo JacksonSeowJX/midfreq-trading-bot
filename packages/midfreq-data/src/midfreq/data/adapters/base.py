@@ -220,6 +220,78 @@ class ExecutionClient(ABC):
         ...
 
 
+@dataclass(frozen=True)
+class AccountSnapshot:
+    """An account as the venue reports it. Amounts in `currency`."""
+    currency: str
+    total_assets: float
+    cash: float
+    market_value: float
+    ts: pd.Timestamp                      # when the venue was asked, UTC
+
+
+@dataclass(frozen=True)
+class PositionReport:
+    """One holding as the venue reports it. `symbol` is the venue's own symbol ('US.AAPL',
+    'BTC/USDT'); `instrument_id` the framework's, when the connector can map it."""
+    symbol: str
+    quantity: float
+    average_price: float
+    market_price: Optional[float]
+    market_value: Optional[float]
+    unrealized_pnl: Optional[float]
+    instrument_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class OrderReport:
+    """One order as the venue reports it; `status` is the venue's own word (FILLED_ALL, closed...)."""
+    order_id: str
+    symbol: str
+    side: str                             # BUY or SELL
+    quantity: float
+    filled_quantity: float
+    price: Optional[float]
+    average_fill_price: Optional[float]
+    status: str
+    created: pd.Timestamp                 # UTC
+    updated: Optional[pd.Timestamp] = None
+
+
+class AccountUnavailableError(ConnectorError):
+    """The venue's account cannot be read now (gateway down, no credentials, network)."""
+
+
+class AccountClient(ABC):
+    """Read-only view of one account at a venue: what the broker or exchange says the account holds.
+
+    It never places, changes or cancels anything (that is ExecutionClient's job). The dashboard
+    shows it next to the bot's own record so that the two can be reconciled. Credentials, where a
+    venue needs them, come from the environment (midfreq.core.connections.get_secret); a
+    read-only key is enough and is what should be used.
+    """
+
+    @abstractmethod
+    def available(self) -> Tuple[bool, str]:
+        """(True, '') if the account can be read now; otherwise (False, a short reason).
+        Must return quickly (seconds) and never hang: callers probe before reading."""
+
+    @abstractmethod
+    def snapshot(self) -> AccountSnapshot:
+        ...
+
+    @abstractmethod
+    def positions(self) -> List[PositionReport]:
+        ...
+
+    @abstractmethod
+    def orders(self, days: int = 14) -> List[OrderReport]:
+        """Orders created in the last `days` days, newest first."""
+
+    def close(self) -> None:
+        """Release any session with the venue."""
+
+
 # ── the connector ────────────────────────────────────────────────────
 
 class Connector(ABC):
@@ -296,6 +368,12 @@ class Connector(ABC):
     def execution_client(self) -> Optional[ExecutionClient]:
         """Always None in this version (see ExecutionClient)."""
         return None
+
+    def account_client(self, **options: Any) -> AccountClient:
+        """A read-only AccountClient for one account at this source. `options` are the
+        connector's own (Moomoo: market='US'; ccxt: exchange='okx'), taken from the `accounts`
+        section of config/connections.yaml. Connectors without one raise ConnectorError."""
+        raise ConnectorError(f"connector {self.name!r} has no account client")
 
     @property
     def is_connected(self) -> bool:

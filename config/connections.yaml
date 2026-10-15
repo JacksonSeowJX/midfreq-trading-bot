@@ -27,3 +27,21 @@ binance:
 
 ccxt:
   default_exchange: kraken
+
+# Accounts the dashboard shows (read-only: balance, positions, orders), each through a
+# connector's AccountClient (midfreq.data.adapters). Adding a venue is an entry here plus,
+# for an exchange, a READ-ONLY API key in the environment; no dashboard code changes.
+accounts:
+  moomoo-us:
+    label: Moomoo paper (US)
+    connector: moomoo
+    options: {market: US}
+  moomoo-hk:
+    label: Moomoo paper (HK)
+    connector: moomoo
+    options: {market: HK}
+  # okx:
+  #   label: OKX
+  #   connector: ccxt
+  #   options: {exchange: okx}
+  #   secrets: [OKX_READ_API_KEY, OKX_READ_API_SECRET, OKX_READ_API_PASSPHRASE]
