@@ -1,8 +1,8 @@
 /**
- * ECharts for the research views, tree-shaken to the chart types the dashboard uses. This
+ * ECharts for the research and optimize views, tree-shaken to the chart types the dashboard uses. This
  * module (and so ECharts) loads only with the pages that import it.
  */
-import { BarChart, ScatterChart } from 'echarts/charts'
+import { BarChart, HeatmapChart, ScatterChart } from 'echarts/charts'
 import {
   GridComponent,
   LegendComponent,
@@ -10,6 +10,7 @@ import {
   MarkLineComponent,
   TitleComponent,
   TooltipComponent,
+  VisualMapComponent,
 } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -17,6 +18,7 @@ import ReactEChartsCore from 'echarts-for-react/esm/core'
 
 echarts.use([
   BarChart,
+  HeatmapChart,
   ScatterChart,
   GridComponent,
   LegendComponent,
@@ -24,6 +26,7 @@ echarts.use([
   MarkLineComponent,
   TitleComponent,
   TooltipComponent,
+  VisualMapComponent,
   CanvasRenderer,
 ])
 

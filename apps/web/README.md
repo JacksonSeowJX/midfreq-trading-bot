@@ -6,10 +6,12 @@ itself. It replaces the Streamlit dashboard (`apps/dashboard`) one view at a tim
 
 | View | What it shows | Source |
 |---|---|---|
-| **Live** | The broker account (snapshot, positions, recent orders), the S&P 100 forward test (KPIs, equity curve, trades, holdings), session history with a detail drawer, and account equity over time. Refreshes every 60 s. | `/api/accounts*`, `/api/forward-test`, `/api/sessions*` |
+| **Live** | The broker account (snapshot, positions, recent orders), the S&P 100 forward test (KPIs, equity curve, trades, holdings), session history with a detail drawer, and account equity over time. Refreshes every 60 s. An account the VM publishes (kind `snapshot`) is badged *Snapshot from the VM* with its age, and warns once it is more than 15 minutes old. | `/api/accounts*`, `/api/forward-test`, `/api/sessions*` |
 | **Overview** | Every result against the two-configuration standard: summary, a sortable and filterable table (passes highlighted), Config A vs B, pass rate by family, and *Corrected for the search* (Reality Check p-values, PBO). | `/api/results/overview` |
 | **Research files** | Any file in `results/`: a sortable table for CSV (with the quick chart where it is obvious) or a collapsible tree for JSON. | `/api/research/files*` |
-| Backtest, Compare, Optimize | They still run in the Streamlit app (`uv run streamlit run apps/dashboard/app.py`). These pages say so. | none |
+| **Backtest** | One strategy over one period: KPIs, the price as candles with the strategy's indicators (over the price or in a lower pane) and buy/sell markers, the equity curve against the starting capital, and the trades. | `/api/jobs*`, `/api/strategies`, `/api/universes` |
+| **Compare** | Two to eight strategies on the same data: a metrics table (best of each column marked) and their equity curves overlaid. | same |
+| **Optimize** | Grid search (every combination, best first, and a heatmap of the objective when two parameters vary) or walk-forward (each window's chosen parameters and out-of-sample return, with the mean). Allowed only where the API allows it: a local install, not the hosted site. | same |
 
 ## Running it
 
@@ -72,6 +74,23 @@ a skeleton until the first answer, then data. A failure shows a clear message: A
 or a view-specific 404 such as "No HK forward test recorded". If a background refresh fails,
 the last data stays on screen under a banner saying when it is from.
 
+**Runs (Backtest, Compare, Optimize).** The three pages share one form (`features/runs/RunForm.tsx`)
+with the Streamlit sidebar's controls and limits: strategy and its parameters (min, max, step
+from `/api/strategies`), the market from the top bar, a searchable symbol among those with
+cached candles at the chosen timeframe, the pair for Pairs Trading, the universe for the
+cross-sectional (basket) strategies, which rank the whole universe rather than one stock,
+timeframe, dates, capital, commission (the market's default from `/api/jobs/capabilities`,
+shown in percent), slippage, and a folded *Risk & sizing* section. Each page remembers its last
+inputs in `localStorage`. Pressing Run validates the inputs, posts the job (202), and puts its
+id in the URL (`/backtest?job=…`), so a run can be linked to and survives a reload. The job is
+polled every second while queued or running (progress bar and message), then shows its result;
+leaving the page stops the polling, not the run. *Recent runs* (`GET /api/jobs`) reopens
+earlier results. Errors say what to do: 403 (this deployment does not allow the kind; Optimize
+runs only on a local install, with the commands), 422 (each problem beside its input, whether
+FastAPI's list or the API's one-sentence check), 429 (a run is already in progress, linked),
+and a failed job's own error. A kind missing from the capabilities keeps its nav item, and its
+page explains that it runs on a local install.
+
 **Same origin.** All calls go to `/api` on the page's own origin, so the same build works
 behind the dev proxy and when hosted (for example on Cloud Run, with the API serving `dist/`
 or a proxy in front). The host must answer unknown non-`/api` paths with `index.html`, because
@@ -81,8 +100,9 @@ routing happens in the browser.
 
 Vite, React 19, TypeScript (strict, `noUncheckedIndexedAccess`), Tailwind CSS 4,
 shadcn/ui-style components on Radix primitives (only the ones used, in `src/components/ui`),
-TanStack Query, React Router, TradingView `lightweight-charts` for equity curves, ECharts
-(tree-shaken, loaded only with Overview and Research) for research charts, `lucide-react` icons.
+TanStack Query, React Router, TradingView `lightweight-charts` for equity curves and the
+backtest's candles, ECharts (tree-shaken, loaded only with Overview, Research and Optimize) for
+research charts and the optimize heatmap, `lucide-react` icons. The run pages load on demand.
 Tests use Vitest, Testing Library and MSW.
 
 ### Layout of the code
@@ -92,8 +112,9 @@ src/
   api/          schema.d.ts (generated), client.ts, types.ts, queries.ts
   components/   layout/ (shell, nav, top bar), ui/ (primitives), charts/, DataTable,
                 KpiCard, SourcePanel, states (loading, empty, error)
-  features/     live/, overview/, research/, placeholders/: one folder per view,
-                with logic.ts holding each view's pure functions
+  features/     live/, overview/, research/, runs/ (Backtest, Compare, Optimize: the
+                shared form in form.ts + RunForm.tsx, the job flow, results/), placeholders/:
+                one folder per view, with logic.ts holding each view's pure functions
   lib/          formatting, theme and market preferences
   test/         typed fixtures, MSW handlers, render helpers
   routes.tsx    the route table
@@ -106,16 +127,22 @@ variant stepped from the same hues. Dark mode follows the system until it is cho
 bar. Tokens live in `src/index.css`, and canvas charts read the same values from
 `src/components/charts/palette.ts`. Tables are dense, with tabular figures and right-aligned
 numbers. P&L is green or red and always carries its sign too, because green and red alone are
-not distinguishable for colour-blind readers.
+not distinguishable for colour-blind readers. Series colours (Compare's equity curves, the
+indicators) come in a fixed order checked for colour-blind separation on both themes
+(`SERIES_COLORS` in `palette.ts`); a strategy keeps its colour whatever its rank, and a legend
+or table always names it.
 
 ## Tests
 
 `npm test -- --run`. The tests run against MSW handlers (`src/test/handlers.ts`) that serve
 fixtures typed from `schema.d.ts`, so a contract change that breaks the fixtures fails to
 compile. Canvas charts cannot draw in jsdom and are stubbed. The tests cover the data around
-them: formatting, KPI cards, the trades and holdings tables, the account-unavailable states,
-the session drawer, the overview filters and the Reality Check figures, the research viewer,
-routing, and the API-down and 501 states.
+them: formatting, KPI cards, the trades and holdings tables, the account-unavailable states and
+the VM snapshot badge, the session drawer, the overview filters and the Reality Check figures,
+the research viewer, routing, the API-down and 501 states, and for the runs: the form
+(parameters, validation, symbol search, pair and universe, risk section, remembered inputs),
+the job states (queued, running, done, failed; 403, 422, 429; deep links and recent runs; the
+tests shorten the poll interval through `JOB_POLL`) and each result view from fixtures.
 
 ## Dependencies
 

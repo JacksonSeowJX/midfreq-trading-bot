@@ -26,7 +26,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     ],
   },
   {
-    group: 'Run (Streamlit)',
+    group: 'Run',
     items: [
       { to: '/backtest', label: 'Backtest', icon: ChartCandlestickIcon },
       { to: '/compare', label: 'Compare', icon: GitCompareIcon },

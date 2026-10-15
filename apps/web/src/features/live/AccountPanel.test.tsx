@@ -1,12 +1,12 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
-import { accounts } from '@/test/fixtures'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { accounts, accountView } from '@/test/fixtures'
 import { server } from '@/test/handlers'
 import { renderWithProviders } from '@/test/render'
 import { AccountPanel } from './AccountPanel'
-import { defaultAccount } from './logic'
+import { defaultAccount, snapshotAge } from './logic'
 
 describe('AccountPanel (broker account)', () => {
   it('is labelled as the broker’s view', async () => {
@@ -76,5 +76,53 @@ describe('defaultAccount', () => {
     expect(defaultAccount(down, 'HK')?.id).toBe('moomoo_hk') // its reason is what to show
     expect(defaultAccount(down, 'US')?.id).toBe('moomoo_us')
     expect(defaultAccount([], 'US')).toBeUndefined()
+  })
+})
+
+describe('accounts published by the VM (snapshots)', () => {
+  const snapshot = accounts.map((a) => (a.id === 'moomoo_us' ? { ...a, kind: 'snapshot' as const } : a))
+
+  function serve(asOf: string) {
+    server.use(
+      http.get('*/api/accounts', () => HttpResponse.json(snapshot)),
+      http.get('*/api/accounts/moomoo_us', () => HttpResponse.json({ ...accountView, as_of: asOf })),
+    )
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('says it is a snapshot and how old it is', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-16T14:08:00Z'))
+    serve('2026-10-16T14:05:00Z')
+    renderWithProviders(<AccountPanel />)
+    expect(await screen.findByText('Snapshot from the VM')).toBeInTheDocument()
+    expect(screen.getByTestId('snapshot-age')).toHaveTextContent('as of 14:05, 3 min ago')
+    expect(screen.queryByText(/the VM may be offline/)).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Moomoo paper US' })).toHaveTextContent('moomoo · VM snapshot')
+  })
+
+  it('warns when the snapshot is older than 15 minutes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-16T14:08:00Z'))
+    serve('2026-10-16T13:30:00Z')
+    renderWithProviders(<AccountPanel />)
+    expect(await screen.findByTestId('snapshot-age')).toHaveTextContent('as of 13:30, 38 min ago')
+    expect(screen.getByText(/more than 15 minutes old: the VM may be offline or outside its schedule/)).toBeInTheDocument()
+  })
+
+  it('shows no snapshot badge for an account read live', async () => {
+    renderWithProviders(<AccountPanel />)
+    expect(await screen.findByText('USD 1,001,234.56')).toBeInTheDocument()
+    expect(screen.queryByText('Snapshot from the VM')).not.toBeInTheDocument()
+  })
+
+  it('snapshotAge: stale only past 15 minutes', () => {
+    const at = Date.parse('2026-10-16T14:00:00Z')
+    expect(snapshotAge('2026-10-16T14:00:00Z', at + 15 * 60_000)).toEqual({ ageMs: 15 * 60_000, stale: false })
+    expect(snapshotAge('2026-10-16T14:00:00Z', at + 15 * 60_000 + 1)?.stale).toBe(true)
+    expect(snapshotAge('not a time', at)).toBeNull()
   })
 })

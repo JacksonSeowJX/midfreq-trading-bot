@@ -50,3 +50,14 @@ export function defaultAccount(accounts: AccountInfo[], market: Market): Account
     accounts[0]
   )
 }
+
+/** A VM snapshot older than this suggests the VM is offline or outside its schedule. */
+export const SNAPSHOT_STALE_MS = 15 * 60_000
+
+/** How old a published snapshot is, and whether that is old enough to warn about. */
+export function snapshotAge(asOf: string, now: number): { ageMs: number; stale: boolean } | null {
+  const t = Date.parse(asOf)
+  if (Number.isNaN(t)) return null
+  const ageMs = Math.max(0, now - t)
+  return { ageMs, stale: ageMs > SNAPSHOT_STALE_MS }
+}

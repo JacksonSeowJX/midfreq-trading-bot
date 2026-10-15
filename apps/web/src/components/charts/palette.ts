@@ -73,3 +73,23 @@ export function baseOption(p: ChartPalette) {
     axis,
   }
 }
+
+/**
+ * Series colours in a fixed order (never cycled): the dataviz reference palette, stepped for
+ * each theme and checked for colour-blind separation on this dashboard's surfaces. Eight at
+ * most; a series keeps its slot whatever else is shown.
+ */
+export const SERIES_COLORS: Record<ResolvedTheme, string[]> = {
+  light: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'],
+  dark: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'],
+}
+
+export function useSeriesColors(): string[] {
+  return SERIES_COLORS[useTheme().resolved]
+}
+
+/** One-hue sequential ramp (light to dark blue) and the diverging pair, for heatmaps. */
+export const HEAT = {
+  light: { seq: ['#cde2fb', '#86b6ef', '#3987e5', '#1c5cab', '#0d366b'], neg: '#c62828', mid: '#f0efec', pos: '#1c5cab' },
+  dark: { seq: ['#0d366b', '#1c5cab', '#3987e5', '#86b6ef', '#cde2fb'], neg: '#ef5f5c', mid: '#383835', pos: '#6da7ec' },
+} as const

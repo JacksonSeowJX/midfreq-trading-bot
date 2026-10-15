@@ -5,13 +5,21 @@
 import type {
   AccountInfo,
   AccountView,
+  BacktestRequest,
+  BacktestResult,
+  CompareResult,
   ForwardTest,
   Health,
+  Job,
+  JobCapabilities,
+  OptimizeResult,
   Overview,
   ResearchFile,
   ResearchFileContent,
   SessionDetail,
   SessionSummary,
+  StrategyInfo,
+  Universe,
 } from '@/api/types'
 
 export const health: Health = {
@@ -304,3 +312,316 @@ export const researchJson: ResearchFileContent = {
   kind: 'json',
   data: { pbo: 0.2738, n_trials: 252, params: { lookback: [10, 20], top_n: 2 } },
 }
+
+// ── runs ────────────────────────────────────────────────────────────────────
+
+export const capabilities: JobCapabilities = {
+  kinds: ['backtest', 'compare', 'optimize'],
+  max_concurrent: 1,
+  objectives: {
+    sharpe_ratio: 'Sharpe Ratio (higher is better)',
+    return_pct: 'Total Return % (higher is better)',
+    max_drawdown: 'Max Drawdown (lower is better — inverted for ranking)',
+  },
+  // as the API sends them: symbols with their cached timeframes, universes with their sizes
+  markets: {
+    US: {
+      currency: 'USD',
+      commission_rate: 0.00005,
+      symbols: [
+        { symbol: 'US.AAPL', timeframes: ['1h', '1d'] },
+        { symbol: 'US.JPM', timeframes: ['1h'] },
+        { symbol: 'US.MSFT', timeframes: ['1h', '1d'] },
+        { symbol: 'US.NVDA', timeframes: ['1h'] },
+      ],
+      universes: [
+        { name: 'us_15', label: 'US — 15 large caps (15)', description: 'Fifteen US large caps', symbols: 15, symbols_with_data: 15 },
+        { name: 'sp100', label: 'US — S&P 100 (100)', description: 'The S&P 100 constituents', symbols: 100, symbols_with_data: 98 },
+      ],
+    },
+    HK: {
+      currency: 'HKD',
+      commission_rate: 0.0016,
+      symbols: [
+        { symbol: 'HK.00005', timeframes: ['1h'] },
+        { symbol: 'HK.00700', timeframes: ['1h', '1d'] },
+        { symbol: 'HK.00941', timeframes: ['1h'] },
+      ],
+      universes: [
+        { name: 'hk_live', label: 'HK — live roster (19)', description: 'The live HK roster', symbols: 19, symbols_with_data: 19 },
+        { name: 'hsi', label: 'HK — Hang Seng Index (88)', description: 'Hang Seng Index constituents', symbols: 88, symbols_with_data: 88 },
+      ],
+    },
+  },
+}
+
+/** A subset of the registry: whole-number and fractional parameters, a pair and a basket strategy. */
+export const strategies: StrategyInfo[] = [
+  {
+    name: 'SMA Crossover',
+    params: [
+      { name: 'fast_period', label: 'Fast MA Period', default: 5, min: 2, max: 50, step: 1 },
+      { name: 'slow_period', label: 'Slow MA Period', default: 20, min: 5, max: 200, step: 1 },
+    ],
+  },
+  {
+    name: 'Bollinger Bands',
+    params: [
+      { name: 'bb_period', label: 'BB Period', default: 20, min: 5, max: 50, step: 1 },
+      { name: 'num_std', label: 'Std Deviations', default: 2, min: 1, max: 3.5, step: 0.1 },
+    ],
+  },
+  {
+    name: 'Z-Score Mean Reversion',
+    params: [
+      { name: 'lookback', label: 'Lookback Window', default: 20, min: 5, max: 100, step: 1 },
+      { name: 'entry_z', label: 'Entry Z-Score', default: 2, min: 1, max: 3.5, step: 0.1 },
+      { name: 'exit_z', label: 'Exit Z-Score', default: 0.5, min: 0, max: 1.5, step: 0.1 },
+    ],
+  },
+  {
+    name: 'Pairs Trading',
+    params: [
+      { name: 'lookback', label: 'Lookback Window', default: 30, min: 10, max: 100, step: 1 },
+      { name: 'entry_z', label: 'Entry Z-Score', default: 2, min: 1, max: 3.5, step: 0.1 },
+      { name: 'exit_z', label: 'Exit Z-Score', default: 0.5, min: 0, max: 1.5, step: 0.1 },
+    ],
+  },
+  {
+    name: 'Cross-Sectional Reversal',
+    params: [
+      { name: 'lookback', label: 'Lookback (candles)', default: 10, min: 5, max: 30, step: 5 },
+      { name: 'top_n', label: 'Basket Size (# laggards held)', default: 2, min: 1, max: 4, step: 1 },
+      { name: 'rebalance_every', label: 'Rebalance Every N Candles', default: 6, min: 1, max: 24, step: 6 },
+    ],
+  },
+]
+
+export const universes: Universe[] = [
+  { name: 'hk_live', label: 'HK — live roster (19)', market: 'HK', symbols: 19, description: 'The live HK roster' },
+  { name: 'us_15', label: 'US — 15 large caps (15)', market: 'US', symbols: 15, description: 'Fifteen US large caps' },
+  { name: 'sp100', label: 'US — S&P 100 (100)', market: 'US', symbols: 100, description: 'The S&P 100 constituents' },
+  { name: 'hsi', label: 'HK — Hang Seng Index (88)', market: 'HK', symbols: 88, description: 'Hang Seng Index constituents' },
+]
+
+export const backtestRequest: BacktestRequest = {
+  market: 'US',
+  symbol: 'US.AAPL',
+  pair_symbol: null,
+  universe: null,
+  timeframe: '1h',
+  start: '2025-10-16',
+  end: '2026-10-16',
+  initial_capital: 100000,
+  commission_rate: 0.00005,
+  slippage_bps: 0,
+  risk: { max_drawdown_pct: 0.1, sizing: 'fixed_quantity', qty: 100, risk_pct: 0.02, fraction: 0.5, max_pct: 0.25 },
+  strategy: 'Z-Score Mean Reversion',
+  params: { lookback: 20, entry_z: 2, exit_z: 0.5 },
+}
+
+export const backtestResult: BacktestResult = {
+  strategy: 'Z-Score Mean Reversion',
+  symbols: ['US.AAPL'],
+  params: { lookback: 20, entry_z: 2, exit_z: 0.5 },
+  // the backtester's own keys, as the API passes them on
+  metrics: {
+    initial_cash: 100000,
+    final_equity: 105430,
+    return_pct: 5.43,
+    total_trades: 3,
+    cash_balance: 81430,
+    open_positions: { 'US.AAPL': 100 },
+    sharpe_ratio: 1.234,
+    max_drawdown: 4.2,
+    win_rate: 55,
+    profit_factor: null, // infinite: no losing trade
+    benchmark_return_pct: 8.1,
+    alpha: -2.67,
+    slippage_bps: 0,
+    total_events: 1743,
+  },
+  equity: [
+    { t: '2025-10-16T14:30:00Z', v: 100000 },
+    { t: '2026-03-02T14:30:00Z', v: 98800 },
+    { t: '2026-10-15T19:30:00Z', v: 105430 },
+  ],
+  trades: [
+    { timestamp: '2025-11-03T15:30:00Z', symbol: 'US.AAPL', action: 'BUY', qty: 100, price: 220.5, commission: 1.1, pnl: null },
+    { timestamp: '2025-11-20T15:30:00Z', symbol: 'US.AAPL', action: 'SELL', qty: 100, price: 231.25, commission: 1.16, pnl: 1072.74 },
+    { timestamp: '2026-02-10T16:30:00Z', symbol: 'US.AAPL', action: 'BUY', qty: 100, price: 240, commission: 1.2, pnl: null },
+  ],
+  chart: {
+    symbol: 'US.AAPL',
+    candles: [
+      { t: '2025-11-03T15:30:00Z', o: 220, h: 221, l: 219.5, c: 220.5, v: 1000 },
+      { t: '2025-11-20T15:30:00Z', o: 230, h: 232, l: 229, c: 231.25, v: 1200 },
+      { t: '2026-02-10T16:30:00Z', o: 239, h: 241, l: 238, c: 240, v: 900 },
+    ],
+    indicators: [
+      { name: 'Mean (20)', pane: 'price', points: [{ t: '2025-11-20T15:30:00Z', v: 226 }] },
+      { name: 'Z-score', pane: 'lower', points: [{ t: '2025-11-20T15:30:00Z', v: 1.7 }] },
+    ],
+  },
+}
+
+export const compareResult: CompareResult = {
+  rows: [
+    {
+      strategy: 'SMA Crossover',
+      params: { fast_period: 5, slow_period: 20 },
+      metrics: { return_pct: 3.1, alpha: -5, sharpe_ratio: 0.8, max_drawdown: 6.5, win_rate: 48, total_trades: 40, final_equity: 103100 },
+    },
+    {
+      strategy: 'Z-Score Mean Reversion',
+      params: { lookback: 20, entry_z: 2, exit_z: 0.5 },
+      metrics: { return_pct: 5.43, alpha: -2.67, sharpe_ratio: 1.23, max_drawdown: 4.2, win_rate: 55, total_trades: 12, final_equity: 105430 },
+    },
+    {
+      strategy: 'Bollinger Bands',
+      params: { bb_period: 20, num_std: 2 },
+      metrics: { return_pct: -1.2, alpha: -9.3, sharpe_ratio: -0.2, max_drawdown: 9.9, win_rate: 61, total_trades: 22, final_equity: 98800 },
+    },
+  ],
+  equity: {
+    'SMA Crossover': [
+      { t: '2025-10-16T14:30:00Z', v: 100000 },
+      { t: '2026-10-15T19:30:00Z', v: 103100 },
+    ],
+    'Z-Score Mean Reversion': [
+      { t: '2025-10-16T14:30:00Z', v: 100000 },
+      { t: '2026-10-15T19:30:00Z', v: 105430 },
+    ],
+    'Bollinger Bands': [
+      { t: '2025-10-16T14:30:00Z', v: 100000 },
+      { t: '2026-10-15T19:30:00Z', v: 98800 },
+    ],
+  },
+}
+
+const grid = (lookback: number, top_n: number, sharpe: number, ret: number) => ({
+  params: { lookback, top_n, rebalance_every: 6 },
+  metrics: {
+    return_pct: ret,
+    sharpe_ratio: sharpe,
+    max_drawdown: 5 - sharpe,
+    win_rate: 50,
+    profit_factor: sharpe > 1.5 ? null : 1.2, // null: infinite
+    total_trades: 30,
+    alpha: ret - 2,
+    _objective: sharpe, // the value ranked on
+  },
+})
+
+export const gridResult: OptimizeResult = {
+  method: 'grid',
+  objective: 'sharpe_ratio',
+  // best first, as the API sends it
+  rows: [grid(10, 2, 1.9, 7.5), grid(5, 2, 1.4, 5.2), grid(10, 1, 0.6, 2.1), grid(5, 1, -0.3, -1.4)],
+  windows: [],
+  summary: { grid_size: 96, combinations: 4, objective_label: 'Sharpe Ratio (higher is better)' },
+}
+
+export const walkForwardResult: OptimizeResult = {
+  method: 'walk_forward',
+  objective: 'sharpe_ratio',
+  rows: [],
+  windows: [
+    {
+      index: 1,
+      train_start: '2025-10-16T00:00:00',
+      train_end: '2026-01-27T00:00:00',
+      test_start: '2026-01-27T00:00:00',
+      test_end: '2026-04-05T00:00:00',
+      params: { lookback: 10, top_n: 2, rebalance_every: 6 },
+      train_objective: 1.82,
+      test_metrics: { return_pct: 2.4, sharpe_ratio: 1.1 },
+    },
+    {
+      index: 2,
+      train_start: '2026-01-27T00:00:00',
+      train_end: '2026-05-10T00:00:00',
+      test_start: '2026-05-10T00:00:00',
+      test_end: '2026-07-18T00:00:00',
+      params: { lookback: 5, top_n: 2, rebalance_every: 6 },
+      train_objective: 2.05,
+      test_metrics: { return_pct: -0.9, sharpe_ratio: -0.4 },
+    },
+    {
+      index: 3,
+      train_start: '2026-05-10T00:00:00',
+      train_end: '2026-08-21T00:00:00',
+      test_start: '2026-08-21T00:00:00',
+      test_end: '2026-10-16T00:00:00',
+      params: { lookback: 10, top_n: 1, rebalance_every: 6 },
+      train_objective: 1.4,
+      test_metrics: { return_pct: 1.5, sharpe_ratio: 0.7 },
+    },
+  ],
+  summary: {
+    avg_oos_return: 1.0,
+    avg_train_return: 4.6,
+    consistency_pct: 66.67,
+    wf_efficiency: 0.42,
+    train_returns: [5.1, 6.3, 2.4],
+    oos_returns: [2.4, -0.9, 1.5],
+    objective_label: 'Sharpe Ratio (higher is better)',
+  },
+}
+
+function job(over: Partial<Job> & Pick<Job, 'id' | 'kind'>): Job {
+  return {
+    status: 'done',
+    progress: 1,
+    message: '',
+    created: '2026-10-16T01:00:00Z',
+    started: '2026-10-16T01:00:01Z',
+    finished: '2026-10-16T01:00:09Z',
+    error: null,
+    request: { ...backtestRequest },
+    backtest: null,
+    compare: null,
+    optimize: null,
+    ...over,
+  }
+}
+
+export const backtestJob = job({ id: 'bt-1', kind: 'backtest', backtest: backtestResult })
+export const compareJob = job({
+  id: 'cmp-1',
+  kind: 'compare',
+  request: { ...backtestRequest, strategy: undefined, strategies: compareResult.rows.map((r) => ({ strategy: r.strategy, params: r.params })) },
+  compare: compareResult,
+})
+export const gridJob = job({
+  id: 'opt-grid',
+  kind: 'optimize',
+  request: { ...backtestRequest, strategy: 'Cross-Sectional Reversal', universe: 'sp100', method: 'grid', objective: 'sharpe_ratio' },
+  optimize: gridResult,
+})
+export const walkForwardJob = job({
+  id: 'opt-wf',
+  kind: 'optimize',
+  created: '2026-10-16T00:30:00Z',
+  request: { ...backtestRequest, strategy: 'Cross-Sectional Reversal', universe: 'sp100', method: 'walk_forward', objective: 'sharpe_ratio' },
+  optimize: walkForwardResult,
+})
+export const failedJob = job({
+  id: 'bt-failed',
+  kind: 'backtest',
+  status: 'failed',
+  created: '2026-10-16T00:10:00Z',
+  error: 'No cached 1d candles for US.JPM between 2025-10-16 and 2026-10-16',
+})
+
+/** GET /api/jobs: newest first, without results. */
+export const jobList: Job[] = [backtestJob, compareJob, gridJob, walkForwardJob, failedJob].map((j) => ({
+  ...j,
+  backtest: null,
+  compare: null,
+  optimize: null,
+}))
+
+export const jobsById: Record<string, Job> = Object.fromEntries(
+  [backtestJob, compareJob, gridJob, walkForwardJob, failedJob].map((j) => [j.id, j]),
+)

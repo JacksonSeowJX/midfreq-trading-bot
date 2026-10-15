@@ -20,19 +20,28 @@ export const api = createClient<paths>({
   fetch: (request) => globalThis.fetch(request),
 })
 
+/** One entry of a 422 response: where in the request (`["body", "risk", "qty"]`) and what is wrong. */
+export interface FieldError {
+  loc: (string | number)[]
+  msg: string
+}
+
 /**
  * A failed call. `status` is the HTTP status, or 0 when the API could not be reached at all.
- * `detail` is FastAPI's `{"detail": ...}` message when the response carried one.
+ * `detail` is FastAPI's `{"detail": ...}` message when the response carried one; `fields` the
+ * individual errors of a validation failure (422), so a form can show each beside its input.
  */
 export class ApiError extends Error {
   readonly status: number
   readonly detail?: string
+  readonly fields: FieldError[]
 
-  constructor(status: number, detail?: string) {
+  constructor(status: number, detail?: string, fields: FieldError[] = []) {
     super(detail ? `${status}: ${detail}` : `HTTP ${status}`)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
+    this.fields = fields
   }
 
   /** The API process is down or the proxy could not reach it. */
@@ -60,6 +69,20 @@ function detailOf(body: unknown): string | undefined {
   return undefined
 }
 
+function fieldsOf(body: unknown): FieldError[] {
+  if (!body || typeof body !== 'object' || !('detail' in body)) return []
+  const d = (body as { detail: unknown }).detail
+  if (!Array.isArray(d)) return []
+  return d.flatMap((x) => {
+    if (!x || typeof x !== 'object' || !('msg' in x)) return []
+    const raw: unknown = 'loc' in x ? x.loc : undefined
+    const loc = Array.isArray(raw)
+      ? raw.filter((p: unknown): p is string | number => typeof p === 'string' || typeof p === 'number')
+      : []
+    return [{ loc, msg: String(x.msg) }]
+  })
+}
+
 type Result<T> = { data?: T; error?: unknown; response: Response }
 
 /** Resolve an openapi-fetch call to its data, or throw ApiError. */
@@ -73,7 +96,7 @@ export async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
   }
   const { data, error, response } = result
   if (!response.ok || data === undefined) {
-    throw new ApiError(response.status, detailOf(error))
+    throw new ApiError(response.status, detailOf(error), fieldsOf(error))
   }
   return data
 }

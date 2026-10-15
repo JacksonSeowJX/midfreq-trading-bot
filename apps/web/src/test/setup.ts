@@ -40,6 +40,22 @@ vi.mock('@/components/charts/EquityChart', () => ({
 vi.mock('@/components/charts/EChart', () => ({
   EChart: ({ label }: { label: string }) => createElement('div', { role: 'img', 'aria-label': label }),
 }))
+vi.mock('@/components/charts/PriceChart', () => ({
+  PriceChart: ({ label, trades }: { label: string; trades: unknown[] }) =>
+    createElement('div', { role: 'img', 'aria-label': label, 'data-markers': trades.length }),
+}))
+vi.mock('@/components/charts/MultiLineChart', () => ({
+  MultiLineChart: ({ label, lines }: { label: string; lines: { name: string; color: string }[] }) =>
+    createElement(
+      'div',
+      { role: 'img', 'aria-label': label },
+      createElement(
+        'ul',
+        { 'aria-label': 'Legend' },
+        lines.map((l) => createElement('li', { key: l.name, 'data-color': l.color }, l.name)),
+      ),
+    ),
+}))
 
 // ── the mock API ────────────────────────────────────────────────────────────
 

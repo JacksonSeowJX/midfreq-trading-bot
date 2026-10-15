@@ -54,6 +54,7 @@ export function EquityChart({
   baselineLabel,
   height = 280,
   step = false,
+  pointMarkers = true,
   label,
 }: {
   points: EquityPointLike[]
@@ -63,6 +64,8 @@ export function EquityChart({
   height?: number
   /** hold each value flat until the next point (a balance between sessions) */
   step?: boolean
+  /** a dot on every point: right for a few sessions, clutter on a per-candle curve */
+  pointMarkers?: boolean
   label: string
 }) {
   const palette = useChartPalette()
@@ -99,7 +102,7 @@ export function EquityChart({
     const common = {
       lineWidth: 2 as const,
       lineType: step ? LineType.WithSteps : LineType.Simple,
-      pointMarkersVisible: true,
+      pointMarkersVisible: pointMarkers,
       pointMarkersRadius: 3,
       priceLineVisible: false,
     }
@@ -140,12 +143,12 @@ export function EquityChart({
       chartRef.current = null
       seriesRef.current = null
     }
-  }, [palette, baseline, baselineLabel, step])
+  }, [palette, baseline, baselineLabel, step, pointMarkers])
 
   useEffect(() => {
     seriesRef.current?.setData(data.map(({ time, value }) => ({ time, value })))
     chartRef.current?.timeScale().fitContent()
-  }, [data, palette, baseline, baselineLabel, step])
+  }, [data, palette, baseline, baselineLabel, step, pointMarkers])
 
   const last = data.at(-1)
   const shown = hover ?? last ?? null

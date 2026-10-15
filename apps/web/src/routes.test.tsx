@@ -25,13 +25,14 @@ describe('routing', () => {
   })
 
   it.each([
-    ['/backtest', 'Backtest'],
-    ['/compare', 'Compare'],
-    ['/optimize', 'Optimize'],
-  ])('%s says it still runs in Streamlit', async (path, title) => {
+    ['/backtest', 'Backtest', 'Run backtest'],
+    ['/compare', 'Compare', 'Compare strategies'],
+    ['/optimize', 'Optimize', 'Run walk-forward'],
+  ])('%s opens its run form, loaded on demand', async (path, title, submit) => {
     renderApp(path)
-    expect(await screen.findByText(`${title} still runs in the Streamlit app`)).toBeInTheDocument()
-    expect(screen.getByText('uv run streamlit run apps/dashboard/app.py')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: submit })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: title })).toHaveAttribute('aria-current', 'page')
   })
 
   it('shows a not-found page for unknown paths', async () => {

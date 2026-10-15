@@ -2,8 +2,8 @@ import { Navigate, type RouteObject } from 'react-router'
 import { AppShell } from '@/components/layout/AppShell'
 import type { RouteHandle } from '@/components/layout/TopBar'
 import LivePage from '@/features/live/LivePage'
-import { NotFoundPage, StreamlitOnlyPage } from '@/features/placeholders/StreamlitOnlyPage'
-import { OverviewPage, ResearchPage } from '@/lazyPages'
+import { NotFoundPage } from '@/features/placeholders/NotFoundPage'
+import { BacktestPage, ComparePage, OptimizePage, OverviewPage, ResearchPage } from '@/lazyPages'
 
 const handle = (title: string, subtitle?: string): RouteHandle => ({ title, subtitle })
 
@@ -30,33 +30,18 @@ export const routes: RouteObject[] = [
       },
       {
         path: 'backtest',
-        element: (
-          <StreamlitOnlyPage
-            title="Backtest"
-            what="One strategy over one period: price chart with indicators, equity curve against buy-and-hold, and the full trade log."
-          />
-        ),
-        handle: handle('Backtest', 'Runs in the Streamlit app for now'),
+        element: <BacktestPage />,
+        handle: handle('Backtest', 'One strategy over one period, run in the API'),
       },
       {
         path: 'compare',
-        element: (
-          <StreamlitOnlyPage
-            title="Compare"
-            what="Every strategy on the selected stock with default settings, side by side."
-          />
-        ),
-        handle: handle('Compare', 'Runs in the Streamlit app for now'),
+        element: <ComparePage />,
+        handle: handle('Compare', 'Strategies side by side on the same data'),
       },
       {
         path: 'optimize',
-        element: (
-          <StreamlitOnlyPage
-            title="Optimize"
-            what="Grid search, or walk-forward: the validation method used throughout the project."
-          />
-        ),
-        handle: handle('Optimize', 'Runs in the Streamlit app for now'),
+        element: <OptimizePage />,
+        handle: handle('Optimize', 'Grid search and walk-forward'),
       },
       { path: '*', element: <NotFoundPage />, handle: handle('Not found') },
     ],

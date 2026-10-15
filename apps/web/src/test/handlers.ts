@@ -27,6 +27,23 @@ export const handlers = [
   ),
   http.get('*/api/results/overview', () => HttpResponse.json(f.overview)),
   http.get('*/api/research/files', () => HttpResponse.json(f.researchFiles)),
+  http.get('*/api/jobs/capabilities', () => HttpResponse.json(f.capabilities)),
+  http.get('*/api/strategies', () => HttpResponse.json(f.strategies)),
+  http.get('*/api/universes', () => HttpResponse.json(f.universes)),
+  http.get('*/api/jobs', () => HttpResponse.json(f.jobList)),
+  http.get('*/api/jobs/:id', ({ params }) => {
+    const job = f.jobsById[String(params.id)]
+    return job ? HttpResponse.json(job) : notFound('no such job')
+  }),
+  http.post('*/api/jobs/:kind', async ({ params, request }) => {
+    const kind = String(params.kind)
+    if (kind !== 'backtest' && kind !== 'compare' && kind !== 'optimize') return notFound('Not Found')
+    const body = (await request.json()) as Record<string, unknown>
+    return HttpResponse.json(
+      { id: 'job-new', kind, status: 'queued', progress: 0, message: '', created: new Date().toISOString(), request: body },
+      { status: 202 },
+    )
+  }),
   http.get('*/api/research/files/:name', ({ params }) => {
     if (params.name === f.researchCsv.name) return HttpResponse.json(f.researchCsv)
     if (params.name === f.researchJson.name) return HttpResponse.json(f.researchJson)

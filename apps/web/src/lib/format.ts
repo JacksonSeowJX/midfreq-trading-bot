@@ -101,6 +101,7 @@ const dateTimeFmt = partsFormatter({
 })
 const shortDateTimeFmt = partsFormatter({ day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 const clockFmt = partsFormatter({ hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const hourMinuteFmt = partsFormatter({ hour: '2-digit', minute: '2-digit' })
 const calendarFmt = partsFormatter({ day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
 
 function toDate(v: string | number | Date | null | undefined): Date | null {
@@ -125,6 +126,12 @@ export function fmtShortDateTime(v: string | number | Date | null | undefined): 
 export function fmtClock(v: string | number | Date | null | undefined): string {
   const d = toDate(v)
   return d ? clockFmt(d) : DASH
+}
+
+/** "15:30". */
+export function fmtHourMinute(v: string | number | Date | null | undefined): string {
+  const d = toDate(v)
+  return d ? hourMinuteFmt(d) : DASH
 }
 
 /**

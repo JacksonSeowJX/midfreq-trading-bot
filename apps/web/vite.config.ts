@@ -22,7 +22,7 @@ export default defineConfig({
   },
   build: {
     // Vendor code in its own chunks, so a release that changes only the app keeps them cached.
-    // ECharts loads only with the Overview and Research pages.
+    // ECharts loads only with the Overview, Research and Optimize pages.
     rolldownOptions: {
       output: {
         codeSplitting: {
@@ -32,11 +32,18 @@ export default defineConfig({
             { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/, priority: 30 },
             { name: 'tradingview', test: /node_modules[\\/](lightweight-charts|fancy-canvas)[\\/]/, priority: 30 },
             { name: 'echarts', test: /node_modules[\\/](echarts|zrender|echarts-for-react|size-sensor)[\\/]/, priority: 30 },
+            // data fetching and class helpers, shared by every page
+            {
+              name: 'lib',
+              test: /node_modules[\\/](@tanstack|openapi-fetch|tailwind-merge|clsx|class-variance-authority)[\\/]/,
+              priority: 20,
+            },
           ],
         },
       },
     },
-    chunkSizeWarningLimit: 600,
+    // the lazy ECharts chunk (bar, scatter, heatmap) is ~610 kB minified, ~205 kB gzipped
+    chunkSizeWarningLimit: 650,
   },
   test: {
     environment: 'jsdom',

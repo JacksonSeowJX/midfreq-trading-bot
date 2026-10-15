@@ -1,4 +1,4 @@
-import { PlugZapIcon } from 'lucide-react'
+import { PlugZapIcon, SatelliteDishIcon, TriangleAlertIcon } from 'lucide-react'
 import { ToggleGroup as ToggleGroupPrimitive } from 'radix-ui'
 import { useState } from 'react'
 import { isApiError } from '@/api/client'
@@ -11,10 +11,11 @@ import { SourcePanel } from '@/components/SourcePanel'
 import { EmptyState, QueryState, TableSkeleton } from '@/components/states'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { fmtDateTime, fmtMoney, fmtNum, fmtShortDateTime, tone, toneClass } from '@/lib/format'
+import { fmtAgo, fmtDateTime, fmtHourMinute, fmtMoney, fmtNum, fmtShortDateTime, tone, toneClass } from '@/lib/format'
 import { useMarket } from '@/lib/preferences'
+import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
-import { defaultAccount } from './logic'
+import { defaultAccount, SNAPSHOT_STALE_MS, snapshotAge } from './logic'
 
 const ORDER_DAYS = 14
 
@@ -58,11 +59,46 @@ export function AccountSelector({
           </span>
           <span className="w-full truncate text-[11px] text-muted-foreground">
             {a.connector}
+            {a.kind === 'snapshot' ? ' · VM snapshot' : ''}
             {a.available ? '' : ` · ${a.reason || 'unavailable'}`}
           </span>
         </ToggleGroupPrimitive.Item>
       ))}
     </ToggleGroupPrimitive.Root>
+  )
+}
+
+/**
+ * An account the VM publishes every few minutes rather than one read live: says so, and how
+ * old the snapshot is, warning once it is older than SNAPSHOT_STALE_MS.
+ */
+export function SnapshotNotice({ asOf }: { asOf: string }) {
+  const now = useNow(30_000)
+  const age = snapshotAge(asOf, now)
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <Badge variant="broker">
+          <SatelliteDishIcon aria-hidden />
+          Snapshot from the VM
+        </Badge>
+        <span data-testid="snapshot-age" className="tabular-nums">
+          as of {fmtHourMinute(asOf)}
+          {age ? `, ${fmtAgo(now - age.ageMs, now)}` : ''}
+        </span>
+      </div>
+      {age?.stale ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-warning"
+        >
+          <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden />
+          <span>
+            This snapshot is more than {SNAPSHOT_STALE_MS / 60_000} minutes old: the VM may be offline or outside its schedule.
+          </span>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -206,7 +242,12 @@ export function AccountPanel() {
           <AccountUnavailable label={current.label} reason={isApiError(view.error) ? view.error.detail : undefined} />
         ) : (
           <QueryState query={view} skeleton={<AccountBodySkeleton />}>
-            {(v) => <AccountViewBody view={v} />}
+            {(v) => (
+              <>
+                {current.kind === 'snapshot' ? <SnapshotNotice asOf={v.as_of} /> : null}
+                <AccountViewBody view={v} />
+              </>
+            )}
           </QueryState>
         )
       ) : null}
