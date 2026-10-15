@@ -2042,9 +2042,11 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "google-auth" },
     { name = "httpx" },
     { name = "import-linter" },
     { name = "pytest" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -2065,9 +2067,11 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "google-auth", specifier = ">=2" },
     { name = "httpx" },
     { name = "import-linter", specifier = ">=2" },
     { name = "pytest", specifier = ">=8" },
+    { name = "requests" },
 ]
 
 [[package]]

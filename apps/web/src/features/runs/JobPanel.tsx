@@ -1,4 +1,5 @@
 import {
+  ArchiveIcon,
   BanIcon,
   CircleCheckIcon,
   ClockIcon,
@@ -180,6 +181,7 @@ export function JobPanel({
           <CloseButton onClose={onClose} label={active ? 'Stop watching' : 'Close'} icon={active} />
         </div>
         {active ? <JobProgress job={job} /> : null}
+        {job.status === 'done' ? <SavedAs runId={job.run_id ?? null} /> : null}
         {job.status === 'failed' ? (
           <div role="alert" className="rounded-md border border-loss/40 bg-loss/5 px-3 py-2 text-xs">
             <p className="font-semibold text-loss">The run failed</p>
@@ -191,6 +193,23 @@ export function JobPanel({
       </Card>
       {job.status === 'done' ? children(job) : null}
     </section>
+  )
+}
+
+/** Where a finished run was saved (Run history), or that it was not. */
+function SavedAs({ runId }: { runId: string | null }) {
+  if (!runId) {
+    return <p className="text-[11px] text-muted-foreground">This run was not saved to Run history.</p>
+  }
+  return (
+    <p className="flex flex-wrap items-center gap-1 text-xs">
+      <ArchiveIcon aria-hidden className="size-3.5 text-muted-foreground" />
+      Saved as run{' '}
+      <Link className="font-mono text-[11px] text-primary hover:underline" to={`/runs/${encodeURIComponent(runId)}`}>
+        {runId}
+      </Link>
+      <span className="text-muted-foreground">in Run history</span>
+    </p>
   )
 }
 

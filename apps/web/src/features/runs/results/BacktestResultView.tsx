@@ -1,5 +1,5 @@
 import { InfoIcon } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { BacktestResult, TradeOut } from '@/api/types'
 import { EquityChart } from '@/components/charts/EquityChart'
 import { PriceChart } from '@/components/charts/PriceChart'
@@ -35,8 +35,19 @@ function tradeColumns(ccy: string): Column<TradeOut>[] {
   ]
 }
 
-/** One backtest: headline figures, the price with indicators and trades, the equity curve, the trades. */
-export function BacktestResultView({ result, summary }: { result: BacktestResult; summary: RunSummary }) {
+/**
+ * One backtest: headline figures, the price with indicators and trades, the equity curve, the
+ * trades. `noChart` says why there is no price chart (a saved run keeps none).
+ */
+export function BacktestResultView({
+  result,
+  summary,
+  noChart,
+}: {
+  result: BacktestResult
+  summary: RunSummary
+  noChart?: ReactNode
+}) {
   const ccy = summary.currency
   const h = headline(result.metrics, result.equity)
   const capital = summary.initialCapital ?? result.equity[0]?.v
@@ -96,7 +107,9 @@ export function BacktestResultView({ result, summary }: { result: BacktestResult
                 label={`${chart.symbol} candles with ${result.strategy} indicators and trades`}
               />
             ) : (
-              <EmptyState title="No price chart for this run" className="py-6" />
+              <EmptyState title="No price chart for this run" className="py-6">
+                {noChart}
+              </EmptyState>
             )}
           </Section>
           <Section title="Equity curve" aside={capital ? `against the initial capital of ${fmtMoney(capital, ccy)}` : undefined}>

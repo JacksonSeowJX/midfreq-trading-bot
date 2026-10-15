@@ -12,6 +12,7 @@ itself. It replaces the Streamlit dashboard (`apps/dashboard`) one view at a tim
 | **Backtest** | One strategy over one period: KPIs, the price as candles with the strategy's indicators (over the price or in a lower pane) and buy/sell markers, the equity curve against the starting capital, and the trades. | `/api/jobs*`, `/api/strategies`, `/api/universes` |
 | **Compare** | Two to eight strategies on the same data: a metrics table (best of each column marked) and their equity curves overlaid. | same |
 | **Optimize** | Grid search (every combination, best first, and a heatmap of the objective when two parameters vary) or walk-forward (each window's chosen parameters and out-of-sample return, with the mean). Allowed only where the API allows it: a local install, not the hosted site. | same |
+| **Run history** | Every saved run (the run store: each finished Backtest, Compare and Optimize job, and the runs research scripts save), newest first: filter by kind, source and a search (kept in the URL), sort any column. The Return column says what it is: a comparison's best strategy, a grid search's best combination in sample (*IS*), a walk-forward's mean out-of-sample return (*OOS*). A run opens at `/runs/<id>` in its kind's result view, rebuilt from its tables (backtest KPIs, equity and trades; the comparison; the grid table and heatmap; walk-forward windows, and every metric in sample against out of sample per window with the mean of each), how it was run (and its run.json), and each table to preview or download as CSV or Parquet. Delete only where the API allows it. A finished job on the run pages says *Saved as run <id>* and links here. | `/api/runs*` |
 | **Guide** | The user guide, [`docs/DASHBOARD_GUIDE.md`](../../docs/DASHBOARD_GUIDE.md), the same file GitHub shows: rendered with its tables, GitHub's heading anchors, and a table of contents on wide screens. Its links to app pages are router links, and its *Try it* links open a run form prefilled. | the markdown, built in |
 
 ## Running it
@@ -62,6 +63,18 @@ cd apps/web && npm run gen:api && npm run typecheck
 Commit `schema.d.ts` with the change. `gen:api` passes `--empty-objects-unknown`, so the API's
 free-form `Dict[str, Any]` fields become `Record<string, unknown>`, not unusable `never`s.
 
+**Sign-in.** `src/features/auth/AuthGate.tsx` wraps the router and asks `GET /api/auth/config`
+whether the API requires sign-in. If not (a laptop, or no answer), the app renders as before.
+If it does (the hosted dashboard), the gate lazy-loads its screens and the Firebase JS SDK (auth
+only, its own chunk) and offers a single "Sign in with Google" button: a popup, or a redirect
+where popups are blocked. The app shows once `GET /api/auth/me` says the account is allowed; a
+signed-in account that is not allowed sees "Awaiting approval" with its email. `src/api/auth.ts`
+adds `Authorization: Bearer <ID token>` to every call (the SDK refreshes the token), and when a
+data route later refuses it, access is checked again. Sign-out in the top bar
+(`AccountMenu`) also clears the query cache. The gate is only the experience; the API checks
+the token itself (apps/api/README.md, Sign-in). The tests mock `firebase/app` and
+`firebase/auth` (`AuthGate.test.tsx`).
+
 **Two sources, never merged.** On the Live view the *broker account* (blue, what the broker
 reports through its connector) and the *bot record* (orange, what the bot wrote to its session
 logs) are separate panels, each labelled. They are kept apart on purpose so that one can be
@@ -107,6 +120,19 @@ FastAPI's list or the API's one-sentence check), 429 (a run is already in progre
 and a failed job's own error. A kind missing from the capabilities keeps its nav item, and its
 page explains that it runs on a local install.
 
+**Run history.** `features/history/` reads the run store through `/api/runs*`. A saved run keeps
+tables, not the job's result, so `logic.ts` turns them back into the run pages' models
+(`BacktestResult`, `CompareResult`, `OptimizeResult`) and the same result views draw them; it
+reads both the API's shapes and the ones research scripts save (a walk-forward's parameters as
+plain columns or `param_<name>`, `is_` and `oos_` metrics; a comparison's long equity table), and
+a run whose tables do not fit a view still lists them. The price chart is not saved, so a saved
+backtest says so in its place. The list can take a few seconds on the hosted site (a bucket's
+first listing reads every manifest), so it says it is reading the store; runs never change, so a
+run and its tables are fetched once. Downloads go through the API client (so a sign-in token
+goes with them) and are saved from a blob, named `<id>_<table>.csv` or `.parquet`. There is no
+capability for deleting: the button shows until the API refuses (403, the hosted site), then
+says so and is hidden for the rest of the visit.
+
 **Same origin.** All calls go to `/api` on the page's own origin, so the same build works
 behind the dev proxy and when hosted (for example on Cloud Run, with the API serving `dist/`
 or a proxy in front). The host must answer unknown non-`/api` paths with `index.html`, because
@@ -131,8 +157,9 @@ src/
                 KpiCard, SourcePanel, states (loading, empty, error)
   features/     live/, overview/, research/, runs/ (Backtest, Compare, Optimize: the
                 shared form in form.ts + RunForm.tsx, presets.ts, the job flow, results/),
-                guide/, placeholders/: one folder per view, with logic.ts holding each
-                view's pure functions
+                history/ (Run history: the list, a saved run, its tables), guide/,
+                placeholders/: one folder per view, with logic.ts holding each view's pure
+                functions
   lib/          formatting, theme and market preferences
   test/         typed fixtures, MSW handlers, render helpers
   routes.tsx    the route table
@@ -161,7 +188,9 @@ the research viewer, routing, the API-down and 501 states, and for the runs: the
 (parameters, validation, symbol search, pair and universe, risk section, remembered inputs),
 the job states (queued, running, done, failed; 403, 422, 429; deep links and recent runs; the
 tests shorten the poll interval through `JOB_POLL`) and each result view from fixtures; each
-preset's form values and the request it sends; the guide page (its headings and anchors from
+preset's form values and the request it sends; Run history (the list's filters, sorting and
+loading and error states, each kind's view from saved tables including in sample against out of
+sample, previews, downloads, delete and the 403 that hides it, and the *Saved as run* link); the guide page (its headings and anchors from
 the real markdown, the table of contents, router links); and the welcome card.
 
 ## Dependencies

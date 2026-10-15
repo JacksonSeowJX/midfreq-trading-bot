@@ -3,9 +3,11 @@
  * field the API does not declare is a compile error here.
  *
  * Every call is relative to /api on the page's own origin: the Vite dev server proxies it to
- * FastAPI, and a hosted build is served by the same origin as the API.
+ * FastAPI, and a hosted build is served by the same origin as the API. With sign-in on, every
+ * call carries the signed-in user's ID token (./auth).
  */
 import createClient from 'openapi-fetch'
+import { authMiddleware } from './auth'
 import type { paths } from './schema'
 
 function origin(): string {
@@ -19,6 +21,7 @@ export const api = createClient<paths>({
   // look fetch up on every call (not once at import), so test interceptors and polyfills apply
   fetch: (request) => globalThis.fetch(request),
 })
+api.use(authMiddleware)
 
 /** One entry of a 422 response: where in the request (`["body", "risk", "qty"]`) and what is wrong. */
 export interface FieldError {
@@ -99,4 +102,17 @@ export async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
     throw new ApiError(response.status, detailOf(error), fieldsOf(error))
   }
   return data
+}
+
+/** Resolve a call that answers 204 No Content (openapi-fetch gives no data), or throw ApiError. */
+export async function unwrapEmpty(call: Promise<Result<unknown>>): Promise<void> {
+  let result: Result<unknown>
+  try {
+    result = await call
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new ApiError(0)
+  }
+  const { error, response } = result
+  if (!response.ok) throw new ApiError(response.status, detailOf(error), fieldsOf(error))
 }

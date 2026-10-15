@@ -44,6 +44,30 @@ export const handlers = [
       { status: 202 },
     )
   }),
+  http.get('*/api/runs', () => HttpResponse.json(f.savedRuns)),
+  http.get('*/api/runs/:id', ({ params }) => {
+    const detail = f.savedRunDetails[String(params.id)]
+    return detail ? HttpResponse.json(detail) : notFound(`no run '${String(params.id)}'`)
+  }),
+  http.get('*/api/runs/:id/tables/:name', ({ params, request }) => {
+    const table = f.savedRunTables[`${String(params.id)}/${String(params.name)}`]
+    if (!table) return notFound(`no table '${String(params.name)}' in run '${String(params.id)}'`)
+    const format = new URL(request.url).searchParams.get('format') ?? 'json'
+    const file = `attachment; filename="${table.run_id}_${table.name}.${format}"`
+    if (format === 'csv') {
+      const text = [table.columns.join(','), ...table.rows.map((r) => table.columns.map((c) => String(r[c] ?? '')).join(','))].join('\n')
+      return new HttpResponse(text, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': file } })
+    }
+    if (format === 'parquet') {
+      return new HttpResponse(new Uint8Array([80, 65, 82, 49]), {
+        headers: { 'Content-Type': 'application/vnd.apache.parquet', 'Content-Disposition': file },
+      })
+    }
+    return HttpResponse.json(table)
+  }),
+  http.delete('*/api/runs/:id', ({ params }) =>
+    f.savedRunDetails[String(params.id)] ? new HttpResponse(null, { status: 204 }) : notFound('no such run'),
+  ),
   http.get('*/api/research/files/:name', ({ params }) => {
     if (params.name === f.researchCsv.name) return HttpResponse.json(f.researchCsv)
     if (params.name === f.researchJson.name) return HttpResponse.json(f.researchJson)

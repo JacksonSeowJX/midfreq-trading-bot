@@ -41,6 +41,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Auth Config
+         * @description Whether this server requires sign-in, and the Firebase web configuration to sign in with.
+         */
+        get: operations["auth_config_api_auth_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Auth Me
+         * @description The signed-in account and whether it may read the dashboard (with sign-in off: anyone may).
+         */
+        get: operations["auth_me_api_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/candles": {
         parameters: {
             query?: never;
@@ -434,6 +474,37 @@ export interface components {
             positions: components["schemas"]["PositionOut"][];
             snapshot: components["schemas"]["AccountSnapshotOut"];
         };
+        /** AuthConfig */
+        AuthConfig: {
+            /**
+             * Enabled
+             * @description whether every route but /api/health and this one needs Authorization: Bearer <Firebase ID token>
+             */
+            enabled: boolean;
+            firebase?: components["schemas"]["FirebaseWebConfig"] | null;
+            /** Provider */
+            provider?: "firebase" | null;
+        };
+        /** AuthMe */
+        AuthMe: {
+            /**
+             * Allowed
+             * @description whether this account may read the dashboard (always true with sign-in off)
+             */
+            allowed: boolean;
+            /**
+             * Email
+             * @description the signed-in account; null with sign-in off
+             */
+            email?: string | null;
+            /** Email Verified */
+            email_verified: boolean;
+            /**
+             * Reason
+             * @description why not, when it may not: the email is not verified, or the account is awaiting approval
+             */
+            reason?: string | null;
+        };
         /** BacktestRequest */
         BacktestRequest: {
             /**
@@ -633,6 +704,21 @@ export interface components {
              * @description capital + pnl
              */
             value: number;
+        };
+        /**
+         * FirebaseWebConfig
+         * @description The Firebase JS SDK's own configuration names (camelCase), passed to initializeApp as is.
+         */
+        FirebaseWebConfig: {
+            /**
+             * Apikey
+             * @description the Firebase web API key: public by design, it names the project
+             */
+            apiKey: string;
+            /** Authdomain */
+            authDomain: string;
+            /** Projectid */
+            projectId: string;
         };
         /**
          * ForwardTest
@@ -1492,6 +1578,53 @@ export interface operations {
             };
             /** @description the account cannot be read now (gateway down, no key) */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_config_api_auth_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthConfig"];
+                };
+            };
+        };
+    };
+    auth_me_api_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthMe"];
+                };
+            };
+            /** @description no valid ID token */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

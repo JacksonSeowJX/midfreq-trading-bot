@@ -7,5 +7,8 @@ export const ResearchPage = lazy(() => import('@/features/research/ResearchPage'
 export const BacktestPage = lazy(() => import('@/features/runs/BacktestPage'))
 export const ComparePage = lazy(() => import('@/features/runs/ComparePage'))
 export const OptimizePage = lazy(() => import('@/features/runs/OptimizePage'))
+// a saved run's page brings the result views (and ECharts) with it
+export const RunHistoryPage = lazy(() => import('@/features/history/RunHistoryPage'))
+export const SavedRunPage = lazy(() => import('@/features/history/SavedRunPage'))
 // the guide brings the markdown renderer
 export const GuidePage = lazy(() => import('@/features/guide/GuidePage'))

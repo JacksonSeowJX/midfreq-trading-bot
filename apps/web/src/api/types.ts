@@ -50,3 +50,22 @@ export type SeriesPoint = S['SeriesPoint']
 export type TradeOut = S['TradeOut']
 export type Indicator = S['Indicator']
 export type PriceChartData = S['PriceChart']
+
+// saved runs (the run store: Run history)
+export type SavedRun = S['RunSummary']
+export type SavedRunKind = SavedRun['kind']
+export type SavedRunDetail = S['RunDetail']
+/**
+ * GET /api/runs/{id}/tables/{name} with format=json. The contract leaves it undeclared, since the
+ * same route also answers with a CSV or Parquet file; this is what the API sends.
+ */
+export interface SavedRunTable {
+  run_id: string
+  name: string
+  columns: string[]
+  /** at most the request's limit (100,000 by default); NaN as null, times as ISO 8601 */
+  rows: Record<string, unknown>[]
+  /** the table's full length */
+  total: number
+}
+export type TableFormat = 'csv' | 'parquet'

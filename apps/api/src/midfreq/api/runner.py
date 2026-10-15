@@ -3,13 +3,18 @@ Runs as background jobs: an in-memory registry of the recent ones, and a pool of
 that do the CPU-bound work, so the API keeps answering while a walk-forward grinds through its
 grid.
 
-    runner.submit(kind, request, plan) -> Job    # Busy when max_concurrent runs are already going
+    runner.submit(kind, request, plan, save) -> Job   # Busy when max_concurrent runs are already going
     runner.get(job_id) -> Job, or None
-    runner.jobs() -> [Job]                       # newest first, without their results
+    runner.jobs() -> [Job]                            # newest first, without their results
 
 Workers send their progress back through a queue, which a thread here drains into the registry;
 the result comes back with the finished task. The registry is this process's own: restarting the
 API forgets every job, and each API process has its own (run uvicorn with one worker).
+
+`save(job_id, result) -> run_id`, when given, is called here (not in the worker) once the work is
+done, in a thread of its own: the job stays "running" ("Saving the run") until it returns, then is
+"done" with that run_id. A save that fails, or takes longer than `save_timeout`, is logged and the
+job is done without a run_id: saving never fails a job.
 """
 import logging
 import multiprocessing
@@ -32,6 +37,7 @@ log = logging.getLogger(__name__)
 ACTIVE = ("queued", "running")
 
 Target = Callable[[runs.Plan, runs.Progress], Any]
+Save = Callable[[str, Any], Optional[str]]
 
 
 class Busy(RuntimeError):
@@ -87,25 +93,29 @@ class _Record:
     finished: Optional[datetime] = None
     error: Optional[str] = None
     result: Any = field(default=None, repr=False)
+    run_id: Optional[str] = None
+    save: Optional[Save] = field(default=None, repr=False)
 
     def job(self, with_result: bool = True) -> s.Job:
         result = {self.kind: self.result} if with_result and self.result is not None else {}
         return s.Job(id=self.id, kind=self.kind, status=self.status, progress=self.progress, message=self.message,
                      created=self.created, started=self.started, finished=self.finished, error=self.error,
-                     request=self.request, **result)
+                     request=self.request, run_id=self.run_id, **result)
 
 
 class JobRunner:
     """At most `max_concurrent` runs at once, in worker processes ("process") or, where processes
     cannot be used, threads ("thread"); the most recent `keep` jobs are remembered with their
-    results. `target` does the work (runs.execute; tests give their own, with threads)."""
+    results. `target` does the work (runs.execute; tests give their own, with threads); a job's
+    `save` keeps its result (the run store) for at most `save_timeout` seconds."""
 
     def __init__(self, max_concurrent: int = 1, keep: int = 50, workers: str = "process",
-                 target: Target = runs.execute):
+                 target: Target = runs.execute, save_timeout: float = 120.0):
         if workers not in ("process", "thread"):
             raise ValueError(f"workers: 'process' or 'thread', not {workers!r}")
         self.max_concurrent = max(1, int(max_concurrent))
         self.keep = keep
+        self.save_timeout = save_timeout
         self.workers = workers
         self._target = target
         self._lock = threading.RLock()
@@ -128,13 +138,13 @@ class JobRunner:
         with self._lock:
             return sum(1 for rec in self._jobs.values() if rec.status in ACTIVE)
 
-    def submit(self, kind: str, request: Dict[str, Any], plan: runs.Plan) -> s.Job:
+    def submit(self, kind: str, request: Dict[str, Any], plan: runs.Plan, save: Optional[Save] = None) -> s.Job:
         with self._lock:
             active = self.active()
             if active >= self.max_concurrent:
                 raise Busy(f"{active} run(s) in progress, and this server runs at most {self.max_concurrent} "
                            f"at a time; try again when one has finished")
-            rec = _Record(id=uuid.uuid4().hex[:12], kind=kind, request=request, created=_now())
+            rec = _Record(id=uuid.uuid4().hex[:12], kind=kind, request=request, created=_now(), save=save)
             self._jobs[rec.id] = rec
             self._evict()
             job = rec.job()
@@ -191,14 +201,56 @@ class JobRunner:
             rec = self._jobs.get(job_id)
             if rec is None:
                 return
-            rec.finished = _now()
-            rec.started = rec.started or started or rec.finished
-            if error is None:
-                rec.status, rec.progress, rec.result = "done", 1.0, result
-                rec.message = message or "done"
+            rec.started = rec.started or started or _now()
+            save = rec.save
+            if error is None and save is not None and result is not None:
+                rec.progress, rec.message = 1.0, "Saving the run"
             else:
-                rec.status, rec.error = "failed", error
-                rec.message = "failed"
+                save = None
+                rec.finished = _now()
+                if error is None:
+                    rec.status, rec.progress, rec.result = "done", 1.0, result
+                    rec.message = message or "done"
+                else:
+                    rec.status, rec.error = "failed", error
+                    rec.message = "failed"
+        if save is not None:
+            threading.Thread(target=self._save, args=(job_id, save, result, message), name="midfreq-job-save",
+                             daemon=True).start()
+
+    def _save(self, job_id: str, save: Save, result: Any, message: str) -> None:
+        """Keep a finished job's result (save), then mark it done, with the run id if it was saved."""
+        saved: Dict[str, Optional[str]] = {}
+
+        def work() -> None:
+            try:
+                saved["run_id"] = save(job_id, result)
+            except Exception:                    # noqa: BLE001 (a job never fails for its save)
+                log.exception("job %s: the run could not be saved; it is done without a run id", job_id)
+            if "late" in saved and saved.get("run_id"):
+                self._set_run_id(job_id, saved["run_id"])      # finished after the job was marked done
+
+        worker = threading.Thread(target=work, name="midfreq-job-save-store", daemon=True)
+        worker.start()
+        worker.join(self.save_timeout)
+        if worker.is_alive():
+            saved["late"] = None
+            log.warning("job %s: saving the run is taking longer than %ss; the job is done without a run id "
+                        "for now", job_id, self.save_timeout)
+        with self._lock:
+            rec = self._jobs.get(job_id)
+            if rec is None:
+                return
+            rec.finished = _now()
+            rec.status, rec.progress, rec.result = "done", 1.0, result
+            rec.run_id = saved.get("run_id") or rec.run_id
+            rec.message = message or "done"
+
+    def _set_run_id(self, job_id: str, run_id: str) -> None:
+        with self._lock:
+            rec = self._jobs.get(job_id)
+            if rec is not None and rec.run_id is None:
+                rec.run_id = run_id
 
     # ── the workers ─────────────────────────────────────────────────────
 

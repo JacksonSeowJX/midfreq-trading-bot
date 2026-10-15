@@ -122,6 +122,88 @@
         "title": "AccountView",
         "type": "object"
       },
+      "AuthConfig": {
+        "properties": {
+          "enabled": {
+            "description": "whether every route but /api/health and this one needs Authorization: Bearer <Firebase ID token>",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "firebase": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FirebaseWebConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "const": "firebase",
+                "enum": [
+                  "firebase"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "AuthConfig",
+        "type": "object"
+      },
+      "AuthMe": {
+        "properties": {
+          "allowed": {
+            "description": "whether this account may read the dashboard (always true with sign-in off)",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the signed-in account; null with sign-in off",
+            "title": "Email"
+          },
+          "email_verified": {
+            "title": "Email Verified",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "why not, when it may not: the email is not verified, or the account is awaiting approval",
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "email_verified",
+          "allowed"
+        ],
+        "title": "AuthMe",
+        "type": "object"
+      },
       "BacktestRequest": {
         "properties": {
           "commission_rate": {
@@ -519,6 +601,31 @@
           "value"
         ],
         "title": "EquityPoint",
+        "type": "object"
+      },
+      "FirebaseWebConfig": {
+        "description": "The Firebase JS SDK's own configuration names (camelCase), passed to initializeApp as is.",
+        "properties": {
+          "apiKey": {
+            "description": "the Firebase web API key: public by design, it names the project",
+            "title": "Apikey",
+            "type": "string"
+          },
+          "authDomain": {
+            "title": "Authdomain",
+            "type": "string"
+          },
+          "projectId": {
+            "title": "Projectid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiKey",
+          "authDomain",
+          "projectId"
+        ],
+        "title": "FirebaseWebConfig",
         "type": "object"
       },
       "ForwardTest": {
@@ -2524,6 +2631,53 @@
         "summary": "Account",
         "tags": [
           "accounts"
+        ]
+      }
+    },
+    "/api/auth/config": {
+      "get": {
+        "description": "Whether this server requires sign-in, and the Firebase web configuration to sign in with.",
+        "operationId": "auth_config_api_auth_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Auth Config",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "description": "The signed-in account and whether it may read the dashboard (with sign-in off: anyone may).",
+        "operationId": "auth_me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthMe"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "no valid ID token"
+          }
+        },
+        "summary": "Auth Me",
+        "tags": [
+          "auth"
         ]
       }
     },

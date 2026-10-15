@@ -6,8 +6,8 @@
  */
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Market } from '@/lib/preferences'
-import { api, ApiError, unwrap } from './client'
-import type { BacktestRequest, CompareRequest, Job, OptimizeRequest } from './types'
+import { api, ApiError, isApiError, unwrap, unwrapEmpty } from './client'
+import type { BacktestRequest, CompareRequest, Job, OptimizeRequest, SavedRun, SavedRunTable, TableFormat } from './types'
 
 export const LIVE_REFRESH_MS = 60_000
 const RESEARCH_STALE_MS = 5 * 60_000
@@ -49,6 +49,10 @@ export const queryKeys = {
   universes: ['universes'] as const,
   jobs: ['jobs'] as const,
   job: (id: string) => ['job', id] as const,
+  savedRuns: ['saved-runs'] as const,
+  savedRun: (id: string) => ['saved-run', id] as const,
+  savedRunTable: (id: string, name: string) => ['saved-run', id, 'table', name] as const,
+  runsDeletable: ['saved-runs', 'deletable'] as const,
 }
 
 export function useHealth() {
@@ -190,8 +194,11 @@ export function useJob(id: string | null) {
     queryKey: queryKeys.job(id ?? ''),
     queryFn: async ({ signal }) => {
       const job = await unwrap(api.GET('/api/jobs/{job_id}', { params: { path: { job_id: id ?? '' } }, signal }))
-      // the recent-runs list shows its status too
-      if (!isJobActive(job)) void qc.invalidateQueries({ queryKey: queryKeys.jobs })
+      // the recent-runs list shows its status too, and a finished run is now in Run history
+      if (!isJobActive(job)) {
+        void qc.invalidateQueries({ queryKey: queryKeys.jobs })
+        if (job.run_id) void qc.invalidateQueries({ queryKey: queryKeys.savedRuns, exact: true })
+      }
       return job
     },
     enabled: !!id,
@@ -229,6 +236,96 @@ export function useStartJob() {
     onSuccess: (job) => {
       qc.setQueryData(queryKeys.job(job.id), job)
       void qc.invalidateQueries({ queryKey: queryKeys.jobs })
+    },
+  })
+}
+
+// ── saved runs: the run store (Run history) ─────────────────────────────────
+
+/** How many saved runs the history asks for, newest first; the rest are filtered in the page. */
+export const SAVED_RUNS_LIMIT = 500
+
+/**
+ * Saved runs, newest first. From a bucket (the hosted site) the first listing reads every run's
+ * manifest, so it can take a few seconds; it is kept for 30 s and refreshed on focus after that.
+ */
+export function useSavedRuns() {
+  return useQuery({
+    queryKey: queryKeys.savedRuns,
+    queryFn: ({ signal }) => unwrap(api.GET('/api/runs', { params: { query: { limit: SAVED_RUNS_LIMIT } }, signal })),
+    staleTime: 30_000,
+  })
+}
+
+/** One saved run (summary, how it was run, its table names). A saved run never changes. */
+export function useSavedRun(id: string | null) {
+  return useQuery({
+    queryKey: queryKeys.savedRun(id ?? ''),
+    queryFn: ({ signal }) => unwrap(api.GET('/api/runs/{run_id}', { params: { path: { run_id: id ?? '' } }, signal })),
+    enabled: !!id,
+    staleTime: Infinity,
+  })
+}
+
+/** One of a saved run's tables as JSON rows (up to the API's 100,000). Never refetched. */
+export function useSavedRunTable(id: string, name: string, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: queryKeys.savedRunTable(id, name),
+    queryFn: async ({ signal }) =>
+      (await unwrap(
+        api.GET('/api/runs/{run_id}/tables/{name}', { params: { path: { run_id: id, name }, query: { format: 'json' } }, signal }),
+      )) as SavedRunTable,
+    enabled: enabled && !!id && !!name,
+    staleTime: Infinity,
+  })
+}
+
+/** Fetch a table as a file (through the API client, so any sign-in header goes with it) and save it. */
+export async function downloadSavedRunTable(id: string, name: string, format: TableFormat): Promise<void> {
+  const blob = await unwrap(
+    api.GET('/api/runs/{run_id}/tables/{name}', { params: { path: { run_id: id, name }, query: { format } }, parseAs: 'blob' }),
+  )
+  saveFile(blob, `${id}_${name}.${format}`)
+}
+
+function saveFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename })
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+/**
+ * Whether this server lets runs be deleted. Assumed so until a delete is refused (403: the
+ * hosted site), then false for the rest of the visit, so the Delete buttons go.
+ */
+export function useRunsDeletable(): boolean {
+  const q = useQuery({
+    queryKey: queryKeys.runsDeletable,
+    queryFn: () => true,
+    initialData: true,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+  return q.data
+}
+
+/**
+ * Delete a saved run; on success it leaves the cached list at once. (The page showing it drops
+ * its cached detail once it has navigated away: forgetting it while it is on screen refetches it.)
+ */
+export function useDeleteSavedRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => unwrapEmpty(api.DELETE('/api/runs/{run_id}', { params: { path: { run_id: id } } })),
+    onSuccess: (_, id) => {
+      qc.setQueryData<SavedRun[]>(queryKeys.savedRuns, (old) => old?.filter((r) => r.run_id !== id))
+      void qc.invalidateQueries({ queryKey: queryKeys.savedRuns, exact: true })
+    },
+    onError: (error) => {
+      if (isApiError(error) && error.status === 403) qc.setQueryData(queryKeys.runsDeletable, false)
     },
   })
 }

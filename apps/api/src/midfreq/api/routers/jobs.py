@@ -5,17 +5,22 @@ outside Settings.job_kinds is 403; a run that cannot be done as asked (an unknow
 parameter, a symbol with no cached candles) is 422 before it starts; more than
 Settings.max_concurrent_jobs at once is 429. A run that fails once started (no candles between the
 dates) is a job with status "failed" and the reason in `error`.
+
+A job that finishes is saved to the run store (saved_runs.save_job, source "api") and reports the
+saved run as `run_id`; a run that cannot be saved is logged and the job is done without one.
 """
 import threading
+from functools import partial
 from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from midfreq.api import runs
+from midfreq.api import runs, saved_runs
 from midfreq.api import schemas as s
-from midfreq.api.deps import get_settings
+from midfreq.api.deps import get_run_store, get_settings
 from midfreq.api.runner import Busy, JobRunner
 from midfreq.api.settings import Settings
+from midfreq.backtest.runstore import RunStore
 
 _runners: Dict[int, JobRunner] = {}         # one per process (per max_concurrent_jobs, in practice one)
 _runners_lock = threading.Lock()
@@ -42,7 +47,7 @@ def _stop_runners() -> None:
 router = APIRouter(tags=["runs"], on_shutdown=[_stop_runners])
 
 
-def _start(kind: str, req: s.RunSettings, settings: Settings, runner: JobRunner) -> s.Job:
+def _start(kind: str, req: s.RunSettings, settings: Settings, runner: JobRunner, store: RunStore) -> s.Job:
     if kind not in settings.job_kinds:
         raise HTTPException(status_code=403, detail=f"{kind} runs are not allowed on this server "
                                                     f"(allowed: {', '.join(settings.job_kinds) or 'none'})")
@@ -50,8 +55,9 @@ def _start(kind: str, req: s.RunSettings, settings: Settings, runner: JobRunner)
         plan = runs.plan(kind, req, settings)
     except runs.RunError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    request = req.model_dump(mode="json")
     try:
-        return runner.submit(kind, req.model_dump(mode="json"), plan)
+        return runner.submit(kind, request, plan, save=partial(saved_runs.save_job, store, kind, request, plan))
     except Busy as e:
         raise HTTPException(status_code=429, detail=str(e))
 
@@ -65,24 +71,24 @@ def capabilities(settings: Settings = Depends(get_settings)):
              responses={403: {"description": "this run kind is not allowed here"},
                         429: {"description": "too many runs in progress"}})
 def start_backtest(req: s.BacktestRequest, settings: Settings = Depends(get_settings),
-                   runner: JobRunner = Depends(get_job_runner)):
-    return _start("backtest", req, settings, runner)
+                   runner: JobRunner = Depends(get_job_runner), store: RunStore = Depends(get_run_store)):
+    return _start("backtest", req, settings, runner, store)
 
 
 @router.post("/api/jobs/compare", response_model=s.Job, status_code=202,
              responses={403: {"description": "this run kind is not allowed here"},
                         429: {"description": "too many runs in progress"}})
 def start_compare(req: s.CompareRequest, settings: Settings = Depends(get_settings),
-                  runner: JobRunner = Depends(get_job_runner)):
-    return _start("compare", req, settings, runner)
+                  runner: JobRunner = Depends(get_job_runner), store: RunStore = Depends(get_run_store)):
+    return _start("compare", req, settings, runner, store)
 
 
 @router.post("/api/jobs/optimize", response_model=s.Job, status_code=202,
              responses={403: {"description": "this run kind is not allowed here"},
                         429: {"description": "too many runs in progress"}})
 def start_optimize(req: s.OptimizeRequest, settings: Settings = Depends(get_settings),
-                   runner: JobRunner = Depends(get_job_runner)):
-    return _start("optimize", req, settings, runner)
+                   runner: JobRunner = Depends(get_job_runner), store: RunStore = Depends(get_run_store)):
+    return _start("optimize", req, settings, runner, store)
 
 
 @router.get("/api/jobs", response_model=List[s.Job])

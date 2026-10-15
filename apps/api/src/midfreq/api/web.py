@@ -8,6 +8,10 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
+# The web app's route: public even with sign-in on (midfreq.api.auth), as it serves only the
+# built files, never data.
+WEB_ROUTE = "/{path:path}"
+
 
 def mount_web(app: FastAPI, dist: Path) -> bool:
     """Serve `dist` at / if it holds a build (index.html). Call after the API routes are added,
@@ -17,7 +21,7 @@ def mount_web(app: FastAPI, dist: Path) -> bool:
     if not index.is_file():
         return False
 
-    @app.get("/{path:path}", include_in_schema=False)
+    @app.get(WEB_ROUTE, include_in_schema=False)
     def web_app(path: str):
         if path == "api" or path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not Found")

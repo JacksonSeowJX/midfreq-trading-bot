@@ -25,6 +25,30 @@ class Health(BaseModel):
                                                  "results, live_sessions, data_cache")
 
 
+# ── sign-in (midfreq.api.auth) ──────────────────────────────────────────────
+
+class FirebaseWebConfig(BaseModel):
+    """The Firebase JS SDK's own configuration names (camelCase), passed to initializeApp as is."""
+    apiKey: str = Field(description="the Firebase web API key: public by design, it names the project")
+    authDomain: str
+    projectId: str
+
+
+class AuthConfig(BaseModel):
+    enabled: bool = Field(description="whether every route but /api/health and this one needs "
+                                      "Authorization: Bearer <Firebase ID token>")
+    provider: Optional[Literal["firebase"]] = None
+    firebase: Optional[FirebaseWebConfig] = None
+
+
+class AuthMe(BaseModel):
+    email: Optional[str] = Field(None, description="the signed-in account; null with sign-in off")
+    email_verified: bool
+    allowed: bool = Field(description="whether this account may read the dashboard (always true with sign-in off)")
+    reason: Optional[str] = Field(None, description="why not, when it may not: the email is not verified, "
+                                                    "or the account is awaiting approval")
+
+
 # ── the bot's own record (live_sessions/*.jsonl, through a record store) ─────
 
 class EquityPoint(BaseModel):

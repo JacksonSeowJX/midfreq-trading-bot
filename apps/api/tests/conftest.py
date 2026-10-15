@@ -1,23 +1,28 @@
 """
 Fixtures for the API tests: a repository in miniature (results/, live_sessions/, config/, data/)
-built in a temporary folder, and a client for an app pointed at it. Nothing here reads or
-writes the repository's own folders.
+built in a temporary folder, a run store in memory, and a client for an app pointed at both.
+Nothing here reads or writes the repository's own folders (or its runs/).
 
 The client is FastAPI's TestClient when httpx is installed. httpx is not a dependency of the
 workspace yet, so without it the same calls go through `_AsgiClient`, which drives the app
 in-process the way TestClient does.
 """
 import asyncio
+import io
 import json
 import os
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlencode
 
 import pandas as pd
 import pytest
 
+from midfreq.api.deps import get_run_store
 from midfreq.api.main import create_app
 from midfreq.api.settings import Settings
+from midfreq.backtest.runstore import RunRecord, RunStore
 
 try:
     from fastapi.testclient import TestClient
@@ -38,18 +43,24 @@ class _Response:
 
 
 class _AsgiClient:
-    """The part of TestClient these tests use (GET), without httpx."""
+    """The part of TestClient these tests use (GET, DELETE), without httpx."""
 
     def __init__(self, app):
         self.app = app
 
     def get(self, url, params=None, headers=None):
+        return self.request("GET", url, params=params, headers=headers)
+
+    def delete(self, url, params=None, headers=None):
+        return self.request("DELETE", url, params=params, headers=headers)
+
+    def request(self, method, url, params=None, headers=None):
         path, _, query = url.partition("?")
         if params:
             extra = urlencode(params, doseq=True)
             query = f"{query}&{extra}" if query else extra
         scope = {
-            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
             "scheme": "http", "path": unquote(path), "raw_path": path.encode(), "root_path": "",
             "query_string": query.encode(), "client": ("testclient", 50000), "server": ("testserver", 80),
             "headers": [(b"host", b"testserver")]
@@ -83,6 +94,62 @@ class _AsgiClient:
 
 def make_client(app):
     return TestClient(app) if TestClient is not None else _AsgiClient(app)
+
+
+# ── the run store, in memory ────────────────────────────────────────────────
+
+class MemoryRunStore(RunStore):
+    """A RunStore in memory. As a real one does, it keeps the meta as JSON (run.json) and every
+    table and the metrics as Parquet, so what cannot be saved fails here too; ids are
+    <UTC yyyymmddThhmmss>_<kind>_<counter>, newest listed first. `calls` records what was asked."""
+
+    def __init__(self):
+        self.runs = {}
+        self.calls = []
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _parquet(df: pd.DataFrame) -> pd.DataFrame:
+        return pd.read_parquet(io.BytesIO(df.to_parquet(index=False)))
+
+    def save(self, record):
+        self.calls.append(("save", record.kind))
+        with self._lock:
+            created = datetime.now(timezone.utc)
+            run_id = f"{created:%Y%m%dT%H%M%S}_{record.kind}_{len(self.runs) + 1:06d}"
+            metrics = self._parquet(pd.DataFrame([record.metrics])).iloc[0].to_dict() if record.metrics else {}
+            self.runs[run_id] = RunRecord(kind=record.kind, meta=json.loads(json.dumps(record.meta)), metrics=metrics,
+                                          tables={k: self._parquet(df) for k, df in record.tables.items()},
+                                          run_id=run_id, created=created)
+        return run_id
+
+    def list(self, kind=None, strategy=None, limit=200):
+        self.calls.append(("list", kind, strategy, limit))
+        rows = []
+        for rec in sorted(self.runs.values(), key=lambda r: r.run_id, reverse=True):
+            meta = rec.meta
+            if (kind and rec.kind != kind) or (strategy and meta.get("strategy") != strategy):
+                continue
+            rows.append({"run_id": rec.run_id, "created": rec.created, "kind": rec.kind, "source": meta.get("source"),
+                         "strategy": meta.get("strategy"), "universe": meta.get("universe"),
+                         "n_symbols": len(meta.get("symbols") or []), "timeframe": meta.get("timeframe"),
+                         "start": meta.get("start"), "end": meta.get("end"), "objective": meta.get("objective"),
+                         "method": meta.get("method"), "git_commit": meta.get("git_commit"), **rec.metrics})
+        return pd.DataFrame(rows[:limit])
+
+    def load(self, run_id):
+        self.calls.append(("load", run_id))
+        rec = self.runs[run_id]
+        return RunRecord(kind=rec.kind, meta=json.loads(json.dumps(rec.meta)), metrics=dict(rec.metrics),
+                         tables={k: df.copy() for k, df in rec.tables.items()}, run_id=rec.run_id, created=rec.created)
+
+    def table(self, run_id, name):
+        self.calls.append(("table", run_id, name))
+        return self.runs[run_id].tables[name].copy()
+
+    def delete(self, run_id):
+        self.calls.append(("delete", run_id))
+        del self.runs[run_id]
 
 
 # ── the miniature repository ────────────────────────────────────────────────
@@ -232,8 +299,15 @@ def settings(repo):
 
 
 @pytest.fixture
-def app(settings):
-    return create_app(settings)
+def run_store():
+    return MemoryRunStore()
+
+
+@pytest.fixture
+def app(settings, run_store):
+    app = create_app(settings)
+    app.dependency_overrides[get_run_store] = lambda: run_store
+    return app
 
 
 @pytest.fixture

@@ -3,7 +3,16 @@ import { AppShell } from '@/components/layout/AppShell'
 import type { RouteHandle } from '@/components/layout/TopBar'
 import LivePage from '@/features/live/LivePage'
 import { NotFoundPage } from '@/features/placeholders/NotFoundPage'
-import { BacktestPage, ComparePage, GuidePage, OptimizePage, OverviewPage, ResearchPage } from '@/lazyPages'
+import {
+  BacktestPage,
+  ComparePage,
+  GuidePage,
+  OptimizePage,
+  OverviewPage,
+  ResearchPage,
+  RunHistoryPage,
+  SavedRunPage,
+} from '@/lazyPages'
 
 const handle = (title: string, subtitle?: string): RouteHandle => ({ title, subtitle })
 
@@ -42,6 +51,16 @@ export const routes: RouteObject[] = [
         path: 'optimize',
         element: <OptimizePage />,
         handle: handle('Optimize', 'Grid search and walk-forward'),
+      },
+      {
+        path: 'runs',
+        element: <RunHistoryPage />,
+        handle: handle('Run history', 'Every saved run, with its tables to download'),
+      },
+      {
+        path: 'runs/:runId',
+        element: <SavedRunPage />,
+        handle: handle('Run history', 'A saved run: its result, how it was run, its tables'),
       },
       {
         path: 'guide',

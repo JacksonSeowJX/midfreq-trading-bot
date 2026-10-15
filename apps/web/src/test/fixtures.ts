@@ -16,6 +16,9 @@ import type {
   Overview,
   ResearchFile,
   ResearchFileContent,
+  SavedRun,
+  SavedRunDetail,
+  SavedRunTable,
   SessionDetail,
   SessionSummary,
   StrategyInfo,
@@ -582,11 +585,12 @@ function job(over: Partial<Job> & Pick<Job, 'id' | 'kind'>): Job {
     backtest: null,
     compare: null,
     optimize: null,
+    run_id: null,
     ...over,
   }
 }
 
-export const backtestJob = job({ id: 'bt-1', kind: 'backtest', backtest: backtestResult })
+export const backtestJob = job({ id: 'bt-1', kind: 'backtest', backtest: backtestResult, run_id: '20261016T010009_backtest_a1b2c3' })
 export const compareJob = job({
   id: 'cmp-1',
   kind: 'compare',
@@ -625,3 +629,208 @@ export const jobList: Job[] = [backtestJob, compareJob, gridJob, walkForwardJob,
 export const jobsById: Record<string, Job> = Object.fromEntries(
   [backtestJob, compareJob, gridJob, walkForwardJob, failedJob].map((j) => [j.id, j]),
 )
+
+// ── saved runs (Run history) ────────────────────────────────────────────────
+
+export const savedIds = {
+  backtest: '20261016T010009_backtest_a1b2c3',
+  compare: '20261016T005500_compare_c0ffee',
+  grid: '20261016T004000_grid_search_9f8e7d',
+  walkForward: '20261015T203710_walk_forward_d88c7d',
+  hk: '20261014T090000_backtest_0a0b0c',
+}
+
+/** GET /api/runs: newest first. */
+export const savedRuns: SavedRun[] = [
+  {
+    run_id: savedIds.backtest,
+    created: '2026-10-16T01:00:09Z',
+    kind: 'backtest',
+    source: 'api',
+    strategy: 'Z-Score Mean Reversion',
+    universe: 'US.AAPL',
+    n_symbols: 1,
+    start: '2025-10-16',
+    end: '2026-10-16',
+    git_commit: '1f2639af67e60aac48491155fba8f50742491f5c',
+    metrics: { return_pct: 5.43, sharpe_ratio: 1.234, max_drawdown: 4.2, total_trades: 3, win_rate: 55 },
+  },
+  {
+    run_id: savedIds.compare,
+    created: '2026-10-16T00:55:00Z',
+    kind: 'compare',
+    source: 'api',
+    strategy: 'SMA Crossover, Z-Score Mean Reversion, Bollinger Bands',
+    universe: 'US.AAPL',
+    n_symbols: 1,
+    start: '2025-10-16',
+    end: '2026-10-16',
+    git_commit: '1f2639af67e60aac48491155fba8f50742491f5c',
+    metrics: { return_pct: 5.43, sharpe_ratio: 1.23, max_drawdown: 4.2, total_trades: 12, n_strategies: 3 },
+  },
+  {
+    run_id: savedIds.grid,
+    created: '2026-10-16T00:40:00Z',
+    kind: 'grid_search',
+    source: 'api',
+    strategy: 'Cross-Sectional Reversal',
+    universe: 'sp100',
+    n_symbols: 100,
+    start: '2025-10-16',
+    end: '2026-10-16',
+    git_commit: '1f2639af67e60aac48491155fba8f50742491f5c',
+    metrics: { return_pct: 7.5, sharpe_ratio: 1.9, max_drawdown: 3.1, total_trades: 30, combinations: 4, grid_size: 96 },
+  },
+  {
+    run_id: savedIds.walkForward,
+    created: '2026-10-15T20:37:10Z',
+    kind: 'walk_forward',
+    source: 'script',
+    strategy: 'Cross-Sectional Reversal',
+    universe: 'sp100',
+    n_symbols: 100,
+    start: '2025-10-16',
+    end: '2026-10-16',
+    git_commit: '09e8914',
+    metrics: { avg_oos_return: 1.0, avg_train_return: 4.6, consistency_pct: 66.67, wf_efficiency: 0.42, total_windows: 3 },
+  },
+  {
+    run_id: savedIds.hk,
+    created: '2026-10-14T09:00:00Z',
+    kind: 'backtest',
+    source: 'script',
+    strategy: 'RSI',
+    universe: 'HK.00700',
+    n_symbols: 1,
+    start: '2026-01-02',
+    end: '2026-06-30',
+    git_commit: null,
+    metrics: { return_pct: -2.1, sharpe_ratio: -0.4, max_drawdown: 6.0, total_trades: 8 },
+  },
+]
+
+const summaryOf = (id: string) => savedRuns.find((r) => r.run_id === id)!
+const commonMeta = {
+  market: 'US',
+  currency: 'USD',
+  timeframe: '1h',
+  start: '2025-10-16',
+  end: '2026-10-16',
+  initial_capital: 100000,
+  commission_rate: 0.00005,
+  slippage_bps: 0,
+  risk: { max_drawdown_pct: 0.1, sizing: 'fixed_quantity', qty: 100 },
+  git_commit: '1f2639af67e60aac48491155fba8f50742491f5c',
+}
+
+/** GET /api/runs/{id}. */
+export const savedRunDetails: Record<string, SavedRunDetail> = {
+  [savedIds.backtest]: {
+    summary: { ...summaryOf(savedIds.backtest), metrics: { ...backtestResult.metrics, open_positions: undefined } },
+    meta: {
+      ...commonMeta,
+      source: 'api',
+      job_id: 'bt-1',
+      strategy: 'Z-Score Mean Reversion',
+      params: backtestResult.params,
+      symbols: ['US.AAPL'],
+      universe: 'US.AAPL',
+      data_cutoff: '2026-10-15T19:30:00+00:00',
+      request: { ...backtestRequest },
+    },
+    tables: ['equity', 'trades'],
+  },
+  [savedIds.compare]: {
+    summary: summaryOf(savedIds.compare),
+    meta: {
+      ...commonMeta,
+      source: 'api',
+      strategy: 'SMA Crossover, Z-Score Mean Reversion, Bollinger Bands',
+      strategies: compareResult.rows.map((r) => r.strategy),
+      symbols: ['US.AAPL'],
+      request: { ...backtestRequest, strategies: compareResult.rows.map((r) => ({ strategy: r.strategy, params: r.params })) },
+    },
+    tables: ['strategies', 'equity'],
+  },
+  [savedIds.grid]: {
+    summary: summaryOf(savedIds.grid),
+    meta: {
+      ...commonMeta,
+      source: 'api',
+      strategy: 'Cross-Sectional Reversal',
+      method: 'grid',
+      objective: 'sharpe_ratio',
+      objective_label: 'Sharpe Ratio (higher is better)',
+      best_params: gridResult.rows![0]!.params,
+      max_combinations: 4,
+    },
+    tables: ['grid'],
+  },
+  [savedIds.walkForward]: {
+    summary: summaryOf(savedIds.walkForward),
+    meta: {
+      ...commonMeta,
+      source: 'script',
+      strategy: 'Cross-Sectional Reversal',
+      method: 'walk_forward',
+      objective: 'sharpe_ratio',
+      n_splits: 3,
+      train_pct: 0.6,
+      host: 'midfreq-vm',
+    },
+    tables: ['windows'],
+  },
+  [savedIds.hk]: {
+    summary: summaryOf(savedIds.hk),
+    meta: { source: 'script', strategy: 'RSI', market: 'HK', currency: 'HKD', symbols: ['HK.00700'] },
+    tables: ['equity', 'trades', 'positions'],
+  },
+}
+
+const table = (run_id: string, name: string, rows: Record<string, unknown>[], columns = Object.keys(rows[0] ?? {})): SavedRunTable => ({
+  run_id,
+  name,
+  columns,
+  rows,
+  total: rows.length,
+})
+
+// the walk-forward as a research script saves it: params as columns, every train metric is_, every test metric oos_
+const windowRows = walkForwardResult.windows!.map((w, i) => ({
+  window: w.index,
+  train_start: `${w.train_start.slice(0, 10)}T00:00:00+00:00`,
+  train_end: `${w.train_end.slice(0, 10)}T00:00:00+00:00`,
+  test_start: `${w.test_start.slice(0, 10)}T00:00:00+00:00`,
+  test_end: `${w.test_end.slice(0, 10)}T00:00:00+00:00`,
+  ...w.params,
+  is_return_pct: [5.1, 6.3, 2.4][i],
+  is_sharpe_ratio: w.train_objective,
+  is_total_trades: 40,
+  oos_return_pct: w.test_metrics.return_pct,
+  oos_sharpe_ratio: w.test_metrics.sharpe_ratio,
+  oos_total_trades: 12,
+  oos_open_positions: '{"US.AAA": 10}',
+}))
+
+/** GET /api/runs/{id}/tables/{name} (json), by `${id}/${name}`. */
+export const savedRunTables: Record<string, SavedRunTable> = {
+  [`${savedIds.backtest}/equity`]: table(savedIds.backtest, 'equity', backtestResult.equity.map((p) => ({ t: p.t, equity: p.v }))),
+  [`${savedIds.backtest}/trades`]: table(savedIds.backtest, 'trades', backtestResult.trades.map((t) => ({ ...t }))),
+  [`${savedIds.compare}/strategies`]: table(
+    savedIds.compare,
+    'strategies',
+    [...compareResult.rows]
+      .sort((a, b) => (b.metrics.return_pct as number) - (a.metrics.return_pct as number))
+      .map((r) => ({ label: r.strategy, strategy: r.strategy, params: JSON.stringify(r.params), n_symbols: 1, ...r.metrics })),
+  ),
+  [`${savedIds.compare}/equity`]: table(
+    savedIds.compare,
+    'equity',
+    Object.entries(compareResult.equity).flatMap(([label, pts]) => pts.map((p) => ({ label, t: p.t, equity: p.v }))),
+  ),
+  [`${savedIds.grid}/grid`]: table(savedIds.grid, 'grid', gridResult.rows!.map((r) => ({ ...r.params, ...r.metrics }))),
+  [`${savedIds.walkForward}/windows`]: table(savedIds.walkForward, 'windows', windowRows),
+  [`${savedIds.hk}/equity`]: table(savedIds.hk, 'equity', [{ t: '2026-01-02T02:30:00+00:00', equity: 100000 }]),
+  [`${savedIds.hk}/trades`]: table(savedIds.hk, 'trades', [], ['timestamp', 'symbol', 'action', 'qty', 'price', 'commission', 'cash_after']),
+  [`${savedIds.hk}/positions`]: table(savedIds.hk, 'positions', [{ symbol: 'HK.00700', qty: 100 }]),
+}

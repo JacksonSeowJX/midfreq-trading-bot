@@ -7,6 +7,7 @@ import { useHealth } from '@/api/queries'
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip } from '@/components/ui/tooltip'
+import { AccountMenu } from '@/features/auth/AccountMenu'
 import { fmtAgo, fmtClock } from '@/lib/format'
 import { isMarket, isThemePreference, MARKET_LABEL, MARKETS, useMarket, useTheme } from '@/lib/preferences'
 import { useNow } from '@/lib/useNow'
@@ -174,6 +175,7 @@ export function TopBar() {
         <Freshness />
         <ApiStatus />
         <ThemeToggle />
+        <AccountMenu />
       </div>
     </header>
   )

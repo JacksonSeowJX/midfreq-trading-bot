@@ -13,6 +13,8 @@ def plain(value: Any) -> Any:
         return {str(k): plain(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [plain(v) for v in value]
+    if isinstance(value, np.ndarray):                   # a list cell, as Parquet reads it back
+        return [plain(v) for v in value.tolist()]
     if isinstance(value, np.generic):
         value = value.item()
     if isinstance(value, float) and not math.isfinite(value):
