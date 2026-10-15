@@ -1,0 +1,25 @@
+/** Short names for the API's response models (apps/api/src/midfreq/api/schemas.py). */
+import type { components } from './schema'
+
+type S = components['schemas']
+
+export type Health = S['Health']
+export type EquityPoint = S['EquityPoint']
+export type ForwardTest = S['ForwardTest']
+export type ForwardTrade = S['ForwardTrade']
+export type Holding = S['Holding']
+export type SessionSummary = S['SessionSummary']
+export type SessionDetail = S['SessionDetail']
+export type SessionTrade = S['SessionTrade']
+export type AccountInfo = S['AccountInfo']
+export type AccountView = S['AccountView']
+export type AccountSnapshot = S['AccountSnapshotOut']
+export type Position = S['PositionOut']
+export type Order = S['OrderOut']
+export type ResultRow = S['ResultRow']
+export type ResultsSummary = S['ResultsSummary']
+export type RealityCheckConfig = S['RealityCheckConfig']
+export type SearchCorrection = S['SearchCorrection']
+export type Overview = S['Overview']
+export type ResearchFile = S['ResearchFile']
+export type ResearchFileContent = S['ResearchFileContent']

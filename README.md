@@ -139,11 +139,24 @@ The price cache (`data/`) is not in the repository. From a fresh clone the dashb
 
 ## Usage
 
-Run the dashboard:
+Run the dashboard (the web app: live, overview and research views):
+```bash
+(cd apps/web && npm ci && npm run build)            # once, and after web changes
+uv run uvicorn midfreq.api.main:app --port 8000      # http://127.0.0.1:8000 (API docs at /docs)
+```
+It is a React app (`apps/web`) over a read-only FastAPI service (`apps/api`). Broker accounts
+come through each connector's read-only account client, listed under `accounts` in
+`config/connections.yaml`; the bot's record comes from its session logs
+(`./ops/fetch_live_logs.sh` copies them from the VM). For development, run `npm run dev` in
+`apps/web` beside the API. See [apps/web/README.md](apps/web/README.md) and
+[apps/api/README.md](apps/api/README.md).
+
+The backtest, compare and optimise views still run in the original Streamlit app while they
+are being moved:
 ```bash
 uv run streamlit run apps/dashboard/app.py
 ```
-See **[docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md)** for a walkthrough of every view and control.
+See **[docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md)** for a walkthrough of the Streamlit views.
 
 Run the tests:
 ```bash
