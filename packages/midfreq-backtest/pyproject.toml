@@ -5,7 +5,12 @@ description = "Backtesting: the candle backtester and walk-forward optimiser, an
 requires-python = ">=3.10"
 dependencies = ["midfreq-core", "midfreq-data", "midfreq-strategies", "pandas>=2.1"]
 
+[project.optional-dependencies]
+# the C++ engine behind midfreq.backtest.native; without it everything runs on the Python backtester
+native = ["midfreq-engine"]
+
 [tool.uv.sources]
+midfreq-engine = { workspace = true }
 midfreq-core = { workspace = true }
 midfreq-data = { workspace = true }
 midfreq-strategies = { workspace = true }

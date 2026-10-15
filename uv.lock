@@ -14,6 +14,7 @@ members = [
     "midfreq-backtest",
     "midfreq-core",
     "midfreq-data",
+    "midfreq-engine",
     "midfreq-live",
     "midfreq-research",
     "midfreq-strategies",
@@ -1882,13 +1883,20 @@ dependencies = [
     { name = "pandas" },
 ]
 
+[package.optional-dependencies]
+native = [
+    { name = "midfreq-engine" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "midfreq-core", editable = "packages/midfreq-core" },
     { name = "midfreq-data", editable = "packages/midfreq-data" },
+    { name = "midfreq-engine", marker = "extra == 'native'", editable = "packages/midfreq-engine" },
     { name = "midfreq-strategies", editable = "packages/midfreq-strategies" },
     { name = "pandas", specifier = ">=2.1" },
 ]
+provides-extras = ["native"]
 
 [[package]]
 name = "midfreq-core"
@@ -1950,6 +1958,17 @@ requires-dist = [
     { name = "yfinance", marker = "extra == 'yfinance'" },
 ]
 provides-extras = ["moomoo", "ibkr", "yfinance", "crypto"]
+
+[[package]]
+name = "midfreq-engine"
+version = "0.1.0"
+source = { editable = "packages/midfreq-engine" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=1.26" }]
 
 [[package]]
 name = "midfreq-live"
@@ -2033,6 +2052,7 @@ dependencies = [
     { name = "midfreq-backtest" },
     { name = "midfreq-core" },
     { name = "midfreq-data", extra = ["crypto", "ibkr", "moomoo", "yfinance"] },
+    { name = "midfreq-engine" },
     { name = "midfreq-live" },
     { name = "midfreq-research" },
     { name = "midfreq-strategies", extra = ["hmm"] },
@@ -2057,6 +2077,7 @@ requires-dist = [
     { name = "midfreq-core", editable = "packages/midfreq-core" },
     { name = "midfreq-data", editable = "packages/midfreq-data" },
     { name = "midfreq-data", extras = ["moomoo", "ibkr", "yfinance", "crypto"], editable = "packages/midfreq-data" },
+    { name = "midfreq-engine", editable = "packages/midfreq-engine" },
     { name = "midfreq-live", editable = "packages/midfreq-live" },
     { name = "midfreq-research", editable = "packages/midfreq-research" },
     { name = "midfreq-strategies", editable = "packages/midfreq-strategies" },

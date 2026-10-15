@@ -11,6 +11,7 @@ dependencies = [
     "midfreq-live",
     "midfreq-research",
     "midfreq-api",
+    "midfreq-engine",
     "midfreq-data[moomoo,ibkr,yfinance,crypto]",
     "midfreq-strategies[hmm]",
     "streamlit",
@@ -60,6 +61,7 @@ midfreq-backtest = { workspace = true }
 midfreq-live = { workspace = true }
 midfreq-research = { workspace = true }
 midfreq-api = { workspace = true }
+midfreq-engine = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["packages", "apps/api/tests", "tests"]
@@ -69,10 +71,10 @@ pythonpath = ["tests/support"]
 markers = ["slow: needs the real data/ cache (opt-in: MIDFREQ_SLOW=1)"]
 
 # Layering: a package may only import packages below it.
-#   apps / research  ->  live, backtest  ->  strategies, data  ->  core
+#   apps / research  ->  live, backtest  ->  strategies, data  ->  core, engine (C++)
 [tool.importlinter]
-# midfreq is a PEP 420 namespace spread over six distributions, so list the portions
-root_packages = ["midfreq.core", "midfreq.data", "midfreq.strategies", "midfreq.backtest", "midfreq.live", "midfreq.research", "midfreq.api"]
+# midfreq is a PEP 420 namespace spread over several distributions, so list the portions
+root_packages = ["midfreq.core", "midfreq.engine", "midfreq.data", "midfreq.strategies", "midfreq.backtest", "midfreq.live", "midfreq.research", "midfreq.api"]
 
 [[tool.importlinter.contracts]]
 name = "Package layers"
@@ -82,5 +84,6 @@ layers = [
     "midfreq.research",
     "midfreq.live | midfreq.backtest",
     "midfreq.strategies | midfreq.data",
-    "midfreq.core",
+    # the C++ engine's Python face imports nothing else from midfreq; midfreq.backtest.native adapts it
+    "midfreq.core | midfreq.engine",
 ]
