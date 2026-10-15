@@ -179,3 +179,20 @@ def test_memlog_writes_one_line_into_the_logs_folder(tmp_path):
     subprocess.run(["bash", str(VM / "memlog.sh")], env=env, check=True)
     lines = (tmp_path / "midfreq" / "logs" / "memlog.txt").read_text().splitlines()
     assert len(lines) == 1 and "ram_used=" in lines[0]
+
+
+# ── sync_logs.sh ─────────────────────────────────────────────────────────────
+
+def test_sync_logs_does_nothing_until_configured(tmp_path):
+    env = dict(os.environ, MIDFREQ_HOME=str(tmp_path / "midfreq"), PATH="/usr/bin:/bin")  # no gcloud on PATH
+    r = subprocess.run(["bash", str(VM / "sync_logs.sh")], env=env, capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+def test_sync_logs_never_deletes_from_the_bucket():
+    text = (VM / "sync_logs.sh").read_text()
+    assert "rsync" in text and "--delete" not in text
+
+
+def test_the_schedule_sets_a_path_with_gcloud():
+    assert "PATH=/usr/local/bin:/usr/bin:/bin:/snap/bin" in (VM / "crontab.txt").read_text()

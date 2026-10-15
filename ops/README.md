@@ -105,6 +105,27 @@ The VM's external IP is not reserved: if the VM is stopped and started it may ch
 `~/.ssh/authorized_keys` and the `VM_SSH_KEY` secret. **Rotate:** make a new key pair, swap the
 line and the secret.
 
+## Hosted dashboard
+
+The dashboard (apps/web over apps/api) also runs on **Cloud Run** as a public, read-only site,
+separate from the trading VM. It shows the research results built into its image and the bot's
+record from a private Cloud Storage bucket, `gs://midfreq-trading-bot-live-sessions/live_sessions/`,
+which it mirrors at most once a minute. It has no broker account panels: they need OpenD, which
+only the VM and a laptop have (run the dashboard locally for those).
+
+```
+VM  --(sync_logs.sh, every 2 min, uploader account: this bucket only)-->  bucket
+Cloud Run (dashboard-runtime account: read this bucket only)  <--  browser
+```
+
+- One-time setup: `ops/dashboard/setup_gcp.sh` (done 16 Oct 2026: bucket with public access
+  prevented, Artifact Registry `midfreq`, the `dashboard-runtime` account).
+- Deploy: `ops/dashboard/deploy_dashboard.sh` builds the committed code (`git archive HEAD`, never
+  local edits) with Cloud Build and deploys the service `midfreq-dashboard` in asia-southeast1.
+- Until the cutover the bucket is filled from a laptop:
+  `./ops/fetch_live_logs.sh && gcloud storage rsync live_sessions gs://midfreq-trading-bot-live-sessions/live_sessions`.
+  From the cutover the VM uploads every 2 minutes (`vm/sync_logs.sh`, step 4b below).
+
 ## Cutover runbook (Phase 2)
 
 Planned for Saturday 17 Oct 2026, after the report's final forward-test numbers are taken from
@@ -143,6 +164,21 @@ cp -n ~/midfreq/current/defaults/config/* ~/midfreq/runtime/config/
 
 ```bash
 crontab ~/midfreq/current/ops/vm/crontab.txt && crontab -l
+```
+
+**4b. Log uploads for the hosted dashboard** (laptop): an account that may only read and write
+objects in the dashboard's bucket, its key copied to the VM and deleted locally.
+
+```bash
+P=midfreq-trading-bot; SA=vm-log-uploader@$P.iam.gserviceaccount.com
+gcloud iam service-accounts create vm-log-uploader --display-name "VM: uploads the bot's record"
+gcloud storage buckets add-iam-policy-binding gs://$P-live-sessions --member serviceAccount:$SA --role roles/storage.objectUser
+K=$(mktemp) && gcloud iam service-accounts keys create "$K" --iam-account $SA
+gcloud compute ssh trading-bot --zone asia-southeast1-b --command 'mkdir -m 700 -p ~/midfreq/secrets'
+gcloud compute scp --zone asia-southeast1-b "$K" trading-bot:midfreq/secrets/uploader.json && rm -f "$K"
+gcloud compute ssh trading-bot --zone asia-southeast1-b --command \
+  "chmod 600 ~/midfreq/secrets/uploader.json && echo gs://$P-live-sessions/live_sessions > ~/midfreq/secrets/bucket \
+   && ~/midfreq/current/ops/vm/sync_logs.sh && echo uploaded"
 ```
 
 **5. Tidy the home folder** (VM): dry run first, read it, then apply.
@@ -191,6 +227,8 @@ resumes from the current rebalance clock and positions.
 | `vm/crontab.txt` | VM | The whole schedule; installed with `crontab ~/midfreq/current/ops/vm/crontab.txt` |
 | `vm/maintain.sh` | VM (cron, 17:05) | Monthly archive of `~/midfreq/logs/*.log` into `~/midfreq/archive` (12 kept), SDK/OpenD log retention (36 h / 14 days), a line in `logs/health.log` |
 | `vm/memlog.sh` | VM (cron, every minute) | RAM and top processes into `~/midfreq/logs/memlog.txt` (~10 days) |
+| `vm/sync_logs.sh` | VM (cron, every 2 min) | Uploads `runtime/live_sessions` to the hosted dashboard's bucket with its own gcloud config; never deletes; does nothing until configured |
+| `dashboard/` | laptop | `setup_gcp.sh` (one-time cloud setup), `deploy_dashboard.sh`, the Dockerfile and Cloud Build config of the hosted dashboard |
 | `vm/tidy_home.sh` | VM (once, cutover) | Moves the home folder into the layout below; dry run unless `--apply` |
 | `vm/preflight.sh`, `vm/postclose.sh`, `vm/git_selfheal.sh`, `vm/deploy_lib.sh` | not installed | The pull-based deploy (disabled in Phase 0) and its CI gate; deleted in Phase 3 |
 
