@@ -39,7 +39,9 @@ def health(settings: Settings = Depends(get_settings), store: RecordStore = Depe
         "results": settings.results_dir.is_dir(),
         "live_sessions": store.available(),
         "data_cache": settings.data_dir.is_dir(),
-        "accounts": settings.accounts_enabled,     # false on the hosted dashboard (no broker gateway)
+        # can this deployment read a broker gateway itself? false when accounts are off, and on the
+        # hosted dashboard, which only shows the snapshots the VM publishes
+        "accounts": settings.accounts_enabled and not settings.snapshot_accounts_only,
     })
 
 

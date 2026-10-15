@@ -79,3 +79,8 @@ def test_health_reports_the_version_and_which_sources_exist(client, app, setting
         accounts_enabled=False)
     assert client.get("/api/health").json()["sources"] == {"results": False, "live_sessions": False,
                                                            "data_cache": True, "accounts": False}
+
+
+def test_health_says_no_gateway_when_only_snapshots_are_shown(client, app, settings):
+    app.dependency_overrides[get_settings] = lambda: replace(settings, snapshot_accounts_only=True)
+    assert client.get("/api/health").json()["sources"]["accounts"] is False

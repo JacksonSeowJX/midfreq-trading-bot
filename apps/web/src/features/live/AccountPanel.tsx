@@ -219,10 +219,11 @@ export function AccountPanel() {
         {(all) =>
           all.length === 0 ? (
             health.data?.sources.accounts === false ? (
-              <EmptyState title="Broker accounts are not shown here">
+              <EmptyState title="No broker snapshot yet">
                 Reading the broker account needs its gateway (Moomoo OpenD), which runs only on the
-                trading VM and on a local install of this dashboard. The bot record below is
-                complete without it.
+                trading VM. The VM publishes a read-only snapshot of the account every few minutes,
+                and it appears here once the first one arrives. The bot record below is complete
+                without it.
               </EmptyState>
             ) : (
               <EmptyState title="No broker accounts configured">
