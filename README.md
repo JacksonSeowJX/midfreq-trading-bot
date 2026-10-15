@@ -9,6 +9,8 @@
 
 **Live dashboard:** https://midfreq-dashboard-123943780205.asia-southeast1.run.app (no installation needed; its Guide page walks through every view)
 
+**Documentation:** https://jacksonseowjx.github.io/midfreq-trading-bot/ (architecture, deployment, the dashboard guide and the API reference). It is built from `site_docs/` by `.github/workflows/pages.yml`; GitHub Pages must be enabled once, under Settings -> Pages -> Source: GitHub Actions.
+
 ## Contact
 - Email: seow0126@e.ntu.edu.sg
 - Linkedin: https://www.linkedin.com/in/jackson-seow-jia-xian-798186182/
@@ -195,6 +197,26 @@ Download historical data (needs OpenD):
 uv run python scripts/data/backfill_data.py        # the configured Hong Kong stocks
 uv run python scripts/data/backfill_sp100.py       # the S&P 100
 ```
+
+## Saved Runs
+
+Backtests, comparisons, grid searches and walk-forwards are saved to a run store
+(`midfreq.backtest.runstore`): one folder per run, `runs/<run_id>/`, holding `run.json` (how it
+was run: strategy, params, symbols, dates, costs, risk settings, objective, git commit, data
+cut-off, created in UTC, and the headline metrics) and Parquet tables (`equity`, `trades`;
+`grid` for a grid search; `windows`, with each window's in-sample `is_*` and out-of-sample
+`oos_*` metrics, for a walk-forward). `runs/` is not in git. `MIDFREQ_RUNS` points the store
+elsewhere: another folder, or `gs://bucket/prefix` for the hosted dashboard. A run the report
+cites is promoted into `results/` as committed JSON and CSV, never overwriting a file there:
+```bash
+uv run python -m midfreq.backtest.runstore list                 # newest first
+uv run python -m midfreq.backtest.runstore show <run_id>
+uv run python -m midfreq.backtest.runstore promote <run_id>     # results/run_<id>.json and _<table>.csv
+```
+In Python, `default_run_store().list()` gives one row per run with its metrics as columns, and
+`.table(run_id, "windows")` one table; DuckDB reads the folders directly, for example
+`SELECT * FROM 'runs/*/windows.parquet'`. See the
+[midfreq-backtest README](packages/midfreq-backtest/README.md#saved-runs).
 
 ## Data Schema
 

@@ -1,0 +1,121 @@
+# The documentation site, published to GitHub Pages by .github/workflows/pages.yml.
+# Sources are in site_docs/; pages that show a repository document (docs/*.md, the package
+# READMEs) include it at build time through site_docs/hooks/repo_docs.py, and the API reference
+# renders apps/api/openapi.json as of the commit built. Preview locally:
+#
+#     uvx --with-requirements site_docs/requirements.txt mkdocs serve
+#
+site_name: midfreq trading bot
+site_url: https://jacksonseowjx.github.io/midfreq-trading-bot/
+site_description: >-
+  Architecture, deployment and HTTP API of a quantitative trading bot for mid-frequency stock
+  trading (NTU final-year project CCDS25-1040).
+site_author: Seow Jia Xian Jackson
+copyright: Seow Jia Xian Jackson · NTU final-year project CCDS25-1040
+repo_url: https://github.com/JacksonSeowJX/midfreq-trading-bot
+repo_name: JacksonSeowJX/midfreq-trading-bot
+edit_uri: blob/main/site_docs/
+
+docs_dir: site_docs
+site_dir: site
+exclude_docs: |
+  /requirements.txt
+  /hooks/
+hooks:
+  - site_docs/hooks/repo_docs.py
+watch:
+  - docs
+  - apps/api/openapi.json
+
+# The Pages workflow builds with --strict, so any of these fails the build there.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Architecture:
+      - architecture/index.md
+      - Venue-based engine: architecture/engine.md
+  - Packages:
+      - packages/index.md
+      - midfreq-core: packages/midfreq-core.md
+      - midfreq-data: packages/midfreq-data.md
+      - midfreq-strategies: packages/midfreq-strategies.md
+      - midfreq-backtest: packages/midfreq-backtest.md
+      - midfreq-live: packages/midfreq-live.md
+      - midfreq-research: packages/midfreq-research.md
+  - API:
+      - api/index.md
+      - Reference: api/reference.md
+  - Dashboard: dashboard.md
+  - Deployment: deployment.md
+  - Development: development.md
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - content.action.edit
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+extra:
+  generator: false
+  repo_branch: main
+  # where the dashboard guide's links to app pages (/live, /backtest?preset=...) go on this site
+  dashboard_url: https://midfreq-dashboard-123943780205.asia-southeast1.run.app
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # GitHub's heading anchors, so links such as #glossary work here, on GitHub and in the
+      # dashboard's Guide page alike
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format

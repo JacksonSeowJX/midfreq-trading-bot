@@ -1,0 +1,61 @@
+# The documentation site: MkDocs with the Material theme, from site_docs/ and mkdocs.yml,
+# published to GitHub Pages at https://jacksonseowjx.github.io/midfreq-trading-bot/.
+#
+# Built on every push to main that changes its sources: the site's own pages, the repository
+# documents it includes (docs/, the package READMEs), and the API contract its reference renders
+# (apps/api/openapi.json). --strict fails the build on any broken link or anchor.
+#
+# One-time setup: Settings -> Pages -> Source: GitHub Actions.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site_docs/**"
+      - "mkdocs.yml"
+      - "docs/**"
+      - "apps/api/openapi.json"
+      - "packages/*/README.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one deployment at a time; a newer push waits rather than cancelling one in progress
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: site_docs/requirements.txt
+      - name: Install the toolchain (pinned)
+        run: pip install -r site_docs/requirements.txt
+      - name: Build
+        run: mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

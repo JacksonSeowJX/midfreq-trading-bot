@@ -15,6 +15,13 @@ live_sessions/
 !results/*.csv
 .venv/
 
+# saved backtests and optimizations (midfreq.backtest.runstore); a run the report cites is
+# promoted into results/
+/runs/
+
 # per-window returns cache; keyed by a code fingerprint, rebuilt on demand
 results/reality_check_cache.json
 dist/
+
+# the documentation site's build output (mkdocs build; published by .github/workflows/pages.yml)
+/site/
