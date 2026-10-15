@@ -4,11 +4,11 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytest
 
-from core.backtester import Backtester
-from core.models import Timeframe
-from core.portfolio import Portfolio
-from core.storage import DataStorage
-from core.strategy import MovingAverageCrossover
+from midfreq.backtest.backtester import Backtester
+from midfreq.core.candle import Timeframe
+from midfreq.core.portfolio import Portfolio
+from midfreq.data.storage import DataStorage
+from midfreq.strategies.candle_strategies import MovingAverageCrossover
 
 
 def write_symbol(storage, symbol, closes, start=datetime(2026, 1, 5)):

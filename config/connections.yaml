@@ -1,0 +1,29 @@
+# Where every broker, gateway and exchange connection points.
+#
+# Code reads these through midfreq.core.connections.get_connection("<name>") instead of
+# hardcoding hosts and ports. Any value can be overridden by an environment variable named
+# MIDFREQ_<CONNECTION>_<KEY>, e.g. MIDFREQ_MOOMOO_PORT=11112 or MIDFREQ_MOOMOO_TRADING_ENV=real.
+#
+# Secrets never go in this file. A connection that needs a key names the environment
+# variables that hold it under `secrets:`; put them in your shell or in the untracked .env.
+
+moomoo:
+  host: 127.0.0.1          # Moomoo OpenD gateway
+  port: 11111
+  trading_env: simulate    # simulate (paper) | real
+  security_firm: FUTUSECURITIES
+
+ibkr:
+  host: 127.0.0.1          # TWS / IB Gateway
+  port: 7497               # 7497 TWS paper, 7496 TWS live, 4002 Gateway paper, 4001 Gateway live
+  client_id: 1
+  trading_env: paper       # paper | live
+
+yfinance: {}
+
+binance:
+  base_url: https://api.binance.com
+  secrets: [BINANCE_API_KEY, BINANCE_API_SECRET]   # not needed for public market data
+
+ccxt:
+  default_exchange: kraken

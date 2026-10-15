@@ -22,10 +22,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.config import ConfigLoader
-from providers.moomoo_provider import MoomooProvider
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.config import ConfigLoader
+from midfreq.data.providers.moomoo_provider import MoomooProvider
 
 REPO = Path(__file__).resolve().parents[2]
 

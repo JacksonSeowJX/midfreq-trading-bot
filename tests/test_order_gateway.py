@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from moomoo import RET_OK, RET_ERROR
 
-from core.order_gateway import MoomooPaperGateway
+from midfreq.live.order_gateway import MoomooPaperGateway
 
 
 class FakeClock:

@@ -10,7 +10,7 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 
-from core.storage import DataStorage
+from midfreq.data.storage import DataStorage
 
 HK_CLOSES = ["10:30", "11:30", "12:00", "14:00", "15:00", "16:00"]
 US_CLOSES = ["10:30", "11:30", "12:30", "13:30", "14:30", "15:30", "16:00"]

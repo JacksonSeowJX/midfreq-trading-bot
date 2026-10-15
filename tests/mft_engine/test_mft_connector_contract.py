@@ -14,13 +14,13 @@ from typing import Callable, Dict
 
 import pytest
 
-from mft.adapters.base import UnsupportedIntervalError, UnsupportedVenueError
-from mft.adapters.binance.connector import BinanceConnector
-from mft.adapters.ccxt.connector import CcxtConnector, ccxt_available
-from mft.adapters.ibkr.connector import IBKRConnector
-from mft.adapters.moomoo.connector import MoomooConnector
-from mft.adapters.yfinance.connector import YFinanceConnector
-from mft.model import BarSpecification, BarType, InstrumentId
+from midfreq.data.adapters.base import UnsupportedIntervalError, UnsupportedVenueError
+from midfreq.data.adapters.binance.connector import BinanceConnector
+from midfreq.data.adapters.ccxt.connector import CcxtConnector, ccxt_available
+from midfreq.data.adapters.ibkr.connector import IBKRConnector
+from midfreq.data.adapters.moomoo.connector import MoomooConnector
+from midfreq.data.adapters.yfinance.connector import YFinanceConnector
+from midfreq.core.model import BarSpecification, BarType, InstrumentId
 
 from mft_fakes import (
     BINANCE_BTCUSDT_INFO, HK_HOURS, US_HOURS, FakeBinanceTransport, FakeCcxtExchange, FakeIB,

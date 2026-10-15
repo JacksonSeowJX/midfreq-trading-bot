@@ -40,10 +40,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / 'src'))
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.overfitting import compute_pbo
-from core.config import ConfigLoader
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.research.overfitting import compute_pbo
+from midfreq.core.config import ConfigLoader
 
 STRATEGY = 'Cross-Sectional Reversal'
 N_SUBSETS = 10

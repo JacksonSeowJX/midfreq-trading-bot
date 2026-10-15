@@ -28,10 +28,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.config import ConfigLoader
-from core.optimizer import walk_forward
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.config import ConfigLoader
+from midfreq.backtest.optimizer import walk_forward
 
 N_SPLITS = 9   # matches the robust v2 study's window size (~121 days) on 3yr data
 TRAIN_PCT = 0.7

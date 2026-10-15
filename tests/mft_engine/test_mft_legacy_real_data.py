@@ -17,12 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from core.backtester import Backtester
-from core.models import Timeframe
-from core.portfolio import Portfolio
-from core.storage import DataStorage
-from core.strategy import STRATEGY_REGISTRY
-from mft.legacy import run_legacy_backtest
+from midfreq.backtest.backtester import Backtester
+from midfreq.core.candle import Timeframe
+from midfreq.core.portfolio import Portfolio
+from midfreq.data.storage import DataStorage
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
+from midfreq.backtest.legacy_adapter import run_legacy_backtest
 
 REPO = Path(__file__).resolve().parents[2]
 DATA = Path(os.environ.get("MFT_DATA_DIR", REPO / "data"))
@@ -97,10 +97,10 @@ def test_native_reversal_port_on_the_sp100():
     """The native ranking-signal + equal-weight-basket port against the core strategy on the full
     S&P 100 cache: identical trades, except that the port may also rebalance on the final slice."""
     import pandas as pd
-    from mft.backtest import BacktestEngine, FillModel
-    from mft.model import PercentFeeModel
-    from mft.persistence import LegacyDataReader
-    from mft.strategies import (CrossSectionalRanker, CrossSectionalRankerConfig, EqualWeightBasket,
+    from midfreq.backtest import BacktestEngine, FillModel
+    from midfreq.core.model import PercentFeeModel
+    from midfreq.data.persistence import LegacyDataReader
+    from midfreq.strategies.event_driven import (CrossSectionalRanker, CrossSectionalRankerConfig, EqualWeightBasket,
                                 EqualWeightBasketConfig)
 
     cfg = json.loads((REPO / "config" / "sp100_forward_test.json").read_text())
@@ -124,7 +124,7 @@ def test_native_reversal_port_on_the_sp100():
     result = engine.run()
 
     core_trades = []
-    for t in core.portfolio.trade_history:
+    for t in midfreq.core.portfolio.trade_history:
         iid = reader.instrument_id(t["symbol"])
         utc = reader.venues.get(iid.venue).localize(pd.DatetimeIndex([t["timestamp"]]))[0]
         core_trades.append((str(iid), utc, t["action"], t["qty"], t["price"], t["commission"]))

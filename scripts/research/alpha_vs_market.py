@@ -62,12 +62,12 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.portfolio import Portfolio
-from core.backtester import Backtester
-from core.optimizer import walk_forward
-from core.strategy import STRATEGY_REGISTRY
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.portfolio import Portfolio
+from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.optimizer import walk_forward
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
 from cross_sectional_cost_sensitivity import (sp100_symbols, STRATEGY, TRAIN_PCT, OBJECTIVE,
                                               SLIPPAGE_BPS, HISTORY_DAYS)
 
@@ -187,7 +187,7 @@ def analyse(windows):
 
 def live_forward_test():
     """The forward test against an equal-weight index of its own stocks, from the session logs."""
-    from core import forward_test as ft
+    from midfreq.research import forward_test as ft
     d = ft.load(REPO / 'live_sessions')
     if not d or not d['first_trade']:
         return None

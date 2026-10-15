@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 import pandas as pd
-from core.order_gateway import MoomooPaperGateway
+from midfreq.live.order_gateway import MoomooPaperGateway
 
 KEEP_COLS = ['create_time', 'updated_time', 'code', 'stock_name', 'trd_side',
              'order_status', 'qty', 'price', 'dealt_qty', 'dealt_avg_price', 'order_id']

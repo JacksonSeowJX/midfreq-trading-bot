@@ -31,10 +31,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 from statsmodels.tsa.stattools import adfuller, coint
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.config import ConfigLoader
-from core.optimizer import walk_forward
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.config import ConfigLoader
+from midfreq.backtest.optimizer import walk_forward
 
 TIMEFRAME = Timeframe.HOUR_1
 HISTORY_DAYS = 365

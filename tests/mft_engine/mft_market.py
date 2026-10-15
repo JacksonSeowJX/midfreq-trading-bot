@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from mft.backtest.market_state import MarketState
-from mft.model import Bar, BarType, Equity, InstrumentId, OrderSide
-from mft.model.data import BookLevel, OrderBookDepth, QuoteTick, TradeTick
-from mft.model.orders import OrderFactory
-from mft.model.identifiers import StrategyId
+from midfreq.backtest.market_state import MarketState
+from midfreq.core.model import Bar, BarType, Equity, InstrumentId, OrderSide
+from midfreq.core.model.data import BookLevel, OrderBookDepth, QuoteTick, TradeTick
+from midfreq.core.model.orders import OrderFactory
+from midfreq.core.model.identifiers import StrategyId
 
 IID = InstrumentId.from_str("00700.XHKG")
 T0 = pd.Timestamp("2024-01-02 02:30", tz="UTC").value

@@ -1,13 +1,13 @@
-"""mft.model: identifiers, bar types, instruments, fee models, orders."""
+"""midfreq.core.model: identifiers, bar types, instruments, fee models, orders."""
 import pandas as pd
 import pytest
 
-from mft.model import (
+from midfreq.core.model import (
     Bar, BarSpecification, BarType, CurrencyPair, Equity, InstrumentId, LiquiditySide,
     MakerTakerFeeModel, OrderFactory, OrderSide, OrderType, PercentFeeModel, StrategyId, Venue,
     bars_to_frame, frame_to_bars,
 )
-from mft.model.identifiers import ClientId
+from midfreq.core.model.identifiers import ClientId
 
 
 class TestIdentifiers:

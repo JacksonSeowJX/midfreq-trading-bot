@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 import pandas as pd
 from moomoo import OpenQuoteContext, RET_OK
 
-from core.config import ConfigLoader
+from midfreq.core.config import ConfigLoader
 
 
 def universe(market):

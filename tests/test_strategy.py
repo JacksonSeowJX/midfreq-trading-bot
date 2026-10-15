@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from core.models import Candle
-from core.portfolio import Portfolio
-from core.strategy import (
+from midfreq.core.candle import Candle
+from midfreq.core.portfolio import Portfolio
+from midfreq.strategies.candle_strategies import (
     STRATEGY_REGISTRY, MovingAverageCrossover, RegimeSwitchStrategy,
     CrossSectionalReversal, MLDirectionClassifier,
 )
@@ -205,10 +205,10 @@ def test_basket_sizing_values_each_position_at_its_own_price():
     """Regression: equity used to value every held position at the price of
     the symbol being bought, so the second leg of a basket was undersized
     whenever the two legs traded at very different prices."""
-    from core.portfolio import Portfolio
-    from core.risk_manager import RiskManager, SizingMethod, create_position_sizer
-    from core.strategy import CrossSectionalReversal
-    from core.models import Candle
+    from midfreq.core.portfolio import Portfolio
+    from midfreq.core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+    from midfreq.strategies.candle_strategies import CrossSectionalReversal
+    from midfreq.core.candle import Candle
     from datetime import datetime
 
     pf = Portfolio(initial_cash=100_000.0, commission_rate=0.0)
@@ -228,9 +228,9 @@ def test_basket_sizing_values_each_position_at_its_own_price():
 def test_live_sizing_uses_the_live_price_not_the_decision_close():
     """Regression: live, the decision close is an hour (or a night) old. A
     stock that gapped up 22% since was bought 22% over its equal share."""
-    from core.portfolio import Portfolio
-    from core.risk_manager import RiskManager, SizingMethod, create_position_sizer
-    from core.strategy import CrossSectionalReversal
+    from midfreq.core.portfolio import Portfolio
+    from midfreq.core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+    from midfreq.strategies.candle_strategies import CrossSectionalReversal
 
     live = {'GAPPED': 223.76, 'FLAT': 50.0}
     decision = {'GAPPED': 183.435, 'FLAT': 50.0}
@@ -261,7 +261,7 @@ def test_live_sizing_uses_the_live_price_not_the_decision_close():
 # ── live: act when the cross-section is complete, not an hour later ──────────
 
 def _xs_strategy(full, lookback=1, top_n=1, rebalance_every=1):
-    from core.strategy import CrossSectionalReversal
+    from midfreq.strategies.candle_strategies import CrossSectionalReversal
     pf = Portfolio(initial_cash=100_000.0, commission_rate=0.0)
     s = CrossSectionalReversal(pf, lookback=lookback, top_n=top_n, rebalance_every=rebalance_every)
     s.full_cross_section = full

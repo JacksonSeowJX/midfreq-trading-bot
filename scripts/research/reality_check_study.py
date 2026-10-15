@@ -34,12 +34,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 import pandas as pd
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.portfolio import Portfolio
-from core.config import ConfigLoader
-from core.optimizer import walk_forward
-from core.reality_check import reality_check, naive_single_test
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.portfolio import Portfolio
+from midfreq.core.config import ConfigLoader
+from midfreq.backtest.optimizer import walk_forward
+from midfreq.research.reality_check import reality_check, naive_single_test
 
 REPO = Path(__file__).resolve().parents[2]
 RESULTS = REPO / 'results'

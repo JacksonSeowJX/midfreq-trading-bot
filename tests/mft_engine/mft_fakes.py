@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from mft.adapters.binance.connector import HttpResponse
+from midfreq.data.adapters.binance.connector import HttpResponse
 
 
 @dataclass(frozen=True)

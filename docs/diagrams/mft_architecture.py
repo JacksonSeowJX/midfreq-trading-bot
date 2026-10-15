@@ -30,7 +30,7 @@ def mft_architecture(d):
     C = d.COLOURS
     o, g, p = C["orange"][0], C["green"][0], C["purple"][0]
 
-    s.zone(16, 16, 968, 140, "Connectors · mft.adapters")
+    s.zone(16, 16, 968, 140, "Connectors · midfreq.data.adapters")
     sources = (("moomoo", "candlestick_chart", "Moomoo", "OpenD; HK, US, CN, SG, JP"),
                ("ibkr", "lan", "IBKR", "TWS contracts per venue"),
                ("yf", "travel_explore", "yfinance", "Yahoo symbols, history caps"),
@@ -46,14 +46,14 @@ def mft_architecture(d):
         s.wire([(x, 142), (x, 186)])
 
     s.card("catalog", 30, 296, 440, 86, "green", "database", "ParquetDataCatalog",
-           "catalog/data/bar/&lt;bar_type&gt;/ · filled by python -m mft.data fetch")
+           "catalog/data/bar/&lt;bar_type&gt;/ · filled by python -m midfreq.data fetch")
     s.card("legacy", 530, 296, 440, 86, "green", "folder_open", "LegacyDataReader",
            "the original data/ cache, read-only; local times re-read as UTC")
     xc = s.side("catalog", "top")[0]
     s.wire([(xc, 256), (xc, 296)])
     s.label(xc + 12, 266, "bars, instruments")
 
-    s.zone(16, 420, 968, 400, "BacktestEngine · mft.backtest", cap_dx=690, cap_dy=368)
+    s.zone(16, 420, 968, 400, "BacktestEngine · midfreq.backtest", cap_dx=690, cap_dy=368)
     s.card("data", 40, 466, 260, 88, "orange", "call_merge", "DataEngine",
            "merges every venue's bars in UTC order")
     s.card("bus", 370, 466, 260, 88, "orange", "swap_calls", "MessageBus",
@@ -65,7 +65,7 @@ def mft_architecture(d):
     s.card("exch", 370, 606, 260, 88, "orange", "storefront", "SimulatedExchange",
            "one per venue: fills, lots, fees, cash")
     s.card("risk", 700, 606, 260, 88, "green", "shield", "RiskEngine",
-           "core.risk_manager rules, limits")
+           "midfreq.core.risk_manager rules, limits")
     s.card("venues", 370, 732, 260, 72, "grey", "tune", "config/venues.json",
            "sessions, currency, lot, fees")
 

@@ -1,7 +1,7 @@
 """
 The native ports against the core strategies they replace. Same data, same costs; the native
 version runs on the new engine with its default fill model (bar close plus slippage) and the
-venue's fee model, the core version on core.backtester. Trades are compared as (instrument, time in
+venue's fee model, the core version on midfreq.backtest.backtester. Trades are compared as (instrument, time in
 UTC, side, quantity, price, commission) and final equity exactly.
 """
 import contextlib
@@ -10,15 +10,15 @@ import io
 import pandas as pd
 import pytest
 
-from core.backtester import Backtester
-from core.models import Timeframe
-from core.portfolio import Portfolio
-from core.storage import DataStorage
-from core.strategy import CrossSectionalMomentum, CrossSectionalReversal, MovingAverageCrossover
-from mft.backtest import BacktestEngine, FillModel
-from mft.model import BarType, PercentFeeModel
-from mft.persistence import LegacyDataReader
-from mft.strategies import (
+from midfreq.backtest.backtester import Backtester
+from midfreq.core.candle import Timeframe
+from midfreq.core.portfolio import Portfolio
+from midfreq.data.storage import DataStorage
+from midfreq.strategies.candle_strategies import CrossSectionalMomentum, CrossSectionalReversal, MovingAverageCrossover
+from midfreq.backtest import BacktestEngine, FillModel
+from midfreq.core.model import BarType, PercentFeeModel
+from midfreq.data.persistence import LegacyDataReader
+from midfreq.strategies.event_driven import (
     CrossSectionalRanker, CrossSectionalRankerConfig, EqualWeightBasket, EqualWeightBasketConfig,
     MACrossover, MACrossoverConfig,
 )

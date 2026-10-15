@@ -1,12 +1,12 @@
 """Fill and slippage models inside the engine: tick data, partial fills, order states, accounts."""
 import pytest
 
-from mft.backtest import (
+from midfreq.backtest import (
     AutoFillModel, BacktestEngine, BarFillModel, FillModel, FixedBpsSlippage, NoSlippage,
     OrderBookFillModel, QuoteFillModel, SpreadSlippage, TradeFillModel,
 )
-from mft.model import Equity, OrderSide, OrderStatus, TimeInForce
-from mft.trading import Strategy
+from midfreq.core.model import Equity, OrderSide, OrderStatus, TimeInForce
+from midfreq.strategies.trading import Strategy
 
 from mft_market import IID, bar, book, quote, trade
 

@@ -1,7 +1,7 @@
-"""core.forward_test reads the forward test back from session logs alone."""
+"""midfreq.research.forward_test reads the forward test back from session logs alone."""
 import json
 
-from core import forward_test as ft
+from midfreq.research import forward_test as ft
 
 SYMS = ['US.AAA', 'US.BBB', 'US.CCC']
 
@@ -86,7 +86,7 @@ def test_a_log_line_cut_short_by_a_crash_is_skipped(tmp_path):
 
 
 def test_search_correction_reads_the_newest_reality_check(tmp_path):
-    from core import results_index as ri
+    from midfreq.research import results_index as ri
     assert ri.load_search_correction(tmp_path) is None
     cfg = lambda p, best: {'p_value': p, 'naive_p_value': 0.02, 'best_candidate': best, 'observed_max_mean': 6.15,
                            'n_windows': 9, 'n_candidates': 2, 'bootstrap_max_quantiles': {'p95': 7.48},

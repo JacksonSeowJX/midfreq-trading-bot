@@ -3,13 +3,13 @@ accounts, and the Strategy API."""
 import pandas as pd
 import pytest
 
-from mft.backtest import BacktestEngine, BacktestEngineConfig, DataEngine, FillModel
-from mft.common.msgbus import MessageBus
-from mft.model import (
+from midfreq.backtest import BacktestEngine, BacktestEngineConfig, DataEngine, FillModel
+from midfreq.core.common.msgbus import MessageBus
+from midfreq.core.model import (
     Bar, BarType, CurrencyPair, Equity, InstrumentId, OrderSide, OrderStatus, TimeInForce,
 )
-from mft.risk import RiskConfig
-from mft.trading import Strategy, StrategyConfig
+from midfreq.backtest.risk import RiskConfig
+from midfreq.strategies.trading import Strategy, StrategyConfig
 
 TENCENT = InstrumentId.from_str("00700.XHKG")
 APPLE = InstrumentId.from_str("AAPL.XNAS")

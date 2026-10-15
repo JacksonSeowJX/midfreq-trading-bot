@@ -1,6 +1,6 @@
 """
-Acceptance test for the legacy adapter: for EVERY strategy in core.strategy.STRATEGY_REGISTRY,
-core.backtester.Backtester and BacktestEngine + LegacyStrategyAdapter, run on the same data,
+Acceptance test for the legacy adapter: for EVERY strategy in midfreq.strategies.candle_strategies.STRATEGY_REGISTRY,
+midfreq.backtest.backtester.Backtester and BacktestEngine + LegacyStrategyAdapter, run on the same data,
 produce identical trade lists, identical final equity, identical metrics and identical equity
 curves, and the engine's own account agrees with the original bookkeeping.
 
@@ -13,13 +13,13 @@ from datetime import datetime
 
 import pytest
 
-from core.backtester import Backtester
-from core.models import Timeframe
-from core.portfolio import Portfolio
-from core.risk_manager import EqualDollarSizer, FixedFractionalSizer, RiskManager
-from core.storage import DataStorage
-from core.strategy import STRATEGY_REGISTRY, MovingAverageCrossover
-from mft.legacy import LegacyDivergenceError, LegacyStrategyAdapter, run_legacy_backtest
+from midfreq.backtest.backtester import Backtester
+from midfreq.core.candle import Timeframe
+from midfreq.core.portfolio import Portfolio
+from midfreq.core.risk_manager import EqualDollarSizer, FixedFractionalSizer, RiskManager
+from midfreq.data.storage import DataStorage
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY, MovingAverageCrossover
+from midfreq.backtest.legacy_adapter import LegacyDivergenceError, LegacyStrategyAdapter, run_legacy_backtest
 
 from mft_synthetic import HK_CLOSES, HK_SYMBOLS, US_CLOSES, US_SYMBOLS, write_universe
 
@@ -130,8 +130,8 @@ def test_one_currency_per_legacy_strategy(data_dir):
 
 def test_divergence_is_detected_not_ignored(data_dir):
     """If the engine and the original bookkeeping ever disagree about a trade, the run stops."""
-    from mft.backtest import BacktestEngine, LegacyFillModel
-    from mft.persistence import LegacyDataReader
+    from midfreq.backtest import BacktestEngine, LegacyFillModel
+    from midfreq.data.persistence import LegacyDataReader
 
     reader = LegacyDataReader(data_dir)
     iid = reader.instrument_id("HK.00700")

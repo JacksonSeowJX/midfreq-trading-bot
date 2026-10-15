@@ -25,9 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.optimizer import walk_forward
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.backtest.optimizer import walk_forward
 
 NEW_SYMBOLS = ['HK.01398', 'HK.00939', 'HK.00883', 'HK.00016',
                'HK.00027', 'HK.00388', 'HK.02020', 'HK.09999']

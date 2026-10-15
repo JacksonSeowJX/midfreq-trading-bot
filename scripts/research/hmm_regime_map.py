@@ -25,9 +25,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-from core.storage import DataStorage
-from core.strategy import HMMRegimeSwitchStrategy
-from core.portfolio import Portfolio
+from midfreq.data.storage import DataStorage
+from midfreq.strategies.candle_strategies import HMMRegimeSwitchStrategy
+from midfreq.core.portfolio import Portfolio
 
 SURFACE = '#EDE8E0'
 INK = '#2D2D2D'

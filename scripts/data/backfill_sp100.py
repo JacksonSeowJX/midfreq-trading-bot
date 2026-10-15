@@ -19,14 +19,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from datetime import datetime, timedelta
-from core.models import Timeframe
-from core.storage import DataStorage
-from providers.moomoo_provider import MoomooProvider
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.data.providers.moomoo_provider import MoomooProvider
 
 # Declared in config/symbols.json under universes.sp100, so the universe
 # lives in one place rather than being hardcoded in whichever script uses
 # it. Kept under the original name so existing imports are unaffected.
-from core.config import ConfigLoader
+from midfreq.core.config import ConfigLoader
 SP100_TICKERS = ConfigLoader().describe_universe("sp100")["tickers"]
 
 

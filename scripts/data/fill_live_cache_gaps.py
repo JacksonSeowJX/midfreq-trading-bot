@@ -31,8 +31,8 @@ sys.path.insert(0, str(REPO / 'src'))
 
 import pandas as pd
 
-from core.models import Timeframe
-from core.storage import DataStorage
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
 
 
 def missing_candles(existing: pd.DataFrame, fetched: pd.DataFrame, since, now_exchange) -> pd.DataFrame:
@@ -67,7 +67,7 @@ def main():
     since = datetime.strptime(args.since, '%Y-%m-%d')
     storage = DataStorage(args.data_dir)
 
-    from providers.moomoo_provider import MoomooProvider
+    from midfreq.data.providers.moomoo_provider import MoomooProvider
     from moomoo import RET_OK
     provider = MoomooProvider(host='127.0.0.1', port=11111)
 

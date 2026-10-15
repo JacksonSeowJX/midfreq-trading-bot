@@ -32,10 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'src'))
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.config import ConfigLoader
-from core.optimizer import walk_forward
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.config import ConfigLoader
+from midfreq.backtest.optimizer import walk_forward
 
 CONFIGS = [
     {'name': 'A (9 windows)', 'n_splits': 9, 'train_pct': 0.7},

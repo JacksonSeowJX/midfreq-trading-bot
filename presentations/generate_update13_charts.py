@@ -135,7 +135,7 @@ def chart_rc():
     if not rc or not rc.get('by_config'):
         print('rc chart SKIPPED — no reality_check_2*.json yet'); return
     sys.path.insert(0, str(REPO / 'src'))
-    from core.reality_check import stationary_bootstrap_indices
+    from midfreq.research.reality_check import stationary_bootstrap_indices
     cfgs = list(rc['by_config'])
     fig, axes = plt.subplots(1, len(cfgs), figsize=(6.3*len(cfgs), 4.6), dpi=200, squeeze=False)
     for ax, cname in zip(axes[0], cfgs):

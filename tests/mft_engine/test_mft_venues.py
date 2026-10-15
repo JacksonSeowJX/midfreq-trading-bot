@@ -5,8 +5,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from mft.model import BarSpecification, LiquiditySide, MakerTakerFeeModel, PercentFeeModel
-from mft.venues import VenueRegistry, default_venues
+from midfreq.core.model import BarSpecification, LiquiditySide, MakerTakerFeeModel, PercentFeeModel
+from midfreq.core.venues import VenueRegistry, default_venues
 
 HOUR = BarSpecification.from_str("1-HOUR")
 DAY = BarSpecification.from_str("1-DAY")

@@ -3,11 +3,11 @@ import math
 
 import pytest
 
-from mft.backtest.slippage import (
+from midfreq.backtest.slippage import (
     FixedBpsSlippage, FixedTickSlippage, NoSlippage, RandomSlippage, SpreadSlippage,
     SquareRootImpactSlippage, VolatilitySlippage,
 )
-from mft.model import OrderSide
+from midfreq.core.model import OrderSide
 
 from mft_market import bar, instrument, quote, state
 
@@ -29,7 +29,7 @@ def test_never_in_the_traders_favour(model):
 def test_fixed_bps_default_and_exact_arithmetic():
     m = FixedBpsSlippage()
     assert m.bps == 5.0
-    assert m.adjust(312.47, BUY, 1) == 312.47 * (1.0 + 5.0 / 10000.0)        # core.backtester's maths
+    assert m.adjust(312.47, BUY, 1) == 312.47 * (1.0 + 5.0 / 10000.0)        # midfreq.backtest.backtester's maths
     assert m.adjust(312.47, SELL, 1) == 312.47 * (1.0 - 5.0 / 10000.0)
     with pytest.raises(ValueError):
         FixedBpsSlippage(-1)

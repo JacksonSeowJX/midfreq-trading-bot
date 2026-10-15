@@ -1,11 +1,11 @@
 """Fill models, called directly on hand-built bars, quotes, trades and books."""
 import pytest
 
-from mft.backtest.fill_models import (
+from midfreq.backtest.fill_models import (
     AutoFillModel, BarFillModel, Fill, FillModel, LegacyFillModel, OrderBookFillModel,
     QuoteFillModel, TradeFillModel,
 )
-from mft.model import LiquiditySide, OrderSide, TimeInForce
+from midfreq.core.model import LiquiditySide, OrderSide, TimeInForce
 
 from mft_market import bar, book, limit, market, quote, state, submitted, trade
 

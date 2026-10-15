@@ -26,10 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'src'))
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.optimizer import walk_forward
-from core.config import ConfigLoader
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.backtest.optimizer import walk_forward
+from midfreq.core.config import ConfigLoader
 
 SP100_TICKERS = ConfigLoader().describe_universe("sp100")["tickers"]
 HSI_CODES = [s.replace("HK.", "") for s in ConfigLoader().get_universe("hsi")]

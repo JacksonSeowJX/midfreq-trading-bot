@@ -8,18 +8,18 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-import mft.data.service as service
-from mft.adapters.base import ConnectorError, QuotaExceededError, RateLimitError, UnsupportedVenueError
-from mft.adapters.binance.connector import BinanceConnector, HttpResponse
-from mft.adapters.ccxt import connector as ccxt_module
-from mft.adapters.ccxt.connector import CcxtConnector, ccxt_available
-from mft.adapters.ibkr.connector import IBKRConnector
-from mft.adapters.moomoo.connector import MoomooConnector
-from mft.adapters.registry import ConnectorRegistry
-from mft.adapters.yfinance.connector import YFinanceConnector
-from mft.data.__main__ import main as cli_main
-from mft.model import BarType
-from mft.persistence import ParquetDataCatalog
+import midfreq.data.service as service
+from midfreq.data.adapters.base import ConnectorError, QuotaExceededError, RateLimitError, UnsupportedVenueError
+from midfreq.data.adapters.binance.connector import BinanceConnector, HttpResponse
+from midfreq.data.adapters.ccxt import connector as ccxt_module
+from midfreq.data.adapters.ccxt.connector import CcxtConnector, ccxt_available
+from midfreq.data.adapters.ibkr.connector import IBKRConnector
+from midfreq.data.adapters.moomoo.connector import MoomooConnector
+from midfreq.data.adapters.registry import ConnectorRegistry
+from midfreq.data.adapters.yfinance.connector import YFinanceConnector
+from midfreq.data.__main__ import main as cli_main
+from midfreq.core.model import BarType
+from midfreq.data.persistence import ParquetDataCatalog
 
 from mft_fakes import (
     BINANCE_BTCUSDT_INFO, HK_HOURS, FakeBinanceTransport, FakeCcxtExchange, FakeIB, FakeIBProvider,
@@ -213,8 +213,8 @@ class TestRegistry:
         assert isinstance(reg.for_venue("XHKG"), MoomooConnector)
 
     def test_importing_mft_does_not_import_vendor_sdks(self):
-        code = ("import sys, mft, mft.adapters, mft.adapters.registry, mft.data, mft.persistence; "
-                "reg = mft.adapters.registry.default_registry(); reg.names(); "
+        code = ("import sys, mft, midfreq.data.adapters, midfreq.data.adapters.registry, midfreq.data, midfreq.data.persistence; "
+                "reg = midfreq.data.adapters.registry.default_registry(); reg.names(); "
                 "print(sorted(m for m in ('moomoo', 'ib_insync', 'ccxt', 'yfinance') if m in sys.modules))")
         out = subprocess.run([sys.executable, "-c", code], cwd=SRC, capture_output=True, text=True, check=True)
         assert out.stdout.strip() == "[]"
@@ -261,7 +261,7 @@ class TestFetch:
         assert not (tmp_path / "c").exists()
 
     def test_cli_rejects_an_unsupported_interval(self, tmp_path):
-        from mft.adapters.base import UnsupportedIntervalError
+        from midfreq.data.adapters.base import UnsupportedIntervalError
         with pytest.raises(UnsupportedIntervalError):
             cli_main(["fetch", "--venue", "XHKG", "--symbols", "700", "--bar", "4-HOUR",
                       "--start", "2024-01-01", "--dry-run"])
@@ -274,7 +274,7 @@ class TestFetch:
         assert "empty" in capsys.readouterr().out
 
     def test_python_dash_m_entry_point(self):
-        out = subprocess.run([sys.executable, "-m", "mft.data", "fetch", "--venue", "KRAKEN", "--symbols",
+        out = subprocess.run([sys.executable, "-m", "midfreq.data", "fetch", "--venue", "KRAKEN", "--symbols",
                               "BTC-USD", "--start", "2024-01-01", "--dry-run"],
                              cwd=SRC, capture_output=True, text=True)
         if not ccxt_available():

@@ -3,9 +3,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from core.live_engine import LivePortfolio, LiveTradingEngine
-from core.models import Candle, Timeframe
-from core.strategy import STRATEGY_REGISTRY
+from midfreq.live.live_engine import LivePortfolio, LiveTradingEngine
+from midfreq.core.candle import Candle, Timeframe
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
 
 T0 = datetime(2026, 1, 5, 10, 0)
 

@@ -30,13 +30,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.portfolio import Portfolio
-from core.backtester import Backtester
-from core.config import ConfigLoader
-from core.strategy import STRATEGY_REGISTRY
-from core.optimizer import generate_param_grid, _get_objective_value
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.portfolio import Portfolio
+from midfreq.backtest.backtester import Backtester
+from midfreq.core.config import ConfigLoader
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
+from midfreq.backtest.optimizer import generate_param_grid, _get_objective_value
 
 REPO = Path(__file__).resolve().parents[2]
 STRATEGY = 'Cross-Sectional Reversal'
@@ -134,7 +134,7 @@ def main():
     # "best" value is an artefact of where the grid stops rather than an
     # optimum. Record it, because it is the kind of thing that is obvious in
     # the moment and invisible three weeks later.
-    from core.strategy import STRATEGY_REGISTRY as _REG
+    from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY as _REG
     _spec = _REG[STRATEGY]['params']
     boundary = []
     for k, v in _spec.items():

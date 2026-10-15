@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from moomoo import OpenQuoteContext, TrdMarket, TrdEnv, RET_OK
-from core.order_gateway import MoomooPaperGateway
+from midfreq.live.order_gateway import MoomooPaperGateway
 
 SYMBOL = sys.argv[1] if len(sys.argv) > 1 else 'HK.00700'
 QTY = int(sys.argv[2]) if len(sys.argv) > 2 else 100

@@ -36,12 +36,12 @@ sys.path.insert(0, str(REPO / 'src'))
 
 import pandas as pd
 
-import core.storage as storage_mod
-from core.models import Candle, Timeframe
-from core.strategy import STRATEGY_REGISTRY
-from core.risk_manager import RiskManager, SizingMethod, create_position_sizer
-from core.live_engine import LiveTradingEngine
-import core.live_engine as live_mod
+import midfreq.data.storage as storage_mod
+from midfreq.core.candle import Candle, Timeframe
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
+from midfreq.core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+from midfreq.live.live_engine import LiveTradingEngine
+import midfreq.live.live_engine as live_mod
 from datetime import datetime as _dt
 from zoneinfo import ZoneInfo
 

@@ -4,9 +4,9 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from core.storage import DataStorage
-from mft.model import Bar, BarSpecification, BarType, CurrencyPair, Equity, InstrumentId
-from mft.persistence import LegacyDataReader, ParquetDataCatalog, migrate_legacy
+from midfreq.data.storage import DataStorage
+from midfreq.core.model import Bar, BarSpecification, BarType, CurrencyPair, Equity, InstrumentId
+from midfreq.data.persistence import LegacyDataReader, ParquetDataCatalog, migrate_legacy
 
 HOUR = BarSpecification.from_str("1-HOUR")
 DAY = BarSpecification.from_str("1-DAY")

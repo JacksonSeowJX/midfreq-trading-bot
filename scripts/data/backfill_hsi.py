@@ -24,12 +24,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from datetime import datetime, timedelta
-from core.models import Timeframe
-from core.storage import DataStorage
-from providers.moomoo_provider import MoomooProvider
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.data.providers.moomoo_provider import MoomooProvider
 
 # Declared in config/symbols.json under universes.hsi (see backfill_sp100).
-from core.config import ConfigLoader
+from midfreq.core.config import ConfigLoader
 HSI_CODES = [s.replace("HK.", "") for s in ConfigLoader().get_universe("hsi")]
 
 

@@ -19,10 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.config import ConfigLoader
-from core.optimizer import walk_forward
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.config import ConfigLoader
+from midfreq.backtest.optimizer import walk_forward
 
 N_SPLITS = 3  # longer windows — the classifier needs ~120 candles of history
               # to warm up before it will trade at all; 4 splits left too

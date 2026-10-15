@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from core.portfolio import Portfolio
+from midfreq.core.portfolio import Portfolio
 
 T0 = datetime(2026, 1, 5, 10, 0)
 

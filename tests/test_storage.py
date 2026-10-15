@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from core.storage import DataStorage
+from midfreq.data.storage import DataStorage
 
 
 def _hourly(start, periods):

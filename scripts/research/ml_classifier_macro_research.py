@@ -36,11 +36,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.config import ConfigLoader
-from core.portfolio import Portfolio
-from core.strategy import MLDirectionClassifier, STRATEGY_REGISTRY
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.config import ConfigLoader
+from midfreq.core.portfolio import Portfolio
+from midfreq.strategies.candle_strategies import MLDirectionClassifier, STRATEGY_REGISTRY
 
 N_SPLITS_CONFIGS = [
     {'name': 'A (9 windows)', 'n_splits': 9, 'train_pct': 0.7},
@@ -112,10 +112,10 @@ def qualifies(oos_return, consistency):
 
 
 def run_walk_forward(strategy_class, symbol, storage, start, end, n_splits, train_pct):
-    """Minimal inline walk-forward, mirroring core.optimizer.walk_forward, so we
+    """Minimal inline walk-forward, mirroring midfreq.backtest.optimizer.walk_forward, so we
     can pass a class directly instead of a STRATEGY_REGISTRY name."""
-    from core.backtester import Backtester
-    from core.optimizer import generate_param_grid, _get_objective_value
+    from midfreq.backtest.backtester import Backtester
+    from midfreq.backtest.optimizer import generate_param_grid, _get_objective_value
 
     total_days = (end - start).days
     window_size = total_days // n_splits

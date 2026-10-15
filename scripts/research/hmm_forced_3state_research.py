@@ -29,13 +29,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.config import ConfigLoader
-from core.portfolio import Portfolio
-from core.backtester import Backtester
-from core.strategy import STRATEGY_REGISTRY
-from core.optimizer import walk_forward
+from midfreq.core.candle import Timeframe
+from midfreq.data.storage import DataStorage
+from midfreq.core.config import ConfigLoader
+from midfreq.core.portfolio import Portfolio
+from midfreq.backtest.backtester import Backtester
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
+from midfreq.backtest.optimizer import walk_forward
 
 N_SPLITS = 9
 TRAIN_PCT = 0.7

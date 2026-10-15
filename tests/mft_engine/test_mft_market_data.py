@@ -1,9 +1,9 @@
 """Quote, trade and book data types, MarketState, and merging them with bars."""
 import pytest
 
-from mft.backtest import DataEngine
-from mft.cache import Cache
-from mft.model import InstrumentId, OrderSide
+from midfreq.backtest import DataEngine
+from midfreq.core.cache import Cache
+from midfreq.core.model import InstrumentId, OrderSide
 
 from mft_market import IID, bar, book, quote, state, trade, ts
 
