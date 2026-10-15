@@ -92,7 +92,7 @@ def test_accounts_are_listed_with_a_probe_that_never_hangs(client, accounts):
     assert time.monotonic() - t0 < 3                       # probe_timeout is 0.5 s in the fixture
     by_id = {r["id"]: r for r in rows}
     assert [r["id"] for r in rows] == ["good", "down", "hangs", "nofactory", "breaks"]
-    assert by_id["good"] == {"id": "good", "label": "Label good", "connector": "fake", "available": True, "reason": ""}
+    assert by_id["good"] == {"id": "good", "label": "Label good", "connector": "fake", "available": True, "reason": "", "kind": "live"}
     assert by_id["down"]["available"] is False and "OpenD" in by_id["down"]["reason"]
     assert by_id["hangs"]["available"] is False and "no answer within" in by_id["hangs"]["reason"]
     assert by_id["nofactory"]["available"] is False and "not installed" in by_id["nofactory"]["reason"]

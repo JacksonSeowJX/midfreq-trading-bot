@@ -21,15 +21,16 @@ export const health: Health = {
 }
 
 export const accounts: AccountInfo[] = [
-  { id: 'moomoo_us', label: 'Moomoo paper US', connector: 'moomoo', available: true, reason: '' },
+  { id: 'moomoo_us', label: 'Moomoo paper US', connector: 'moomoo', available: true, reason: '', kind: 'live' },
   {
     id: 'moomoo_hk',
     label: 'Moomoo paper HK',
     connector: 'moomoo',
     available: false,
     reason: 'OpenD is not running on 127.0.0.1:11111',
+    kind: 'live',
   },
-  { id: 'binance_spot', label: 'Binance spot', connector: 'binance', available: true, reason: '' },
+  { id: 'binance_spot', label: 'Binance spot', connector: 'binance', available: true, reason: '', kind: 'live' },
 ]
 
 export const accountView: AccountView = {

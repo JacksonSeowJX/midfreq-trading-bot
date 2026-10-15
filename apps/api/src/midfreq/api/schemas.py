@@ -114,6 +114,8 @@ class AccountInfo(BaseModel):
     connector: str
     available: bool
     reason: str = ""
+    kind: Literal["live", "snapshot"] = Field("live", description="live: read through a gateway now; "
+                                              "snapshot: published by the VM every few minutes (see as_of)")
 
 
 class AccountSnapshotOut(BaseModel):
@@ -256,3 +258,156 @@ class Candle(BaseModel):
     l: float
     c: float
     v: float
+
+
+# ── runs: backtest, compare, optimize (as background jobs) ──────────────────
+
+class RiskSettings(BaseModel):
+    """The Streamlit sidebar's risk and sizing controls. Percentages as fractions (0.03 = 3%)."""
+    stop_loss_pct: Optional[float] = None
+    trailing_stop_pct: Optional[float] = None
+    take_profit_pct: Optional[float] = None
+    max_drawdown_pct: float = 0.10
+    sizing: Literal["fixed_quantity", "percent_risk", "kelly", "equal_dollar"] = "fixed_quantity"
+    qty: int = 100
+    risk_pct: float = 0.02
+    fraction: float = 0.5
+    max_pct: float = 0.25
+
+
+class RunSettings(BaseModel):
+    """What every run needs. Single-stock strategies trade `symbol` (and `pair_symbol` for pairs);
+    basket strategies (cross-sectional) trade the whole `universe`."""
+    market: Literal["US", "HK"] = "US"
+    symbol: str
+    pair_symbol: Optional[str] = None
+    universe: Optional[str] = None
+    timeframe: Literal["1h", "1d"] = "1h"
+    start: date
+    end: date
+    initial_capital: float = 100_000.0
+    commission_rate: Optional[float] = Field(default=None, description="per side; None = the market's "
+                                             "calibrated rate (HK 0.16%, US 0.005%)")
+    slippage_bps: float = 0.0
+    risk: RiskSettings = RiskSettings()
+
+
+class BacktestRequest(RunSettings):
+    strategy: str
+    params: Dict[str, Any] = {}
+
+
+class StrategyChoice(BaseModel):
+    strategy: str
+    params: Dict[str, Any] = {}
+
+
+class CompareRequest(RunSettings):
+    strategies: List[StrategyChoice] = Field(min_length=2, max_length=8)
+
+
+class OptimizeRequest(RunSettings):
+    strategy: str
+    method: Literal["grid", "walk_forward"] = "walk_forward"
+    objective: str = "sharpe_ratio"
+    max_combinations: int = Field(200, ge=5, le=2000)
+    n_splits: int = Field(3, ge=2, le=15)
+    train_pct: float = Field(0.6, ge=0.5, le=0.9)
+
+
+class SeriesPoint(BaseModel):
+    t: datetime
+    v: float
+
+
+class TradeOut(BaseModel):
+    timestamp: datetime
+    symbol: str
+    action: str
+    qty: float
+    price: float
+    commission: float = 0.0
+    pnl: Optional[float] = None
+
+
+class Indicator(BaseModel):
+    name: str
+    pane: Literal["price", "lower"] = Field(description="drawn over the price, or in a pane below it")
+    points: List[SeriesPoint]
+
+
+class PriceChart(BaseModel):
+    symbol: str
+    candles: List[Candle]
+    indicators: List[Indicator]
+
+
+class BacktestResult(BaseModel):
+    strategy: str
+    symbols: List[str]
+    params: Dict[str, Any]
+    metrics: Dict[str, Any] = Field(description="the backtester's metrics: return_pct, sharpe_ratio, "
+                                                "max_drawdown_pct, win_rate, total_trades, ...")
+    equity: List[SeriesPoint]
+    trades: List[TradeOut]
+    chart: Optional[PriceChart] = None
+
+
+class CompareRow(BaseModel):
+    strategy: str
+    params: Dict[str, Any]
+    metrics: Dict[str, Any]
+
+
+class CompareResult(BaseModel):
+    rows: List[CompareRow]
+    equity: Dict[str, List[SeriesPoint]] = Field(description="strategy name -> equity curve")
+
+
+class GridRow(BaseModel):
+    params: Dict[str, Any]
+    metrics: Dict[str, Any]
+
+
+class WalkForwardWindow(BaseModel):
+    index: int
+    train_start: datetime
+    train_end: datetime
+    test_start: datetime
+    test_end: datetime
+    params: Dict[str, Any]
+    train_objective: Optional[float] = None
+    test_metrics: Dict[str, Any]
+
+
+class OptimizeResult(BaseModel):
+    method: Literal["grid", "walk_forward"]
+    objective: str
+    rows: List[GridRow] = Field(default_factory=list, description="grid search, best first")
+    windows: List[WalkForwardWindow] = Field(default_factory=list, description="walk-forward")
+    summary: Dict[str, Any] = {}
+
+
+class Job(BaseModel):
+    id: str
+    kind: Literal["backtest", "compare", "optimize"]
+    status: Literal["queued", "running", "done", "failed"]
+    progress: float = Field(0.0, description="0..1")
+    message: str = ""
+    created: datetime
+    started: Optional[datetime] = None
+    finished: Optional[datetime] = None
+    error: Optional[str] = None
+    request: Dict[str, Any]
+    backtest: Optional[BacktestResult] = None
+    compare: Optional[CompareResult] = None
+    optimize: Optional[OptimizeResult] = None
+
+
+class JobCapabilities(BaseModel):
+    kinds: List[Literal["backtest", "compare", "optimize"]] = Field(description="the runs this deployment "
+                                                                    "allows (the hosted site: backtest, compare)")
+    max_concurrent: int
+    objectives: Dict[str, str] = Field(description="objective key -> label, for optimize")
+    markets: Dict[str, Dict[str, Any]] = Field(description="per market: default commission_rate, "
+                                               "currency, symbols with cached data, universes")

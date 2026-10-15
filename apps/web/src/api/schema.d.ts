@@ -92,6 +92,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Jobs
+         * @description Recent jobs, newest first, without their results.
+         */
+        get: operations["jobs_api_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/backtest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Backtest */
+        post: operations["start_backtest_api_jobs_backtest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Capabilities */
+        get: operations["capabilities_api_jobs_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Compare */
+        post: operations["start_compare_api_jobs_compare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/optimize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Optimize */
+        post: operations["start_optimize_api_jobs_optimize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job */
+        get: operations["job_api_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/research/files": {
         parameters: {
             query?: never;
@@ -229,6 +334,13 @@ export interface components {
              * @description key in the accounts section of config/connections.yaml
              */
             id: string;
+            /**
+             * Kind
+             * @description live: read through a gateway now; snapshot: published by the VM every few minutes (see as_of)
+             * @default live
+             * @enum {string}
+             */
+            kind: "live" | "snapshot";
             /** Label */
             label: string;
             /**
@@ -267,6 +379,89 @@ export interface components {
             positions: components["schemas"]["PositionOut"][];
             snapshot: components["schemas"]["AccountSnapshotOut"];
         };
+        /** BacktestRequest */
+        BacktestRequest: {
+            /**
+             * Commission Rate
+             * @description per side; None = the market's calibrated rate (HK 0.16%, US 0.005%)
+             */
+            commission_rate?: number | null;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Initial Capital
+             * @default 100000
+             */
+            initial_capital: number;
+            /**
+             * Market
+             * @default US
+             * @enum {string}
+             */
+            market: "US" | "HK";
+            /** Pair Symbol */
+            pair_symbol?: string | null;
+            /**
+             * Params
+             * @default {}
+             */
+            params: Record<string, unknown>;
+            /**
+             * @default {
+             *       "fraction": 0.5,
+             *       "max_drawdown_pct": 0.1,
+             *       "max_pct": 0.25,
+             *       "qty": 100,
+             *       "risk_pct": 0.02,
+             *       "sizing": "fixed_quantity"
+             *     }
+             */
+            risk: components["schemas"]["RiskSettings"];
+            /**
+             * Slippage Bps
+             * @default 0
+             */
+            slippage_bps: number;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Strategy */
+            strategy: string;
+            /** Symbol */
+            symbol: string;
+            /**
+             * Timeframe
+             * @default 1h
+             * @enum {string}
+             */
+            timeframe: "1h" | "1d";
+            /** Universe */
+            universe?: string | null;
+        };
+        /** BacktestResult */
+        BacktestResult: {
+            chart?: components["schemas"]["PriceChart"] | null;
+            /** Equity */
+            equity: components["schemas"]["SeriesPoint"][];
+            /**
+             * Metrics
+             * @description the backtester's metrics: return_pct, sharpe_ratio, max_drawdown_pct, win_rate, total_trades, ...
+             */
+            metrics: Record<string, unknown>;
+            /** Params */
+            params: Record<string, unknown>;
+            /** Strategy */
+            strategy: string;
+            /** Symbols */
+            symbols: string[];
+            /** Trades */
+            trades: components["schemas"]["TradeOut"][];
+        };
         /** Candle */
         Candle: {
             /** C */
@@ -285,6 +480,86 @@ export interface components {
             t: string;
             /** V */
             v: number;
+        };
+        /** CompareRequest */
+        CompareRequest: {
+            /**
+             * Commission Rate
+             * @description per side; None = the market's calibrated rate (HK 0.16%, US 0.005%)
+             */
+            commission_rate?: number | null;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Initial Capital
+             * @default 100000
+             */
+            initial_capital: number;
+            /**
+             * Market
+             * @default US
+             * @enum {string}
+             */
+            market: "US" | "HK";
+            /** Pair Symbol */
+            pair_symbol?: string | null;
+            /**
+             * @default {
+             *       "fraction": 0.5,
+             *       "max_drawdown_pct": 0.1,
+             *       "max_pct": 0.25,
+             *       "qty": 100,
+             *       "risk_pct": 0.02,
+             *       "sizing": "fixed_quantity"
+             *     }
+             */
+            risk: components["schemas"]["RiskSettings"];
+            /**
+             * Slippage Bps
+             * @default 0
+             */
+            slippage_bps: number;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Strategies */
+            strategies: components["schemas"]["StrategyChoice"][];
+            /** Symbol */
+            symbol: string;
+            /**
+             * Timeframe
+             * @default 1h
+             * @enum {string}
+             */
+            timeframe: "1h" | "1d";
+            /** Universe */
+            universe?: string | null;
+        };
+        /** CompareResult */
+        CompareResult: {
+            /**
+             * Equity
+             * @description strategy name -> equity curve
+             */
+            equity: {
+                [key: string]: components["schemas"]["SeriesPoint"][];
+            };
+            /** Rows */
+            rows: components["schemas"]["CompareRow"][];
+        };
+        /** CompareRow */
+        CompareRow: {
+            /** Metrics */
+            metrics: Record<string, unknown>;
+            /** Params */
+            params: Record<string, unknown>;
+            /** Strategy */
+            strategy: string;
         };
         /** EquityPoint */
         EquityPoint: {
@@ -370,6 +645,13 @@ export interface components {
             /** Value */
             value: number;
         };
+        /** GridRow */
+        GridRow: {
+            /** Metrics */
+            metrics: Record<string, unknown>;
+            /** Params */
+            params: Record<string, unknown>;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -410,6 +692,195 @@ export interface components {
             unrealised_pnl: number;
             /** Value */
             value: number;
+        };
+        /** Indicator */
+        Indicator: {
+            /** Name */
+            name: string;
+            /**
+             * Pane
+             * @description drawn over the price, or in a pane below it
+             * @enum {string}
+             */
+            pane: "price" | "lower";
+            /** Points */
+            points: components["schemas"]["SeriesPoint"][];
+        };
+        /** Job */
+        Job: {
+            backtest?: components["schemas"]["BacktestResult"] | null;
+            compare?: components["schemas"]["CompareResult"] | null;
+            /**
+             * Created
+             * Format: date-time
+             */
+            created: string;
+            /** Error */
+            error?: string | null;
+            /** Finished */
+            finished?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "backtest" | "compare" | "optimize";
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            optimize?: components["schemas"]["OptimizeResult"] | null;
+            /**
+             * Progress
+             * @description 0..1
+             * @default 0
+             */
+            progress: number;
+            /** Request */
+            request: Record<string, unknown>;
+            /** Started */
+            started?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "done" | "failed";
+        };
+        /** JobCapabilities */
+        JobCapabilities: {
+            /**
+             * Kinds
+             * @description the runs this deployment allows (the hosted site: backtest, compare)
+             */
+            kinds: ("backtest" | "compare" | "optimize")[];
+            /**
+             * Markets
+             * @description per market: default commission_rate, currency, symbols with cached data, universes
+             */
+            markets: {
+                [key: string]: Record<string, unknown>;
+            };
+            /** Max Concurrent */
+            max_concurrent: number;
+            /**
+             * Objectives
+             * @description objective key -> label, for optimize
+             */
+            objectives: {
+                [key: string]: string;
+            };
+        };
+        /** OptimizeRequest */
+        OptimizeRequest: {
+            /**
+             * Commission Rate
+             * @description per side; None = the market's calibrated rate (HK 0.16%, US 0.005%)
+             */
+            commission_rate?: number | null;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Initial Capital
+             * @default 100000
+             */
+            initial_capital: number;
+            /**
+             * Market
+             * @default US
+             * @enum {string}
+             */
+            market: "US" | "HK";
+            /**
+             * Max Combinations
+             * @default 200
+             */
+            max_combinations: number;
+            /**
+             * Method
+             * @default walk_forward
+             * @enum {string}
+             */
+            method: "grid" | "walk_forward";
+            /**
+             * N Splits
+             * @default 3
+             */
+            n_splits: number;
+            /**
+             * Objective
+             * @default sharpe_ratio
+             */
+            objective: string;
+            /** Pair Symbol */
+            pair_symbol?: string | null;
+            /**
+             * @default {
+             *       "fraction": 0.5,
+             *       "max_drawdown_pct": 0.1,
+             *       "max_pct": 0.25,
+             *       "qty": 100,
+             *       "risk_pct": 0.02,
+             *       "sizing": "fixed_quantity"
+             *     }
+             */
+            risk: components["schemas"]["RiskSettings"];
+            /**
+             * Slippage Bps
+             * @default 0
+             */
+            slippage_bps: number;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Strategy */
+            strategy: string;
+            /** Symbol */
+            symbol: string;
+            /**
+             * Timeframe
+             * @default 1h
+             * @enum {string}
+             */
+            timeframe: "1h" | "1d";
+            /**
+             * Train Pct
+             * @default 0.6
+             */
+            train_pct: number;
+            /** Universe */
+            universe?: string | null;
+        };
+        /** OptimizeResult */
+        OptimizeResult: {
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "grid" | "walk_forward";
+            /** Objective */
+            objective: string;
+            /**
+             * Rows
+             * @description grid search, best first
+             */
+            rows?: components["schemas"]["GridRow"][];
+            /**
+             * Summary
+             * @default {}
+             */
+            summary: Record<string, unknown>;
+            /**
+             * Windows
+             * @description walk-forward
+             */
+            windows?: components["schemas"]["WalkForwardWindow"][];
         };
         /** OrderOut */
         OrderOut: {
@@ -463,6 +934,15 @@ export interface components {
             symbol: string;
             /** Unrealized Pnl */
             unrealized_pnl?: number | null;
+        };
+        /** PriceChart */
+        PriceChart: {
+            /** Candles */
+            candles: components["schemas"]["Candle"][];
+            /** Indicators */
+            indicators: components["schemas"]["Indicator"][];
+            /** Symbol */
+            symbol: string;
         };
         /** RealityCheckConfig */
         RealityCheckConfig: {
@@ -570,6 +1050,49 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * RiskSettings
+         * @description The Streamlit sidebar's risk and sizing controls. Percentages as fractions (0.03 = 3%).
+         */
+        RiskSettings: {
+            /**
+             * Fraction
+             * @default 0.5
+             */
+            fraction: number;
+            /**
+             * Max Drawdown Pct
+             * @default 0.1
+             */
+            max_drawdown_pct: number;
+            /**
+             * Max Pct
+             * @default 0.25
+             */
+            max_pct: number;
+            /**
+             * Qty
+             * @default 100
+             */
+            qty: number;
+            /**
+             * Risk Pct
+             * @default 0.02
+             */
+            risk_pct: number;
+            /**
+             * Sizing
+             * @default fixed_quantity
+             * @enum {string}
+             */
+            sizing: "fixed_quantity" | "percent_risk" | "kelly" | "equal_dollar";
+            /** Stop Loss Pct */
+            stop_loss_pct?: number | null;
+            /** Take Profit Pct */
+            take_profit_pct?: number | null;
+            /** Trailing Stop Pct */
+            trailing_stop_pct?: number | null;
+        };
         /** SearchCorrection */
         SearchCorrection: {
             /** Configs */
@@ -582,6 +1105,16 @@ export interface components {
             n_boot?: number | null;
             /** Pbo */
             pbo?: Record<string, unknown> | null;
+        };
+        /** SeriesPoint */
+        SeriesPoint: {
+            /**
+             * T
+             * Format: date-time
+             */
+            t: string;
+            /** V */
+            v: number;
         };
         /** SessionDetail */
         SessionDetail: {
@@ -656,6 +1189,16 @@ export interface components {
              */
             timestamp: string;
         };
+        /** StrategyChoice */
+        StrategyChoice: {
+            /**
+             * Params
+             * @default {}
+             */
+            params: Record<string, unknown>;
+            /** Strategy */
+            strategy: string;
+        };
         /** StrategyInfo */
         StrategyInfo: {
             /** Name */
@@ -681,6 +1224,29 @@ export interface components {
             name: string;
             /** Step */
             step?: number | null;
+        };
+        /** TradeOut */
+        TradeOut: {
+            /** Action */
+            action: string;
+            /**
+             * Commission
+             * @default 0
+             */
+            commission: number;
+            /** Pnl */
+            pnl?: number | null;
+            /** Price */
+            price: number;
+            /** Qty */
+            qty: number;
+            /** Symbol */
+            symbol: string;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
         };
         /** Universe */
         Universe: {
@@ -710,6 +1276,37 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** WalkForwardWindow */
+        WalkForwardWindow: {
+            /** Index */
+            index: number;
+            /** Params */
+            params: Record<string, unknown>;
+            /**
+             * Test End
+             * Format: date-time
+             */
+            test_end: string;
+            /** Test Metrics */
+            test_metrics: Record<string, unknown>;
+            /**
+             * Test Start
+             * Format: date-time
+             */
+            test_start: string;
+            /**
+             * Train End
+             * Format: date-time
+             */
+            train_end: string;
+            /** Train Objective */
+            train_objective?: number | null;
+            /**
+             * Train Start
+             * Format: date-time
+             */
+            train_start: string;
         };
     };
     responses: never;
@@ -883,6 +1480,225 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    jobs_api_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"][];
+                };
+            };
+        };
+    };
+    start_backtest_api_jobs_backtest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BacktestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description this run kind is not allowed here */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description too many runs in progress */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    capabilities_api_jobs_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCapabilities"];
+                };
+            };
+        };
+    };
+    start_compare_api_jobs_compare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description this run kind is not allowed here */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description too many runs in progress */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    start_optimize_api_jobs_optimize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OptimizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description this run kind is not allowed here */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description too many runs in progress */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    job_api_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description no such job */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

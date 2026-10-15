@@ -16,6 +16,16 @@
             "title": "Id",
             "type": "string"
           },
+          "kind": {
+            "default": "live",
+            "description": "live: read through a gateway now; snapshot: published by the VM every few minutes (see as_of)",
+            "enum": [
+              "live",
+              "snapshot"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -112,6 +122,176 @@
         "title": "AccountView",
         "type": "object"
       },
+      "BacktestRequest": {
+        "properties": {
+          "commission_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "per side; None = the market's calibrated rate (HK 0.16%, US 0.005%)",
+            "title": "Commission Rate"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "initial_capital": {
+            "default": 100000.0,
+            "title": "Initial Capital",
+            "type": "number"
+          },
+          "market": {
+            "default": "US",
+            "enum": [
+              "US",
+              "HK"
+            ],
+            "title": "Market",
+            "type": "string"
+          },
+          "pair_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Symbol"
+          },
+          "params": {
+            "default": {},
+            "title": "Params",
+            "type": "object"
+          },
+          "risk": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RiskSettings"
+              }
+            ],
+            "default": {
+              "fraction": 0.5,
+              "max_drawdown_pct": 0.1,
+              "max_pct": 0.25,
+              "qty": 100,
+              "risk_pct": 0.02,
+              "sizing": "fixed_quantity"
+            }
+          },
+          "slippage_bps": {
+            "default": 0.0,
+            "title": "Slippage Bps",
+            "type": "number"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "timeframe": {
+            "default": "1h",
+            "enum": [
+              "1h",
+              "1d"
+            ],
+            "title": "Timeframe",
+            "type": "string"
+          },
+          "universe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Universe"
+          }
+        },
+        "required": [
+          "symbol",
+          "start",
+          "end",
+          "strategy"
+        ],
+        "title": "BacktestRequest",
+        "type": "object"
+      },
+      "BacktestResult": {
+        "properties": {
+          "chart": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceChart"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "equity": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Equity",
+            "type": "array"
+          },
+          "metrics": {
+            "description": "the backtester's metrics: return_pct, sharpe_ratio, max_drawdown_pct, win_rate, total_trades, ...",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "params": {
+            "title": "Params",
+            "type": "object"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/TradeOut"
+            },
+            "title": "Trades",
+            "type": "array"
+          }
+        },
+        "required": [
+          "strategy",
+          "symbols",
+          "params",
+          "metrics",
+          "equity",
+          "trades"
+        ],
+        "title": "BacktestResult",
+        "type": "object"
+      },
       "Candle": {
         "properties": {
           "c": {
@@ -150,6 +330,169 @@
           "v"
         ],
         "title": "Candle",
+        "type": "object"
+      },
+      "CompareRequest": {
+        "properties": {
+          "commission_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "per side; None = the market's calibrated rate (HK 0.16%, US 0.005%)",
+            "title": "Commission Rate"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "initial_capital": {
+            "default": 100000.0,
+            "title": "Initial Capital",
+            "type": "number"
+          },
+          "market": {
+            "default": "US",
+            "enum": [
+              "US",
+              "HK"
+            ],
+            "title": "Market",
+            "type": "string"
+          },
+          "pair_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Symbol"
+          },
+          "risk": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RiskSettings"
+              }
+            ],
+            "default": {
+              "fraction": 0.5,
+              "max_drawdown_pct": 0.1,
+              "max_pct": 0.25,
+              "qty": 100,
+              "risk_pct": 0.02,
+              "sizing": "fixed_quantity"
+            }
+          },
+          "slippage_bps": {
+            "default": 0.0,
+            "title": "Slippage Bps",
+            "type": "number"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "strategies": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyChoice"
+            },
+            "maxItems": 8,
+            "minItems": 2,
+            "title": "Strategies",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "timeframe": {
+            "default": "1h",
+            "enum": [
+              "1h",
+              "1d"
+            ],
+            "title": "Timeframe",
+            "type": "string"
+          },
+          "universe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Universe"
+          }
+        },
+        "required": [
+          "symbol",
+          "start",
+          "end",
+          "strategies"
+        ],
+        "title": "CompareRequest",
+        "type": "object"
+      },
+      "CompareResult": {
+        "properties": {
+          "equity": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/SeriesPoint"
+              },
+              "type": "array"
+            },
+            "description": "strategy name -> equity curve",
+            "title": "Equity",
+            "type": "object"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/CompareRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "equity"
+        ],
+        "title": "CompareResult",
+        "type": "object"
+      },
+      "CompareRow": {
+        "properties": {
+          "metrics": {
+            "title": "Metrics",
+            "type": "object"
+          },
+          "params": {
+            "title": "Params",
+            "type": "object"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy",
+          "params",
+          "metrics"
+        ],
+        "title": "CompareRow",
         "type": "object"
       },
       "EquityPoint": {
@@ -355,6 +698,24 @@
         "title": "ForwardTrade",
         "type": "object"
       },
+      "GridRow": {
+        "properties": {
+          "metrics": {
+            "title": "Metrics",
+            "type": "object"
+          },
+          "params": {
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "params",
+          "metrics"
+        ],
+        "title": "GridRow",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -440,6 +801,388 @@
           "unrealised_pct"
         ],
         "title": "Holding",
+        "type": "object"
+      },
+      "Indicator": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pane": {
+            "description": "drawn over the price, or in a pane below it",
+            "enum": [
+              "price",
+              "lower"
+            ],
+            "title": "Pane",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "pane",
+          "points"
+        ],
+        "title": "Indicator",
+        "type": "object"
+      },
+      "Job": {
+        "properties": {
+          "backtest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compare": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompareResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created": {
+            "format": "date-time",
+            "title": "Created",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "backtest",
+              "compare",
+              "optimize"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "optimize": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizeResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress": {
+            "default": 0.0,
+            "description": "0..1",
+            "title": "Progress",
+            "type": "number"
+          },
+          "request": {
+            "title": "Request",
+            "type": "object"
+          },
+          "started": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "created",
+          "request"
+        ],
+        "title": "Job",
+        "type": "object"
+      },
+      "JobCapabilities": {
+        "properties": {
+          "kinds": {
+            "description": "the runs this deployment allows (the hosted site: backtest, compare)",
+            "items": {
+              "enum": [
+                "backtest",
+                "compare",
+                "optimize"
+              ],
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "markets": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "description": "per market: default commission_rate, currency, symbols with cached data, universes",
+            "title": "Markets",
+            "type": "object"
+          },
+          "max_concurrent": {
+            "title": "Max Concurrent",
+            "type": "integer"
+          },
+          "objectives": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "objective key -> label, for optimize",
+            "title": "Objectives",
+            "type": "object"
+          }
+        },
+        "required": [
+          "kinds",
+          "max_concurrent",
+          "objectives",
+          "markets"
+        ],
+        "title": "JobCapabilities",
+        "type": "object"
+      },
+      "OptimizeRequest": {
+        "properties": {
+          "commission_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "per side; None = the market's calibrated rate (HK 0.16%, US 0.005%)",
+            "title": "Commission Rate"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "initial_capital": {
+            "default": 100000.0,
+            "title": "Initial Capital",
+            "type": "number"
+          },
+          "market": {
+            "default": "US",
+            "enum": [
+              "US",
+              "HK"
+            ],
+            "title": "Market",
+            "type": "string"
+          },
+          "max_combinations": {
+            "default": 200,
+            "maximum": 2000.0,
+            "minimum": 5.0,
+            "title": "Max Combinations",
+            "type": "integer"
+          },
+          "method": {
+            "default": "walk_forward",
+            "enum": [
+              "grid",
+              "walk_forward"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "n_splits": {
+            "default": 3,
+            "maximum": 15.0,
+            "minimum": 2.0,
+            "title": "N Splits",
+            "type": "integer"
+          },
+          "objective": {
+            "default": "sharpe_ratio",
+            "title": "Objective",
+            "type": "string"
+          },
+          "pair_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Symbol"
+          },
+          "risk": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RiskSettings"
+              }
+            ],
+            "default": {
+              "fraction": 0.5,
+              "max_drawdown_pct": 0.1,
+              "max_pct": 0.25,
+              "qty": 100,
+              "risk_pct": 0.02,
+              "sizing": "fixed_quantity"
+            }
+          },
+          "slippage_bps": {
+            "default": 0.0,
+            "title": "Slippage Bps",
+            "type": "number"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "timeframe": {
+            "default": "1h",
+            "enum": [
+              "1h",
+              "1d"
+            ],
+            "title": "Timeframe",
+            "type": "string"
+          },
+          "train_pct": {
+            "default": 0.6,
+            "maximum": 0.9,
+            "minimum": 0.5,
+            "title": "Train Pct",
+            "type": "number"
+          },
+          "universe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Universe"
+          }
+        },
+        "required": [
+          "symbol",
+          "start",
+          "end",
+          "strategy"
+        ],
+        "title": "OptimizeRequest",
+        "type": "object"
+      },
+      "OptimizeResult": {
+        "properties": {
+          "method": {
+            "enum": [
+              "grid",
+              "walk_forward"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "objective": {
+            "title": "Objective",
+            "type": "string"
+          },
+          "rows": {
+            "description": "grid search, best first",
+            "items": {
+              "$ref": "#/components/schemas/GridRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "summary": {
+            "default": {},
+            "title": "Summary",
+            "type": "object"
+          },
+          "windows": {
+            "description": "walk-forward",
+            "items": {
+              "$ref": "#/components/schemas/WalkForwardWindow"
+            },
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "method",
+          "objective"
+        ],
+        "title": "OptimizeResult",
         "type": "object"
       },
       "OrderOut": {
@@ -622,6 +1365,35 @@
           "quantity"
         ],
         "title": "PositionOut",
+        "type": "object"
+      },
+      "PriceChart": {
+        "properties": {
+          "candles": {
+            "items": {
+              "$ref": "#/components/schemas/Candle"
+            },
+            "title": "Candles",
+            "type": "array"
+          },
+          "indicators": {
+            "items": {
+              "$ref": "#/components/schemas/Indicator"
+            },
+            "title": "Indicators",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "candles",
+          "indicators"
+        ],
+        "title": "PriceChart",
         "type": "object"
       },
       "RealityCheckConfig": {
@@ -909,6 +1681,82 @@
         "title": "ResultsSummary",
         "type": "object"
       },
+      "RiskSettings": {
+        "description": "The Streamlit sidebar's risk and sizing controls. Percentages as fractions (0.03 = 3%).",
+        "properties": {
+          "fraction": {
+            "default": 0.5,
+            "title": "Fraction",
+            "type": "number"
+          },
+          "max_drawdown_pct": {
+            "default": 0.1,
+            "title": "Max Drawdown Pct",
+            "type": "number"
+          },
+          "max_pct": {
+            "default": 0.25,
+            "title": "Max Pct",
+            "type": "number"
+          },
+          "qty": {
+            "default": 100,
+            "title": "Qty",
+            "type": "integer"
+          },
+          "risk_pct": {
+            "default": 0.02,
+            "title": "Risk Pct",
+            "type": "number"
+          },
+          "sizing": {
+            "default": "fixed_quantity",
+            "enum": [
+              "fixed_quantity",
+              "percent_risk",
+              "kelly",
+              "equal_dollar"
+            ],
+            "title": "Sizing",
+            "type": "string"
+          },
+          "stop_loss_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Loss Pct"
+          },
+          "take_profit_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit Pct"
+          },
+          "trailing_stop_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trailing Stop Pct"
+          }
+        },
+        "title": "RiskSettings",
+        "type": "object"
+      },
       "SearchCorrection": {
         "properties": {
           "configs": {
@@ -955,6 +1803,25 @@
           "configs"
         ],
         "title": "SearchCorrection",
+        "type": "object"
+      },
+      "SeriesPoint": {
+        "properties": {
+          "t": {
+            "format": "date-time",
+            "title": "T",
+            "type": "string"
+          },
+          "v": {
+            "title": "V",
+            "type": "number"
+          }
+        },
+        "required": [
+          "t",
+          "v"
+        ],
+        "title": "SeriesPoint",
         "type": "object"
       },
       "SessionDetail": {
@@ -1136,6 +2003,24 @@
         "title": "SessionTrade",
         "type": "object"
       },
+      "StrategyChoice": {
+        "properties": {
+          "params": {
+            "default": {},
+            "title": "Params",
+            "type": "object"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy"
+        ],
+        "title": "StrategyChoice",
+        "type": "object"
+      },
       "StrategyInfo": {
         "properties": {
           "name": {
@@ -1211,6 +2096,56 @@
           "default"
         ],
         "title": "StrategyParam",
+        "type": "object"
+      },
+      "TradeOut": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "commission": {
+            "default": 0.0,
+            "title": "Commission",
+            "type": "number"
+          },
+          "pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestamp",
+          "symbol",
+          "action",
+          "qty",
+          "price"
+        ],
+        "title": "TradeOut",
         "type": "object"
       },
       "Universe": {
@@ -1290,6 +2225,64 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WalkForwardWindow": {
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "params": {
+            "title": "Params",
+            "type": "object"
+          },
+          "test_end": {
+            "format": "date-time",
+            "title": "Test End",
+            "type": "string"
+          },
+          "test_metrics": {
+            "title": "Test Metrics",
+            "type": "object"
+          },
+          "test_start": {
+            "format": "date-time",
+            "title": "Test Start",
+            "type": "string"
+          },
+          "train_end": {
+            "format": "date-time",
+            "title": "Train End",
+            "type": "string"
+          },
+          "train_objective": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Objective"
+          },
+          "train_start": {
+            "format": "date-time",
+            "title": "Train Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "train_start",
+          "train_end",
+          "test_start",
+          "test_end",
+          "params",
+          "test_metrics"
+        ],
+        "title": "WalkForwardWindow",
         "type": "object"
       }
     }
@@ -1556,6 +2549,239 @@
         "summary": "Health",
         "tags": [
           "service"
+        ]
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "description": "Recent jobs, newest first, without their results.",
+        "operationId": "jobs_api_jobs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Job"
+                  },
+                  "title": "Response Jobs Api Jobs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Jobs",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/jobs/backtest": {
+      "post": {
+        "operationId": "start_backtest_api_jobs_backtest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "this run kind is not allowed here"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "too many runs in progress"
+          }
+        },
+        "summary": "Start Backtest",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/jobs/capabilities": {
+      "get": {
+        "operationId": "capabilities_api_jobs_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCapabilities"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Capabilities",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/jobs/compare": {
+      "post": {
+        "operationId": "start_compare_api_jobs_compare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "this run kind is not allowed here"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "too many runs in progress"
+          }
+        },
+        "summary": "Start Compare",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/jobs/optimize": {
+      "post": {
+        "operationId": "start_optimize_api_jobs_optimize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptimizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "this run kind is not allowed here"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "too many runs in progress"
+          }
+        },
+        "summary": "Start Optimize",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "operationId": "job_api_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "no such job"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Job",
+        "tags": [
+          "runs"
         ]
       }
     },
