@@ -1089,8 +1089,8 @@ elif st.session_state.active_view == 'live':
             st.info("Not enough recorded candles yet to draw an equity curve.")
     else:
         st.info(f"No {live_mkt} live sessions recorded yet. HK: `./ops/run_daily_candidates.sh`; "
-                "US: `./ops/run_sp100_forward_test.sh`. Session logs reach this machine through "
-                "the VM's daily 16:15 SGT upload, so pull the repo to see the latest.")
+                "US: `./ops/run_sp100_forward_test.sh`. Session logs from the VM reach this machine "
+                "with `./ops/fetch_live_logs.sh`; run it to see the latest.")
 
 elif st.session_state.active_view == 'overview':
     # ─── All Results Overview ──────────────────────────────────────

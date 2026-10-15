@@ -7,12 +7,14 @@ No code needs to be touched to use it.
 ## Starting it
 
 ```bash
-git pull                                   # latest code and live-session logs
+git pull                                   # latest code
+./ops/fetch_live_logs.sh                   # latest live-session logs, copied from the VM
 uv run streamlit run apps/dashboard/app.py # opens http://localhost:8501
 ```
 
 If the dashboard was already running, stop it (Ctrl+C) and start it again after `git pull`.
-A running dashboard keeps using the code it started with.
+A running dashboard keeps using the code it started with; after fetching logs, reloading the
+page is enough.
 
 The **Live** view needs the moomoo OpenD gateway running and logged in on port 11111 to show
 the broker's own account balance, positions and orders. Without it, that view still shows the
@@ -83,9 +85,9 @@ the cloud VM uploads, so it needs no broker connection:
 ![Session history and equity](../images/dashboard/live_hk_sessions.png)
 
 The equity curve uses the account value reported by the broker at the start and end of each
-session. Session logs are recorded on the cloud VM and uploaded daily at 16:15 SGT, so the
-dashboard shows everything up to the last completed session once you run `git pull`. A session
-that is still running, or finished after 16:15, appears the next day.
+session. Session logs are recorded on the cloud VM; `./ops/fetch_live_logs.sh` copies them here
+(the VM no longer uploads them to GitHub), so the dashboard shows everything up to the moment
+of the last fetch, including a session that is still running.
 
 ### Research studies
 
