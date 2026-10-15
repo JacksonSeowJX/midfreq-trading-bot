@@ -28,8 +28,14 @@ COPY results results
 # the price cache for backtests (copied into the build by deploy_dashboard.sh; may be empty)
 COPY data data
 COPY --from=web /src/apps/web/dist apps/web/dist
+# the commit this image was built from, recorded in every run it saves (the image has no .git).
+# Sign-in is on by default here and fails closed: without a project or an access list nobody gets in.
+ARG GIT_COMMIT=unknown
 ENV PATH=/app/.venv/bin:$PATH \
     MIDFREQ_ROOT=/app \
+    MIDFREQ_GIT_COMMIT=$GIT_COMMIT \
+    MIDFREQ_DASHBOARD_RUN_DELETE=off \
+    MIDFREQ_AUTH=firebase \
     MIDFREQ_DASHBOARD_ACCOUNTS=snapshots \
     MIDFREQ_DASHBOARD_JOBS=backtest,compare \
     MIDFREQ_DASHBOARD_MAX_JOBS=1 \

@@ -76,7 +76,7 @@ The workflow's SSH key can run one thing on the VM: `vm/deploy_gate.sh`. Its lin
 `~/.ssh/authorized_keys` is
 
 ```
-command="/home/jacksonetherchainstake/midfreq/bin/deploy_gate.sh",restrict ssh-ed25519 AAAA... github-deploy midfreq-trading-bot
+command="/home/<vm user>/midfreq/bin/deploy_gate.sh",restrict ssh-ed25519 AAAA... github-deploy midfreq-trading-bot
 ```
 
 so whatever is sent arrives as `$SSH_ORIGINAL_COMMAND`, and the gate accepts only `status`,
@@ -94,8 +94,10 @@ tunnel to OpenD's port were all refused. Every request is logged in `~/midfreq/d
 - GitHub, Settings -> Environments -> New environment `production`:
   - Required reviewers: yourself. Deployment branches and tags: selected, `main`.
   - Secret `VM_SSH_KEY`: the private key (`pbcopy < ~/.ssh/midfreq_github_deploy`).
-  - Variables `VM_HOST` = `34.126.79.81`, `VM_USER` = `jacksonetherchainstake`,
-    `VM_KNOWN_HOSTS` = `34.126.79.81 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOJK9cv/uXcuOnh9P83quhChMKiGwBS13GJHOWqqBGPa`
+  - Variables `VM_HOST` = the VM's external IP, `VM_USER` = the VM's login user,
+    `VM_KNOWN_HOSTS` = `<VM_HOST> <the VM's /etc/ssh/ssh_host_ed25519_key.pub, first two fields>`
+    (read it on the VM itself, not with ssh-keyscan, so the value cannot come from an impostor).
+    The actual values are kept in the `production` environment's settings, not in this public file.
     (the VM's host key, read from `/etc/ssh/ssh_host_ed25519_key.pub`).
 
 The VM's external IP is not reserved: if the VM is stopped and started it may change, and
@@ -125,6 +127,30 @@ Cloud Run (dashboard-runtime account: read this bucket only)  <--  browser
 - Until the cutover the bucket is filled from a laptop:
   `./ops/fetch_live_logs.sh && gcloud storage rsync live_sessions gs://midfreq-trading-bot-live-sessions/live_sessions`.
   From the cutover the VM uploads every 2 minutes (`vm/sync_logs.sh`, step 4b below).
+
+### Sign-in
+
+The hosted dashboard can be made private: visitors sign in with Google (Google Identity
+Platform, i.e. Firebase Authentication; no passwords are held anywhere in this system), and only
+the accounts on an access list see any data. A signed-in account not on the list sees "Awaiting
+approval" with its email. The API checks the Firebase ID token on every `/api` route except
+`/api/health` and `/api/auth/config`; the web app's files stay public (they hold no data), and
+Cloud Run stays `--allow-unauthenticated`, because the sign-in page must load. Details:
+`apps/api/README.md`, Sign-in.
+
+- Off by default (a laptop, the VM); on with `MIDFREQ_AUTH=firebase` on the Cloud Run service.
+- One-time setup: `ops/dashboard/setup_auth.sh` (the OAuth client, created once in the console,
+  is described at its top). It enables the Google provider only, adds the service's hostnames to
+  the authorised domains, makes a browser API key restricted to sign-in, and sets the
+  service's `MIDFREQ_AUTH*` variables.
+- The access list, `MIDFREQ_AUTH_ALLOWED_EMAILS` and `MIDFREQ_AUTH_ALLOWED_DOMAINS` (exact
+  domains: `ntu.edu.sg` does not admit `e.ntu.edu.sg`), exists only on the service, never in git.
+  To change it, run `gcloud run services update midfreq-dashboard --region asia-southeast1
+  --update-env-vars '^;^MIDFREQ_AUTH_ALLOWED_EMAILS=a@gmail.com,b@gmail.com'`. An empty list
+  admits nobody.
+- A deploy must keep these variables. `--set-env-vars` replaces every variable on the service,
+  so while `deploy_dashboard.sh` uses it, a deploy drops `MIDFREQ_AUTH` and the site is open
+  again until `setup_auth.sh` is re-run. With `--update-env-vars` they are kept.
 
 ### Broker snapshots
 

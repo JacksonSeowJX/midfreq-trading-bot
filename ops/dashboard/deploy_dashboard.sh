@@ -26,11 +26,13 @@ git archive HEAD pyproject.toml uv.lock packages apps/api apps/web config result
 mkdir -p "$SRC/data" && { [ -d data ] && cp -R data/. "$SRC/data/" || true; }
 echo "price cache: $(find "$SRC/data" -name '*.parquet' | wc -l | tr -d ' ') files"
 gcloud builds submit "$SRC" --region "$REGION" --config ops/dashboard/cloudbuild.yaml \
-    --substitutions "_IMAGE=$IMAGE"
+    --substitutions "_IMAGE=$IMAGE,_COMMIT=$(git rev-parse HEAD)"
 
 gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" \
     --service-account "dashboard-runtime@$PROJECT.iam.gserviceaccount.com" \
     --allow-unauthenticated --port 8080 --memory 2Gi --cpu 1 --min-instances 0 --max-instances 1 \
     --no-cpu-throttling --timeout 300 \
-    --set-env-vars "MIDFREQ_LIVE_SESSIONS=gs://$BUCKET/live_sessions"
+    --update-env-vars "MIDFREQ_LIVE_SESSIONS=gs://$BUCKET/live_sessions,MIDFREQ_RUNS=gs://$PROJECT-runs/runs,MIDFREQ_AUTH_PROJECT=$PROJECT"
+# --update (not --set): the sign-in settings and the access list live only on the service (setup_auth.sh)
+# and must survive every deploy
 gcloud run services describe "$SERVICE" --region "$REGION" --format "value(status.url)"
