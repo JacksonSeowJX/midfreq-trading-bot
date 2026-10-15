@@ -11,10 +11,12 @@ and the scripts involved.
 
 The VM never pulls code. A version is released, then deployed by hand:
 
-1. **Release.** `ops/set_version.sh X.Y.Z`, commit, `git tag vX.Y.Z`, push the tag. CI
+1. **Release.** `ops/set_version.sh X.Y.Z` and commit (not needed for 0.1.0), push `main`, then
+   either Actions -> Release -> **Run workflow** with the version, or push a tag
+   (`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`). The workflow
    (`.github/workflows/release.yml`) builds the six wheels into a bundle, installs it exactly as
-   the VM will, runs every test against the installed wheels, and attaches the bundle to a
-   GitHub Release.
+   the VM will, runs every test against the installed wheels, and publishes a GitHub Release
+   with the bundle (creating the tag, when started from the button).
 2. **Deploy.** `ops/deploy.sh vX.Y.Z` from a laptop, when no session is running. It downloads
    that bundle, checks its checksum, copies it to the VM and runs its installer there.
 3. **Run.** Cron starts each session from `~/midfreq/current`. The new release trades from the

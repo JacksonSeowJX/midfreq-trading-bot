@@ -1,8 +1,11 @@
-# Release: on a vX.Y.Z tag, build the bundle the VM runs, prove it installs and passes the
-# tests exactly as it will on the VM, and publish it as a GitHub Release.
+# Release: build the bundle the VM runs, prove it installs and passes the tests exactly as it
+# will on the VM, and publish it as a GitHub Release tagged vX.Y.Z. Two ways to start it:
 #
-#   ops/set_version.sh X.Y.Z && git commit -am "Release X.Y.Z" && git tag vX.Y.Z
-#   git push origin main vX.Y.Z
+#   - Actions tab -> Release -> Run workflow, on main, with the version (X.Y.Z). The tag is
+#     created on that commit when the release is published.
+#   - push a tag:  git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z
+#
+# Either way the packages must already carry that version (ops/set_version.sh X.Y.Z, commit).
 #
 # Deploying is a separate, manual step: ops/deploy.sh vX.Y.Z (see ops/README.md).
 name: Release
@@ -10,6 +13,11 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, X.Y.Z (must match the packages' pyproject.toml)"
+        required: true
 
 permissions:
   contents: write
@@ -18,6 +26,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # vX.Y.Z from the pushed tag, or from the version typed into "Run workflow"
+      TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -25,11 +36,15 @@ jobs:
         with:
           python-version: "3.10"        # the VM's interpreter
 
-      - name: Tag matches the package versions
+      - name: Version matches the packages, and is not released yet
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          v="${GITHUB_REF_NAME#v}"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not vX.Y.Z: $TAG"; exit 1; }
+          v="${TAG#v}"
           bad=$(grep -L "^version = \"$v\"" pyproject.toml packages/*/pyproject.toml || true)
-          [ -z "$bad" ] || { echo "tag $GITHUB_REF_NAME but these files say otherwise: $bad"; exit 1; }
+          [ -z "$bad" ] || { echo "$TAG but these files say otherwise (run ops/set_version.sh $v): $bad"; exit 1; }
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "$TAG is already released"; exit 1; fi
 
       - name: Build the bundle
         run: ./ops/build_release.sh
@@ -39,7 +54,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/midfreq/runtime"
           cp -R config "$RUNNER_TEMP/midfreq/runtime/"
           MIDFREQ_HOME="$RUNNER_TEMP/midfreq" PYTHON_BASE=python3.10 \
-            ./ops/vm/install_release.sh "dist/midfreq-${GITHUB_REF_NAME#v}.tar.gz"
+            ./ops/vm/install_release.sh "dist/midfreq-${TAG#v}.tar.gz"
 
       - name: Tests against the installed release
         run: |
@@ -50,6 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          v="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" "dist/midfreq-$v.tar.gz" "dist/midfreq-$v.tar.gz.sha256" \
-            --title "$GITHUB_REF_NAME" --generate-notes
+          v="${TAG#v}"
+          # --target: from "Run workflow" the tag does not exist yet and is created on this commit
+          gh release create "$TAG" "dist/midfreq-$v.tar.gz" "dist/midfreq-$v.tar.gz.sha256" \
+            --target "$GITHUB_SHA" --title "$TAG" --generate-notes
