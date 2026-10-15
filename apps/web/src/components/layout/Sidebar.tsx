@@ -1,5 +1,6 @@
 import {
   ActivityIcon,
+  BookOpenIcon,
   ChartCandlestickIcon,
   FolderOpenIcon,
   GitCompareIcon,
@@ -33,6 +34,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { to: '/optimize', label: 'Optimize', icon: SlidersHorizontalIcon },
     ],
   },
+  { group: 'Help', items: [{ to: '/guide', label: 'Guide', icon: BookOpenIcon }] },
 ]
 
 /** Icon rail on tablets, labelled list from lg up. */

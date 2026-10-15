@@ -4,7 +4,7 @@ standard (midfreq.research.results_index), and the raw result files the research
 """
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -16,6 +16,7 @@ from midfreq.api.convert import plain, records
 from midfreq.api.deps import get_settings
 from midfreq.api.labels import study_and_label
 from midfreq.api.settings import Settings
+from midfreq.research.results_index import run_stamp
 from midfreq.research import results_index
 
 log = logging.getLogger(__name__)
@@ -24,12 +25,23 @@ router = APIRouter()
 KINDS = (".csv", ".json")
 
 
+def _run_time(path: Path, mtime: float) -> datetime:
+    """When the study ran: the timestamp in its file name (the VM and the studies write SGT, so it
+    is read as UTC+8), or the file's mtime if the name has none."""
+    stamp = run_stamp(path)
+    if stamp:
+        sgt = timezone(timedelta(hours=8))
+        return datetime.strptime(stamp, "%Y%m%d%H%M%S").replace(tzinfo=sgt).astimezone(timezone.utc)
+    return datetime.fromtimestamp(mtime, tz=timezone.utc)
+
+
 def result_files(results_dir: Path) -> List[Path]:
     """The CSV and JSON files directly in results/, newest first (as the research view lists them)."""
     if not results_dir.is_dir():
         return []
     files = [p for p in results_dir.iterdir() if p.is_file() and p.suffix.lower() in KINDS]
-    return sorted(files, key=lambda p: (-p.stat().st_mtime, p.name))
+    # newest by the run timestamp in the name (mtimes are reset by copies and checkouts)
+    return sorted(files, key=lambda p: (run_stamp(p), p.stat().st_mtime, p.name), reverse=True)
 
 
 def _search_correction(results_dir: Path) -> Optional[s.SearchCorrection]:
@@ -57,7 +69,7 @@ def research_files(settings: Settings = Depends(get_settings)):
         study, label = study_and_label(p)
         out.append(s.ResearchFile(name=p.name, study=study, label=label, kind=p.suffix.lower()[1:],
                                   size=st.st_size,
-                                  modified=datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)))
+                                  modified=_run_time(p, st.st_mtime)))
     return out
 
 

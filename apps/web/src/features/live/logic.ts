@@ -61,3 +61,6 @@ export function snapshotAge(asOf: string, now: number): { ageMs: number; stale: 
   const ageMs = Math.max(0, now - t)
   return { ageMs, stale: ageMs > SNAPSHOT_STALE_MS }
 }
+
+/** Set once the first-visit welcome card on the Live page has been dismissed or acted on. */
+export const WELCOME_DISMISSED_KEY = 'midfreq.welcome.dismissed'

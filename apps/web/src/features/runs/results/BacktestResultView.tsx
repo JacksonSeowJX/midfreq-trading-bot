@@ -56,7 +56,7 @@ export function BacktestResultView({ result, summary }: { result: BacktestResult
           sub={vsCapital !== null ? `${fmtMoney(vsCapital, ccy, 0, true)} on ${fmtMoney(capital, ccy)}` : undefined}
           subTone={tone(vsCapital)}
         />
-        <KpiCard label="Sharpe ratio" value={fmtNum(h.sharpe, 2)} hint="Annualised, from the per-candle equity curve" />
+        <KpiCard label="Sharpe ratio" value={fmtNum(h.sharpe, 2)} hint="Annualized from daily returns (end-of-day equity, 252 trading days), with no risk-free rate" />
         <KpiCard label="Max drawdown" value={fmtPct(h.maxDrawdownPct, 2, false)} hint="Largest fall from a peak of equity" />
         <KpiCard label="Win rate" value={fmtPct(h.winRatePct, 1, false)} hint="Share of closed trades that made money" />
         <KpiCard label="Trades" value={fmtNum(h.trades)} />

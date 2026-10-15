@@ -7,3 +7,5 @@ export const ResearchPage = lazy(() => import('@/features/research/ResearchPage'
 export const BacktestPage = lazy(() => import('@/features/runs/BacktestPage'))
 export const ComparePage = lazy(() => import('@/features/runs/ComparePage'))
 export const OptimizePage = lazy(() => import('@/features/runs/OptimizePage'))
+// the guide brings the markdown renderer
+export const GuidePage = lazy(() => import('@/features/guide/GuidePage'))

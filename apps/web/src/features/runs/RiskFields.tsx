@@ -85,7 +85,7 @@ export function RiskFields({
             onChange={(v) => onChange({ maxDrawdownPct: v })}
             step={1}
             {...LIMITS.maxDrawdownPct}
-            hint="Stops opening positions once equity falls this far from its peak."
+            hint="Measured from the starting capital, not the peak: while equity is this far below it, the strategy acts on no signals (stops still apply)."
             error={errors['risk.max_drawdown_pct']}
           />
           <Field

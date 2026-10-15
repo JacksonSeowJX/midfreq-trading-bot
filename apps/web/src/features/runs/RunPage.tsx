@@ -1,6 +1,6 @@
 import { PlayCircleIcon } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router'
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
+import { useLocation, useSearchParams } from 'react-router'
 import { isApiError } from '@/api/client'
 import { isJobActive, useCapabilities, useJobs, useStartJob, useStrategies, useUniverses } from '@/api/queries'
 import type { Job, JobCapabilities, JobKind } from '@/api/types'
@@ -12,6 +12,7 @@ import { useMarket } from '@/lib/preferences'
 import { detailFieldErrors, resolveCompare, serverFieldErrors } from './form'
 import { JobPanel, LocalOnly, StartError } from './JobPanel'
 import { marketCaps } from './logic'
+import { findPreset, type RunPreset } from './presets'
 import { RecentRuns } from './RecentRuns'
 import { RunForm } from './RunForm'
 
@@ -42,6 +43,45 @@ function useJobParam(): [string | null, (id: string | null) => void] {
 }
 
 /**
+ * A guide example opened by ?preset=...: taken once per navigation (the location's key), then
+ * dropped from the URL, so a reload keeps the form as edited. The form is keyed by that
+ * navigation, so it fills in even when it is already on screen. The preset sets the market too.
+ */
+function usePresetParam(kind: JobKind): { preset: RunPreset; key: string } | null {
+  const [params, setParams] = useSearchParams()
+  const { key } = useLocation()
+  const { setMarket } = useMarket()
+  const id = params.get('preset')
+  const [applied, setApplied] = useState<{ preset: RunPreset; key: string } | null>(null)
+  const [seen, setSeen] = useState<string | null>(null)
+  if (id !== null && seen !== key) {
+    // adjusting state to a new URL during render, so the form never shows the old inputs
+    setSeen(key)
+    const preset = findPreset(kind, id)
+    if (preset) setApplied({ preset, key })
+  }
+
+  const applyMarket = useEffectEvent((preset: RunPreset) => setMarket(preset.market))
+  const dropParam = useEffectEvent(() =>
+    setParams(
+      (p) => {
+        const next = new URLSearchParams(p)
+        next.delete('preset')
+        return next
+      },
+      { replace: true },
+    ),
+  )
+  useLayoutEffect(() => {
+    if (applied) applyMarket(applied.preset)
+  }, [applied])
+  useEffect(() => {
+    if (id !== null) dropParam()
+  }, [id])
+  return applied
+}
+
+/**
  * Backtest, Compare and Optimize share this page: the run form on the left; on the right the
  * open run (progress while it runs, then the result) and the recent runs.
  */
@@ -65,6 +105,7 @@ export function RunPage({
   const start = useStartJob()
   const jobs = useJobs() // shared with RecentRuns: one request
   const [jobId, setJobId] = useJobParam()
+  const applied = usePresetParam(kind)
   const mc = useMemo(() => marketCaps(caps.data, market, universes.data), [caps.data, market, universes.data])
 
   const allowed = caps.data ? caps.data.kinds.includes(kind) : true
@@ -108,6 +149,8 @@ export function RunPage({
               <QueryState query={strategies} skeleton={<FormSkeleton />}>
                 {(s) => (
                   <RunForm
+                    key={applied?.key ?? 'remembered'}
+                    preset={applied?.preset}
                     kind={kind}
                     strategies={s}
                     caps={mc}

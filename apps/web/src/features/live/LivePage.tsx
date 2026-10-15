@@ -6,11 +6,13 @@ import { MARKET_LABEL, useMarket } from '@/lib/preferences'
 import { AccountPanel } from './AccountPanel'
 import { ForwardTestPanel } from './ForwardTestPanel'
 import { SessionsPanel } from './SessionsPanel'
+import { WelcomeCard } from './WelcomeCard'
 
 export default function LivePage() {
   const { market } = useMarket()
   return (
     <>
+      <WelcomeCard />
       <PageHeader
         title={`Live trading · ${MARKET_LABEL[market]}`}
         description={

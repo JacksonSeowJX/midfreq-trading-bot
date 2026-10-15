@@ -56,9 +56,18 @@ def _prefix(path: Path) -> str:
     return m.group(1) if m else path.stem
 
 
+def run_stamp(path: Path) -> str:
+    """The timestamp a study writes into its file name (YYYYMMDDhhmmss), '' if it has none."""
+    m = re.match(r'^(.*?)_(\d{8})(?:_(\d{6}))?$', path.stem)
+    return (m.group(2) + (m.group(3) or '000000')) if m else ''
+
+
 def _newest_per_prefix(paths):
+    # Newest by the run timestamp in the file name, not the file's mtime: a copy or a git checkout
+    # resets mtimes (every file in the hosted dashboard's image has the same one), which picked
+    # older runs of two studies there. mtime only breaks ties and orders unstamped files.
     seen = {}
-    for p in sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True):
+    for p in sorted(paths, key=lambda p: (run_stamp(p), p.stat().st_mtime), reverse=True):
         pre = _prefix(p)
         if pre not in seen:
             seen[pre] = p

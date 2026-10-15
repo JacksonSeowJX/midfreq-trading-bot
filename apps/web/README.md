@@ -6,12 +6,13 @@ itself. It replaces the Streamlit dashboard (`apps/dashboard`) one view at a tim
 
 | View | What it shows | Source |
 |---|---|---|
-| **Live** | The broker account (snapshot, positions, recent orders), the S&P 100 forward test (KPIs, equity curve, trades, holdings), session history with a detail drawer, and account equity over time. Refreshes every 60 s. An account the VM publishes (kind `snapshot`) is badged *Snapshot from the VM* with its age, and warns once it is more than 15 minutes old. | `/api/accounts*`, `/api/forward-test`, `/api/sessions*` |
+| **Live** | The broker account (snapshot, positions, recent orders), the S&P 100 forward test (KPIs, equity curve, trades, holdings), session history with a detail drawer, and account equity over time. Refreshes every 60 s. An account the VM publishes (kind `snapshot`) is badged *Snapshot from the VM* with its age, and warns once it is more than 15 minutes old. A first-visit welcome card links to the guide and a backtest to try; once closed (or used) it stays closed (`localStorage`, `midfreq.welcome.dismissed`). | `/api/accounts*`, `/api/forward-test`, `/api/sessions*` |
 | **Overview** | Every result against the two-configuration standard: summary, a sortable and filterable table (passes highlighted), Config A vs B, pass rate by family, and *Corrected for the search* (Reality Check p-values, PBO). | `/api/results/overview` |
 | **Research files** | Any file in `results/`: a sortable table for CSV (with the quick chart where it is obvious) or a collapsible tree for JSON. | `/api/research/files*` |
 | **Backtest** | One strategy over one period: KPIs, the price as candles with the strategy's indicators (over the price or in a lower pane) and buy/sell markers, the equity curve against the starting capital, and the trades. | `/api/jobs*`, `/api/strategies`, `/api/universes` |
 | **Compare** | Two to eight strategies on the same data: a metrics table (best of each column marked) and their equity curves overlaid. | same |
 | **Optimize** | Grid search (every combination, best first, and a heatmap of the objective when two parameters vary) or walk-forward (each window's chosen parameters and out-of-sample return, with the mean). Allowed only where the API allows it: a local install, not the hosted site. | same |
+| **Guide** | The user guide, [`docs/DASHBOARD_GUIDE.md`](../../docs/DASHBOARD_GUIDE.md), the same file GitHub shows: rendered with its tables, GitHub's heading anchors, and a table of contents on wide screens. Its links to app pages are router links, and its *Try it* links open a run form prefilled. | the markdown, built in |
 
 ## Running it
 
@@ -74,6 +75,21 @@ a skeleton until the first answer, then data. A failure shows a clear message: A
 or a view-specific 404 such as "No HK forward test recorded". If a background refresh fails,
 the last data stays on screen under a banner saying when it is from.
 
+**The guide.** `features/guide/GuidePage.tsx` imports `docs/DASHBOARD_GUIDE.md` as text at build
+time (`@docs/DASHBOARD_GUIDE.md?raw`; `vite.config.ts` aliases `@docs` to the repository's
+`docs/` and lets the dev server read it), and renders it with `react-markdown`, `remark-gfm`
+and `rehype-slug`, whose ids are GitHub's anchors, so `#glossary` works in both places. A link
+to `/backtest`, `/overview` and so on becomes a router link; on GitHub it is dead, so the guide
+names the page in the link text. Editing the markdown changes both; a test checks that every
+`#anchor` and every preset the guide links to exists.
+
+**Presets.** `?preset=<id>` on a run page (`features/runs/presets.ts`: `forward-test`,
+`forward-test-hk-fees`, `compare` `oscillators`, `optimize` `walk-forward`) fills the form with
+a guide example: from the defaults, not the remembered inputs, so the guide's figures
+reproduce, and with the market set. It never runs by itself; a note says what was filled in
+until the first edit or run. The parameter is then dropped from the URL, and the filled form
+is remembered as usual. An unknown preset, or one for another page, is ignored.
+
 **Runs (Backtest, Compare, Optimize).** The three pages share one form (`features/runs/RunForm.tsx`)
 with the Streamlit sidebar's controls and limits: strategy and its parameters (min, max, step
 from `/api/strategies`), the market from the top bar, a searchable symbol among those with
@@ -102,7 +118,8 @@ Vite, React 19, TypeScript (strict, `noUncheckedIndexedAccess`), Tailwind CSS 4,
 shadcn/ui-style components on Radix primitives (only the ones used, in `src/components/ui`),
 TanStack Query, React Router, TradingView `lightweight-charts` for equity curves and the
 backtest's candles, ECharts (tree-shaken, loaded only with Overview, Research and Optimize) for
-research charts and the optimize heatmap, `lucide-react` icons. The run pages load on demand.
+research charts and the optimize heatmap, `react-markdown` (with `remark-gfm` and `rehype-slug`,
+loaded only with the Guide page) for the guide, `lucide-react` icons. The run pages load on demand.
 Tests use Vitest, Testing Library and MSW.
 
 ### Layout of the code
@@ -113,8 +130,9 @@ src/
   components/   layout/ (shell, nav, top bar), ui/ (primitives), charts/, DataTable,
                 KpiCard, SourcePanel, states (loading, empty, error)
   features/     live/, overview/, research/, runs/ (Backtest, Compare, Optimize: the
-                shared form in form.ts + RunForm.tsx, the job flow, results/), placeholders/:
-                one folder per view, with logic.ts holding each view's pure functions
+                shared form in form.ts + RunForm.tsx, presets.ts, the job flow, results/),
+                guide/, placeholders/: one folder per view, with logic.ts holding each
+                view's pure functions
   lib/          formatting, theme and market preferences
   test/         typed fixtures, MSW handlers, render helpers
   routes.tsx    the route table
@@ -142,7 +160,9 @@ the VM snapshot badge, the session drawer, the overview filters and the Reality 
 the research viewer, routing, the API-down and 501 states, and for the runs: the form
 (parameters, validation, symbol search, pair and universe, risk section, remembered inputs),
 the job states (queued, running, done, failed; 403, 422, 429; deep links and recent runs; the
-tests shorten the poll interval through `JOB_POLL`) and each result view from fixtures.
+tests shorten the poll interval through `JOB_POLL`) and each result view from fixtures; each
+preset's form values and the request it sends; the guide page (its headings and anchors from
+the real markdown, the table of contents, router links); and the welcome card.
 
 ## Dependencies
 

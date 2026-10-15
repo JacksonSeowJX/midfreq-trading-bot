@@ -47,9 +47,11 @@ def test_an_empty_results_folder_is_an_empty_overview(client, settings):
 def test_result_files_are_listed_newest_first_with_the_research_views_labels(client):
     files = client.get("/api/research/files").json()
     assert [f["name"] for f in files] == [
+        # by the run timestamp in the name; a file without one (the PBO result) comes last
         "alpha_vs_market_20260821_20261015_185634.json", "reality_check_20260929_050842.json",
-        "pbo_sp100_reversal_full96.json", "spread_hk_20260923_115005.csv", NEW,
-        "cross_sectional_corrected_20260901_000000.csv", "cross_sectional_sp100_20260824_142925.csv"]
+        "spread_hk_20260923_115005.csv", NEW,
+        "cross_sectional_corrected_20260901_000000.csv", "cross_sectional_sp100_20260824_142925.csv",
+        "pbo_sp100_reversal_full96.json"]
     by_name = {f["name"]: f for f in files}
     assert by_name[NEW]["study"] == "cross_sectional_corrected"
     assert by_name[NEW]["label"].startswith("Cross-Sectional, corrected")
@@ -95,3 +97,15 @@ def test_smoke_the_repositorys_own_results_read(client_for):
     assert files and all(f["kind"] in ("csv", "json") for f in files)
     first_csv = next(f["name"] for f in files if f["kind"] == "csv")
     assert client.get(f"/api/research/files/{first_csv}").status_code == 200
+
+
+def test_the_newest_run_is_chosen_by_the_name_not_the_file_time(tmp_path):
+    """A git checkout or a copy gives every file the same mtime (the hosted image); the run
+    timestamp in the name must still pick the newest run of a study."""
+    import os
+    from midfreq.research.results_index import _newest_per_prefix
+    old = tmp_path / "study_x_20260802_054116.csv"; new = tmp_path / "study_x_20260909_040502.csv"
+    for f in (old, new):
+        f.write_text("a\n1\n")
+    os.utime(new, (1_000_000, 1_000_000)); os.utime(old, (2_000_000, 2_000_000))   # older run, newer mtime
+    assert _newest_per_prefix([old, new])["study_x"] == new

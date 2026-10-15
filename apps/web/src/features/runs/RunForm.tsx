@@ -1,4 +1,4 @@
-import { CircleAlertIcon, InfoIcon, LoaderCircleIcon, PlayIcon } from 'lucide-react'
+import { BookOpenIcon, CircleAlertIcon, InfoIcon, LoaderCircleIcon, PlayIcon } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { StartJob } from '@/api/queries'
 import type { JobKind, StrategyInfo } from '@/api/types'
@@ -39,6 +39,7 @@ import {
   type RunForm as RunFormState,
 } from './form'
 import { forTimeframe, type MarketCaps } from './logic'
+import type { RunPreset } from './presets'
 import { RiskFields } from './RiskFields'
 
 function fmtLimit(v: number | null | undefined): string {
@@ -139,18 +140,33 @@ export interface RunFormProps {
   serverErrors?: FieldErrors
   /** called on any edit, so stale server errors can be cleared */
   onEdit?: () => void
+  /** a guide example to fill the form with when it mounts, instead of the remembered inputs */
+  preset?: RunPreset
 }
 
 /**
  * The run settings, the Streamlit sidebar's controls: strategy and parameters, the data
  * (market from the top bar, symbol, pair, universe, timeframe, dates), money (capital,
- * commission, slippage) and, folded away, risk and sizing. Remembered per view.
+ * commission, slippage) and, folded away, risk and sizing. Remembered per view; a preset
+ * (a guide example) replaces the remembered inputs when the form mounts, and says so until
+ * the first edit or run.
  */
-export function RunForm({ kind, strategies, caps: allCaps, objectives, onSubmit, submitting, serverErrors = {}, onEdit }: RunFormProps) {
+export function RunForm({
+  kind,
+  strategies,
+  caps: allCaps,
+  objectives,
+  onSubmit,
+  submitting,
+  serverErrors = {},
+  onEdit,
+  preset,
+}: RunFormProps) {
   const formId = useId()
   const formRef = useRef<HTMLFormElement>(null)
   const { market } = useMarket()
-  const [form, setForm] = useState<RunFormState>(() => loadForm(kind))
+  const [form, setForm] = useState<RunFormState>(() => (preset ? preset.form() : loadForm(kind)))
+  const [presetNote, setPresetNote] = useState(preset?.title ?? null)
   const [submitted, setSubmitted] = useState(false)
   const [riskOpen, setRiskOpen] = useState(false)
   const [focusTick, setFocusTick] = useState(0)
@@ -192,27 +208,34 @@ export function RunForm({ kind, strategies, caps: allCaps, objectives, onSubmit,
     if (focusTick) formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
   }, [focusTick])
 
-  function edit(patch: Partial<RunFormState>) {
+  function touched() {
     onEdit?.()
+    setPresetNote(null)
+  }
+  function edit(patch: Partial<RunFormState>) {
+    touched()
     setForm((f) => ({ ...f, ...patch }))
   }
   function editChoice(patch: Partial<MarketChoice>) {
-    onEdit?.()
+    touched()
     setForm((f) => ({ ...f, markets: { ...f.markets, [market]: { ...resolveChoice(f.markets[market], market, caps), ...patch } } }))
   }
   function editParam(name: string, param: string, value: string) {
-    onEdit?.()
+    touched()
     setForm((f) => ({ ...f, params: { ...f.params, [name]: { ...f.params[name], [param]: value } } }))
   }
   function editRisk(patch: Partial<RiskForm>) {
-    onEdit?.()
+    touched()
     setForm((f) => ({ ...f, risk: { ...f.risk, ...patch } }))
   }
 
   function submit(e: FormEvent) {
     e.preventDefault()
     setSubmitted(true)
-    if (check.ok) onSubmit(check.request)
+    if (check.ok) {
+      setPresetNote(null)
+      onSubmit(check.request)
+    }
     else setFocusTick((n) => n + 1)
   }
 
@@ -227,6 +250,7 @@ export function RunForm({ kind, strategies, caps: allCaps, objectives, onSubmit,
 
   return (
     <form ref={formRef} noValidate onSubmit={submit} aria-label={`${KIND_SUBMIT[kind]} settings`}>
+      {presetNote ? <PresetNote title={presetNote} submitLabel={submitLabel} /> : null}
       {kind === 'compare' ? (
         <FormSection title="Strategies" aside={`${compareNames.length} picked, ${COMPARE_MIN}–${COMPARE_MAX}`}>
           <CompareChecklist
@@ -318,10 +342,11 @@ export function RunForm({ kind, strategies, caps: allCaps, objectives, onSubmit,
               aria-describedby={describedBy(id('universe'), errors.universe, universe?.description)}
               onChange={(e) => editChoice({ universe: e.target.value })}
             >
+              {/* the API's labels end in their size already ("US — S&P 100 (100)"); others get it added */}
               {caps.universes.map((u) => (
                 <option key={u.name} value={u.name}>
                   {u.label}
-                  {u.symbols !== null && !u.label.includes(`(${u.symbols})`) ? ` (${u.symbols})` : ''}
+                  {u.symbols !== null && !/\(\d+\)\s*$/.test(u.label) ? ` (${u.symbols})` : ''}
                 </option>
               ))}
             </NativeSelect>
@@ -550,6 +575,21 @@ export function RunForm({ kind, strategies, caps: allCaps, objectives, onSubmit,
         </Button>
       </div>
     </form>
+  )
+}
+
+/** The form holds a guide example: what was filled in, and that nothing has run yet. */
+function PresetNote({ title, submitLabel }: { title: string; submitLabel: string }) {
+  return (
+    <div role="status" className="px-4 pb-3 pt-4">
+      <p className="flex gap-2 rounded-md border-l-2 border-brand bg-muted/60 px-2.5 py-2 text-xs leading-snug text-muted-foreground">
+        <BookOpenIcon aria-hidden className="mt-px size-3.5 shrink-0 text-brand" />
+        <span>
+          <strong className="text-foreground">Filled in from the guide:</strong> {title}. Nothing has run yet; press{' '}
+          <strong className="text-foreground">{submitLabel}</strong> below to run it.
+        </span>
+      </p>
+    </div>
   )
 }
 
