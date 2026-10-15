@@ -33,14 +33,15 @@ import pandas as pd
 from mft.accounting import Portfolio
 from mft.backtest.data_engine import DataEngine
 from mft.backtest.exchange import SimulatedExchange
-from mft.backtest.models import FillModel
+from mft.backtest.fill_models import FillModel
+from mft.backtest.slippage import SlippageModel
 from mft.backtest.results import BacktestResult, currency_metrics
 from mft.cache import Cache
 from mft.common.clock import TestClock
 from mft.common.msgbus import MessageBus
 from mft.common.timestamps import TimeLike, to_ns
 from mft.execution import ExecutionEngine
-from mft.model.data import Bar
+from mft.model.data import Bar, OrderBookDepth, QuoteTick, TradeTick
 from mft.model.fees import FeeModel
 from mft.model.identifiers import InstrumentId, Venue
 from mft.model.instruments import Instrument
@@ -79,15 +80,20 @@ class BacktestEngine:
     def add_venue(self, venue: "str | Venue | VenueSpec",
                   starting_balances: Optional[Mapping[str, float]] = None,
                   fill_model: Optional[FillModel] = None,
-                  fee_model: Optional[FeeModel] = None) -> SimulatedExchange:
-        """Add a simulated venue. Fees default to the venue's model in config/venues.json and fills
-        to the bar close without slippage. `starting_balances` funds the per-currency accounts; a
-        venue settling in an already funded currency (XNYS after XNAS) shares that account."""
+                  fee_model: Optional[FeeModel] = None,
+                  slippage_model: Optional[SlippageModel] = None) -> SimulatedExchange:
+        """Add a simulated venue. Fees default to the venue's model in config/venues.json, fills to
+        the bar close (BarFillModel) and slippage to none, as before; pass e.g. AutoFillModel() and
+        SpreadSlippage() to use finer data and a cost model. A fill model built with slippage_bps
+        keeps it as FixedBpsSlippage unless a slippage model is given. `starting_balances` funds
+        the per-currency accounts; a venue settling in an already funded currency (XNYS after XNAS)
+        shares that account."""
         spec = venue if isinstance(venue, VenueSpec) else self.venues.get(venue)
         if spec.venue in self.exchanges:
             raise ValueError(f"venue {spec.venue} was already added")
         exchange = SimulatedExchange(spec, fill_model or FillModel(), fee_model or spec.fee_model(),
-                                     self.cache, self.portfolio, self.clock, self.execution.handle)
+                                     self.cache, self.portfolio, self.clock, self.execution.handle,
+                                     slippage_model)
         self.exchanges[spec.venue] = exchange
         self.execution.exchanges[spec.venue] = exchange
         for ccy, amount in (starting_balances or {}).items():
@@ -100,13 +106,13 @@ class BacktestEngine:
         self.cache.add_instrument(instrument)
         self.portfolio.account(instrument.currency)
 
-    def add_data(self, bars: Iterable[Bar]) -> None:
-        """One stream of bars (any bar type). An instrument not added explicitly gets the venue's
-        default trading rules."""
-        bars = list(bars)
+    def add_data(self, data: Iterable[object]) -> None:
+        """One stream of market data: bars, QuoteTicks, TradeTicks or OrderBookDepths, in any mix.
+        An instrument not added explicitly gets the venue's default trading rules."""
+        bars = list(data)
         if not bars:
             return
-        for iid in {b.bar_type.instrument_id for b in bars}:
+        for iid in {b.instrument_id for b in bars}:
             if self.cache.instrument(iid) is None:
                 if iid.venue not in self.exchanges:
                     raise ValueError(f"add venue {iid.venue} before data for {iid}")
@@ -129,19 +135,27 @@ class BacktestEngine:
         for strategy in self.strategies:
             strategy.on_start()
 
-        bars = slices = 0
+        bars = slices = items = 0
         first_ts = last_ts = None
         publish = self.msgbus.publish
         for time_slice in self.data_engine.iter_slices(start_ns, end_ns):
             self.clock.set_time(time_slice.ts_event)
-            for bar in time_slice.bars:
-                iid = bar.bar_type.instrument_id
-                self.exchanges[iid.venue].process_bar(bar)
-                self.cache.add_bar(bar)
-                if iid not in self._first_close:
-                    self._first_close[iid] = bar.close
-                self.risk_engine.on_bar(bar)
-                publish(f"data.bars.{bar.bar_type}", bar)
+            for item in time_slice.data:
+                iid = item.instrument_id
+                self.exchanges[iid.venue].process_data(item)
+                self.cache.add_data(item)
+                if iid not in self._first_close and self.cache.last_price(iid) is not None:
+                    self._first_close[iid] = self.cache.last_price(iid)
+                if isinstance(item, Bar):
+                    self.risk_engine.on_bar(item)
+                    publish(f"data.bars.{item.bar_type}", item)
+                elif isinstance(item, QuoteTick):
+                    publish(f"data.quotes.{iid}", item)
+                elif isinstance(item, TradeTick):
+                    publish(f"data.trades.{iid}", item)
+                elif isinstance(item, OrderBookDepth):
+                    publish(f"data.book.{iid}", item)
+            items += len(time_slice.data)
             publish("data.slices", time_slice)
             self.portfolio.snapshot(time_slice.ts_event)
             bars += len(time_slice)
@@ -152,6 +166,7 @@ class BacktestEngine:
         for strategy in self.strategies:
             strategy.on_stop()
         self._result = self._build_result(bars, slices, first_ts, last_ts)
+        self._result.data_processed = items
         return self._result
 
     @property

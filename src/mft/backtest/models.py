@@ -7,7 +7,10 @@ Kept for compatibility: the fill models now live in mft.backtest.fill_models.
 - timing="next_open": fill at the instrument's next bar's open;
 - LegacyFillModel: fill at the price the core strategy passed, without lot rounding.
 """
-from mft.backtest.fill_models import (  # noqa: F401
+from mft.backtest.fill_models import (
     CLOSE, NEXT_OPEN, REFERENCE, AutoFillModel, BarFillModel, Fill, FillModel, LegacyFillModel,
     OrderBookFillModel, QuoteFillModel, TradeFillModel,
 )
+
+__all__ = ["CLOSE", "NEXT_OPEN", "REFERENCE", "AutoFillModel", "BarFillModel", "Fill", "FillModel",
+           "LegacyFillModel", "OrderBookFillModel", "QuoteFillModel", "TradeFillModel"]

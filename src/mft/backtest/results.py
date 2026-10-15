@@ -31,6 +31,7 @@ class BacktestResult:
     metrics: Dict[str, Dict[str, Any]]
     bars_processed: int = 0
     slices_processed: int = 0
+    data_processed: int = 0                    # bars plus quotes, trades and book snapshots
     first_ts: pd.Timestamp = None
     last_ts: pd.Timestamp = None
     venues: List[str] = field(default_factory=list)

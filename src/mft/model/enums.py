@@ -51,6 +51,7 @@ class OrderStatus(str, Enum):
     ACCEPTED = "ACCEPTED"     # resting at the venue
     DENIED = "DENIED"         # stopped by the RiskEngine before reaching the venue
     REJECTED = "REJECTED"     # refused by the venue (cash, lot size, no market)
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"   # some quantity filled, the rest still working
     FILLED = "FILLED"
     CANCELED = "CANCELED"
 

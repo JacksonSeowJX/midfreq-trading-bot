@@ -98,6 +98,15 @@ class Strategy:
     def on_signal(self, signal: Signal) -> None:
         ...
 
+    def on_quote_tick(self, quote) -> None:
+        ...
+
+    def on_trade_tick(self, trade) -> None:
+        ...
+
+    def on_order_book(self, book) -> None:
+        ...
+
     def on_order_accepted(self, event: OrderAccepted) -> None:
         ...
 
@@ -121,6 +130,15 @@ class Strategy:
     def subscribe_bars(self, bar_type: "BarType | str") -> None:
         bt = bar_type if isinstance(bar_type, BarType) else BarType.from_str(bar_type)
         self._msgbus.subscribe(f"data.bars.{bt}", self._handle_bar)
+
+    def subscribe_quote_ticks(self, instrument_id: "InstrumentId | str") -> None:
+        self._msgbus.subscribe(f"data.quotes.{as_instrument_id(instrument_id)}", self._handle_quote)
+
+    def subscribe_trade_ticks(self, instrument_id: "InstrumentId | str") -> None:
+        self._msgbus.subscribe(f"data.trades.{as_instrument_id(instrument_id)}", self._handle_trade)
+
+    def subscribe_order_book(self, instrument_id: "InstrumentId | str") -> None:
+        self._msgbus.subscribe(f"data.book.{as_instrument_id(instrument_id)}", self._handle_book)
 
     def subscribe_slices(self) -> None:
         self._msgbus.subscribe("data.slices", self._handle_slice)
@@ -158,6 +176,15 @@ class Strategy:
 
     def _handle_bar(self, bar: Bar) -> None:
         self.on_bar(bar)
+
+    def _handle_quote(self, quote) -> None:
+        self.on_quote_tick(quote)
+
+    def _handle_trade(self, trade) -> None:
+        self.on_trade_tick(trade)
+
+    def _handle_book(self, book) -> None:
+        self.on_order_book(book)
 
     def _handle_slice(self, time_slice) -> None:
         self.on_slice(time_slice)

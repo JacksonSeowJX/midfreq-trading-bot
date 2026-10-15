@@ -83,6 +83,9 @@ class FillModel:
     def fill(self, order, state) -> List[Fill]:
         raise NotImplementedError
 
+    def forget(self, order) -> None:
+        """The order is no longer resting; drop any per-order state (queue position)."""
+
     def tradable(self, qty: float, state) -> float:
         """`qty` rounded down to whole lots (when lots are enforced)."""
         inst = getattr(state, "instrument", None)
@@ -411,3 +414,6 @@ class AutoFillModel(FillModel):
 
     def sequence(self, order, bar: Bar) -> float:
         return self.bar.sequence(order, bar)
+
+    def forget(self, order) -> None:
+        self.book.forget(order)

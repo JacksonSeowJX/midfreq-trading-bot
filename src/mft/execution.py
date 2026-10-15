@@ -66,7 +66,8 @@ class ExecutionEngine:
         if isinstance(event, OrderSubmitted):
             order.status = OrderStatus.SUBMITTED
         elif isinstance(event, OrderAccepted):
-            order.status = OrderStatus.ACCEPTED
+            # The remainder of a partly filled order starts resting: it stays PARTIALLY_FILLED.
+            order.status = OrderStatus.PARTIALLY_FILLED if order.filled_qty > 0 else OrderStatus.ACCEPTED
         elif isinstance(event, OrderDenied):
             order.status, order.reason = OrderStatus.DENIED, event.reason
         elif isinstance(event, OrderRejected):
@@ -81,5 +82,5 @@ class ExecutionEngine:
                 order.avg_px = (order.avg_px * order.filled_qty + event.last_px * event.last_qty) / total
             order.filled_qty += event.last_qty
             order.commission += event.commission
-            if order.filled_qty >= order.quantity:
-                order.status = OrderStatus.FILLED
+            order.status = (OrderStatus.FILLED if order.filled_qty >= order.quantity
+                            else OrderStatus.PARTIALLY_FILLED)
