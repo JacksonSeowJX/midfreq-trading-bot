@@ -12,6 +12,7 @@ which is what keeps a request from naming a path outside the record.
 """
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from abc import ABC, abstractmethod
 from functools import lru_cache
@@ -123,15 +124,20 @@ class GcsMirrorRecordStore(RecordStore):
                 return
             try:
                 bucket = self._client_factory().bucket(self.bucket_name)
-                seen = {}
+                seen, changed = {}, []
                 for blob in bucket.list_blobs(prefix=self.prefix):
                     name = blob.name[len(self.prefix):]
                     if not name or "/" in name:          # only the files directly under the prefix
                         continue
                     seen[name] = blob.generation
                     if self._generations.get(name) != blob.generation:
-                        self.mirror.mkdir(parents=True, exist_ok=True)
-                        blob.download_to_filename(str(self.mirror / name))
+                        changed.append((name, blob))
+                if changed:
+                    # in parallel: a cold start mirrors a few hundred small files at once
+                    self.mirror.mkdir(parents=True, exist_ok=True)
+                    with ThreadPoolExecutor(max_workers=16) as pool:
+                        list(pool.map(lambda nb: nb[1].download_to_filename(str(self.mirror / nb[0])), changed))
+                    for name, blob in changed:
                         self._generations[name] = blob.generation
                 for name in set(self._generations) - set(seen):
                     (self.mirror / name).unlink(missing_ok=True)
