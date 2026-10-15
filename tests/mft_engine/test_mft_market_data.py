@@ -41,9 +41,12 @@ def test_market_state_tracks_every_kind():
     assert s.last_price == 10.7 and s.trigger.price == 10.7
     s.update(book([(10.5, 100)], [(10.8, 100)], i=3))
     assert (s.best_bid, s.best_ask) == (10.5, 10.8)           # the book outranks the quote
-    s.book_consumed[("SELL", 10.8)] = 50
+    s.take("book", ("SELL", 10.8), 60)
+    s.take("trade", ("x",), 1)
+    assert s.available("book", ("SELL", 10.8), 100) == 40
     s.update(book([(10.5, 100)], [(10.8, 100)], i=4))
-    assert s.book_consumed == {}                              # a new snapshot restores liquidity
+    assert s.available("book", ("SELL", 10.8), 100) == 100   # a new snapshot restores liquidity
+    assert s.consumed("trade") == {("x",): 1}                 # other kinds keep their record
     with pytest.raises(TypeError):
         s.update(object())
     assert s.ts_last == ts(4)

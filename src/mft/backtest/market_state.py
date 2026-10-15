@@ -28,21 +28,35 @@ class MarketState:
     trigger: object = None
     ts_last: int = 0
     recent_closes: Deque[float] = field(default_factory=lambda: deque(maxlen=21))
-    # Size we have already taken from the current book snapshot, per (side, price), so two orders
-    # cannot both consume the same displayed liquidity. Cleared when a new snapshot arrives.
-    book_consumed: Dict[tuple, float] = field(default_factory=dict)
+    # Liquidity our own orders have already taken from the current item of each kind ('bar' volume,
+    # 'quote' and 'book' displayed size, 'trade' printed size), so two orders cannot both use the
+    # same liquidity. A kind's record is cleared when a new item of that kind arrives.
+    _consumed: Dict[str, Dict[tuple, float]] = field(default_factory=dict)
+
+    def consumed(self, kind: str) -> Dict[tuple, float]:
+        return self._consumed.setdefault(kind, {})
+
+    def available(self, kind: str, key: tuple, displayed: float) -> float:
+        return max(0.0, displayed - self.consumed(kind).get(key, 0.0))
+
+    def take(self, kind: str, key: tuple, qty: float) -> None:
+        d = self.consumed(kind)
+        d[key] = d.get(key, 0.0) + qty
 
     def update(self, item) -> None:
         if isinstance(item, Bar):
             self.last_bar = item
             self.recent_closes.append(item.close)
+            self._consumed.pop("bar", None)
         elif isinstance(item, QuoteTick):
             self.quote = item
+            self._consumed.pop("quote", None)
         elif isinstance(item, TradeTick):
             self.last_trade = item
+            self._consumed.pop("trade", None)
         elif isinstance(item, OrderBookDepth):
             self.book = item
-            self.book_consumed = {}
+            self._consumed.pop("book", None)
         else:
             raise TypeError(f"not market data: {item!r}")
         self.ts_last = item.ts_event
