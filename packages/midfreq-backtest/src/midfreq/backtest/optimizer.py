@@ -21,6 +21,8 @@ from midfreq.data.storage import DataStorage
 from midfreq.core.portfolio import Portfolio
 from midfreq.strategies.candle_strategies import BaseStrategy, STRATEGY_REGISTRY
 from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.runstore import (RunStore, latest_candle, record_from_grid_search,
+                                       record_from_walk_forward, save_quietly)
 from midfreq.core.risk_manager import RiskManager
 
 
@@ -106,6 +108,8 @@ def grid_search(
     max_combinations: int = 500,
     progress_callback: Optional[Callable[[float, str], None]] = None,
     commission_rate: float = Portfolio.HK_FEE_RATE,
+    run_store: Optional[RunStore] = None,
+    run_meta: Optional[Dict[str, Any]] = None,
 ) -> pd.DataFrame:
     """
     Exhaustive grid search over all parameter combinations.
@@ -123,6 +127,9 @@ def grid_search(
         slippage_bps: Slippage in basis points
         max_combinations: Safety limit on grid size
         progress_callback: Called with (progress_float, status_string)
+        run_store: If given, the search is saved there once at the end, as one grid_search run
+            (midfreq.backtest.runstore); the returned table is the same either way
+        run_meta: Added to the saved run's manifest (e.g. source, universe, risk settings)
         
     Returns:
         DataFrame with all parameter combos and their metrics, sorted by objective
@@ -143,6 +150,7 @@ def grid_search(
     
     total = len(param_grid)
     results = []
+    last_candle = None  # the latest candle any backtest replayed: the saved run's data cut-off
     
     import io, contextlib
     
@@ -164,6 +172,7 @@ def grid_search(
                 )
             except Exception:
                 metrics = {}
+        last_candle = latest_candle(portfolio, last_candle)
         
         if metrics:
             row = {**params}
@@ -190,6 +199,12 @@ def grid_search(
     df['_traded'] = df['total_trades'] > 0
     df = df.sort_values(['_traded', '_objective'], ascending=[False, False]).reset_index(drop=True)
     df = df.drop(columns=['_traded'])
+
+    save_quietly(run_store, lambda: record_from_grid_search(
+        df, strategy=strategy_name, symbols=symbols, timeframe=timeframe, start=start_date, end=end_date,
+        objective=objective, initial_capital=initial_capital, commission_rate=commission_rate,
+        slippage_bps=slippage_bps, risk=risk_manager, max_combinations=max_combinations,
+        grid_size=len(generate_param_grid(strategy_name)), data_cutoff=last_candle, meta=run_meta))
     return df
 
 
@@ -224,6 +239,8 @@ def walk_forward(
     top_n_params: int = 20,
     progress_callback: Optional[Callable[[float, str], None]] = None,
     commission_rate: float = Portfolio.HK_FEE_RATE,
+    run_store: Optional[RunStore] = None,
+    run_meta: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Walk-forward optimization with rolling train/test windows.
@@ -251,6 +268,10 @@ def walk_forward(
         commission_rate: Per-side commission as a fraction of trade value
             (defaults to the calibrated HK all-in rate; pass 0.0 for a
             gross, cost-free comparison)
+        run_store: If given, the walk-forward is saved there once at the end, as one
+            walk_forward run with its windows table (midfreq.backtest.runstore); the returned
+            result is the same either way
+        run_meta: Added to the saved run's manifest (e.g. source, universe, risk settings)
         
     Returns:
         Dict with 'windows' (list of WalkForwardWindow), 'summary' metrics,
@@ -278,6 +299,7 @@ def walk_forward(
     windows: List[WalkForwardWindow] = []
     oos_returns = []  # Out-of-sample returns
     skipped_windows = []  # windows with too little data to constitute a test
+    last_candle = None  # the latest candle any backtest replayed: the saved run's data cut-off
 
     import io, contextlib
 
@@ -350,6 +372,7 @@ def walk_forward(
                     )
                 except Exception:
                     metrics = {}
+            last_candle = latest_candle(portfolio, last_candle)
             
             if metrics:
                 obj_val = _get_objective_value(metrics, objective)
@@ -375,6 +398,7 @@ def walk_forward(
                 )
             except Exception:
                 test_metrics = {}
+        last_candle = latest_candle(portfolio, last_candle)
         
         if not test_metrics:
             test_metrics = {'return_pct': 0.0, 'sharpe_ratio': 0.0, 'max_drawdown': 0.0}
@@ -441,7 +465,14 @@ def walk_forward(
         'wf_efficiency': wf_efficiency,
     }
     
-    return {
+    result = {
         'windows': windows,
         'summary': summary,
     }
+    if windows:
+        save_quietly(run_store, lambda: record_from_walk_forward(
+            result, strategy=strategy_name, symbols=symbols, timeframe=timeframe, start=start_date,
+            end=end_date, objective=objective, n_splits=n_splits, train_pct=train_pct,
+            initial_capital=initial_capital, commission_rate=commission_rate, slippage_bps=slippage_bps,
+            risk=risk_manager, param_grid_size=len(param_grid), data_cutoff=last_candle, meta=run_meta))
+    return result
