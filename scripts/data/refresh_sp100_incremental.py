@@ -12,22 +12,17 @@ stops cleanly when slots run out rather than failing symbol by symbol
 with the same opaque error.
 
 Usage:
-    python3 scripts/data/refresh_sp100_incremental.py [--dry-run] [--limit N]
+    uv run python scripts/data/refresh_sp100_incremental.py [--dry-run] [--limit N]
 """
 import argparse
-import sys
 import time
 from datetime import datetime, timedelta
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
-
-from core.models import Timeframe
-from core.storage import DataStorage
-from core.config import ConfigLoader
-from providers.moomoo_provider import MoomooProvider
-
-REPO = Path(__file__).resolve().parents[2]
+from midfreq.core.candle import Timeframe
+from midfreq.core.paths import data_dir
+from midfreq.data.storage import DataStorage
+from midfreq.core.config import ConfigLoader
+from midfreq.data.providers.moomoo_provider import MoomooProvider
 
 
 def main():
@@ -45,7 +40,7 @@ def main():
     plan = []
     for s in symbols:
         d = s.replace('.', '_')
-        p = REPO / 'data' / d / '1h.parquet'
+        p = data_dir() / d / '1h.parquet'
         if not p.exists():
             plan.append((s, d, None, 'no cache'))
             continue
@@ -65,7 +60,7 @@ def main():
         print("   ...")
         return
 
-    provider = MoomooProvider(host='127.0.0.1', port=11111)
+    provider = MoomooProvider()   # OpenD host/port from config/connections.yaml
 
     # Ask the broker how many distinct-symbol slots are left before starting,
     # so the run is bounded by the real ceiling instead of discovering it.

@@ -1,10 +1,10 @@
-from pathlib import Path
-
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-OUT = Path(__file__).resolve().parents[2] / 'results' / 'charts' / 'config_flip.png'
+from midfreq.core import paths
+
+OUT = paths.results_dir() / 'charts' / 'config_flip.png'
 
 SURFACE = '#EDE8E0'
 INK = '#2D2D2D'

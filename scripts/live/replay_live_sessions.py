@@ -31,21 +31,20 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / 'src'))
-
 import pandas as pd
 
-import core.storage as storage_mod
-from core.models import Candle, Timeframe
-from core.strategy import STRATEGY_REGISTRY
-from core.risk_manager import RiskManager, SizingMethod, create_position_sizer
-from core.live_engine import LiveTradingEngine
-import core.live_engine as live_mod
+import midfreq.data.storage as storage_mod
+from midfreq.core.paths import repo_root
+from midfreq.core.candle import Candle, Timeframe
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY
+from midfreq.core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+from midfreq.live.live_engine import LiveTradingEngine
+import midfreq.live.live_engine as live_mod
 from datetime import datetime as _dt
 from zoneinfo import ZoneInfo
 
 _NY = ZoneInfo('America/New_York')
+REPO = repo_root()
 
 
 class ReplayClock(_dt):
@@ -163,6 +162,11 @@ def run_scenario(name, sessions, broker_kwargs, crash_session=None):
     # warm-up takes the newest timestamp across ALL symbols, so one symbol with
     # later data would make every replayed candle look stale and be dropped.
     first_day = pd.Timestamp(sessions[0][1][0][0]).normalize()
+    if not any((REPO / 'data' / s.replace('.', '_') / '1h.parquet').exists() for s in SYMBOLS):
+        # Without it warm-up starts from nothing and the first days' clock
+        # counts fail. A fresh checkout or worktree has no data/: point
+        # MIDFREQ_ROOT at a checkout that has the cache (it is only read).
+        print(f"[!] no bar cache under {REPO / 'data'}; warm-up will be empty")
     for s in SYMBOLS:
         src = REPO / 'data' / s.replace('.', '_') / '1h.parquet'
         if src.exists():

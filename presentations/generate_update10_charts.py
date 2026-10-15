@@ -17,7 +17,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from midfreq.core import paths
+
+REPO_ROOT = paths.repo_root()
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent
 
 SURFACE = '#EDE8E0'

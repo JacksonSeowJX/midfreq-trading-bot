@@ -16,14 +16,19 @@ Only the main content area is captured (not the sidebar), with a tall
 viewport so nothing is cut off, and pages with several sections are split
 at their section headings so each report figure shows one thing.
 
+Start the dashboard first, on the port given here:
+    uv run streamlit run apps/dashboard/app.py --server.headless true --server.port 8601
+
 Usage:
-    python3 scripts/tools/capture_dashboard.py [--port 8601] [--out DIR]
+    uv run python scripts/tools/capture_dashboard.py [--port 8601] [--out DIR]
 """
 import argparse
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
+from midfreq.core import paths
+
+REPO = paths.repo_root()
 
 
 def main():

@@ -1,0 +1,83 @@
+[project]
+name = "midfreq-trading-bot"
+version = "0.1.0"
+description = "Mid-frequency quantitative trading bot (NTU FYP CCDS25-1040): workspace root with the dashboard and the live runner."
+requires-python = ">=3.10"
+dependencies = [
+    "midfreq-core",
+    "midfreq-data",
+    "midfreq-strategies",
+    "midfreq-backtest",
+    "midfreq-live",
+    "midfreq-research",
+    "midfreq-data[moomoo,ibkr,yfinance,crypto]",
+    "midfreq-strategies[hmm]",
+    "streamlit",
+    "plotly",
+    "matplotlib",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "import-linter>=2"]
+
+[tool.uv]
+package = false
+# The Mac and the VM both run Python 3.12 (Anaconda); resolve for that only.
+environments = ["python_version == '3.12'"]
+# Pinned to the versions every reported result was produced with (the Anaconda
+# environment on the Mac and the VM); pandas 3 changes the default time unit.
+constraint-dependencies = [
+    "pandas==2.2.2",
+    "numpy==1.26.4",
+    "pyarrow==16.1.0",
+    "pydantic==2.8.2",
+    "statsmodels==0.14.2",
+    "hmmlearn==0.3.3",
+    "scikit-learn==1.5.1",
+    "scipy==1.13.1",
+    "moomoo-api==10.2.6208",
+    "streamlit==1.37.1",
+    "plotly==5.24.1",
+    "matplotlib==3.9.2",
+    "yfinance==1.2.0",
+    "ib-insync==0.9.86",
+    "ccxt==4.5.88",
+    "pytz==2024.1",
+    "requests==2.32.3",
+    "pyyaml==6.0.1",
+    "python-dotenv==0.21.0",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+midfreq-core = { workspace = true }
+midfreq-data = { workspace = true }
+midfreq-strategies = { workspace = true }
+midfreq-backtest = { workspace = true }
+midfreq-live = { workspace = true }
+midfreq-research = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "tests"]
+addopts = "--import-mode=importlib"
+# shared test helpers (fake connectors, synthetic markets) importable from any package's tests
+pythonpath = ["tests/support"]
+markers = ["slow: needs the real data/ cache (opt-in: MIDFREQ_SLOW=1)"]
+
+# Layering: a package may only import packages below it.
+#   apps / research  ->  live, backtest  ->  strategies, data  ->  core
+[tool.importlinter]
+# midfreq is a PEP 420 namespace spread over six distributions, so list the portions
+root_packages = ["midfreq.core", "midfreq.data", "midfreq.strategies", "midfreq.backtest", "midfreq.live", "midfreq.research"]
+
+[[tool.importlinter.contracts]]
+name = "Package layers"
+type = "layers"
+layers = [
+    "midfreq.research",
+    "midfreq.live | midfreq.backtest",
+    "midfreq.strategies | midfreq.data",
+    "midfreq.core",
+]

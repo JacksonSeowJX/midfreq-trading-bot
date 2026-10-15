@@ -22,6 +22,8 @@ import sys
 
 import pandas as pd
 
+from midfreq.core import paths
+
 prs = Presentation()
 prs.slide_width = Inches(13.333)
 prs.slide_height = Inches(7.5)
@@ -36,7 +38,7 @@ DIM = RGBColor(0x6B, 0x6B, 0x63)
 MID = RGBColor(0x55, 0x55, 0x50)
 
 CHART_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent
-RESULTS = Path(__file__).resolve().parent.parent / 'results'
+RESULTS = paths.results_dir()
 
 _rc_file = sorted(glob.glob(str(RESULTS / 'reality_check_2*.json')))[-1]
 RC = json.loads(Path(_rc_file).read_text())['by_config']

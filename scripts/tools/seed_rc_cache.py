@@ -11,7 +11,7 @@ the cache under the same key the study builds, so the aligned re-run skips
 them and only recomputes the US candidates whose window actually changes.
 
 Usage:
-    python3 scripts/tools/seed_rc_cache.py results/reality_check_XXXX.json \
+    uv run python scripts/tools/seed_rc_cache.py results/reality_check_XXXX.json \
         --only hsi hk_live --end 2026-08-28
 """
 import argparse
@@ -19,8 +19,9 @@ import json
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-CACHE = REPO / 'results' / 'reality_check_cache.json'
+from midfreq.core import paths
+
+CACHE = paths.results_dir() / 'reality_check_cache.json'
 
 # must match _cache_key() in reality_check_study.py
 FEES = {'sp100': 5e-05, 'us_15': 5e-05, 'hsi': 0.0016, 'hk_live': 0.0016}

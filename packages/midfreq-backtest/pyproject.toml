@@ -1,0 +1,18 @@
+[project]
+name = "midfreq-backtest"
+version = "0.1.0"
+description = "Backtesting: the candle backtester and walk-forward optimiser, and the event-driven BacktestEngine with simulated venues, fill and slippage models."
+requires-python = ">=3.10"
+dependencies = ["midfreq-core", "midfreq-data", "midfreq-strategies", "pandas>=2.1"]
+
+[tool.uv.sources]
+midfreq-core = { workspace = true }
+midfreq-data = { workspace = true }
+midfreq-strategies = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/midfreq"]

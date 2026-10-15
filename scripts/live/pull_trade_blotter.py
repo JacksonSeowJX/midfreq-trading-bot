@@ -10,12 +10,10 @@ Usage:
     python3 scripts/live/pull_trade_blotter.py [days]
 """
 import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 import pandas as pd
-from core.order_gateway import MoomooPaperGateway
+from midfreq.core.paths import live_sessions_dir
+from midfreq.live.order_gateway import MoomooPaperGateway
 
 KEEP_COLS = ['create_time', 'updated_time', 'code', 'stock_name', 'trd_side',
              'order_status', 'qty', 'price', 'dealt_qty', 'dealt_avg_price', 'order_id']
@@ -31,7 +29,7 @@ def main():
     df = df[df['order_status'] == 'FILLED_ALL'][KEEP_COLS]
     df = df.sort_values('create_time').reset_index(drop=True)
 
-    out = Path(__file__).resolve().parents[2] / 'live_sessions' / 'trade_blotter.csv'
+    out = live_sessions_dir() / 'trade_blotter.csv'
     df.to_csv(out, index=False)
     print(f"Saved {len(df)} filled trades to {out}")
     print(df.to_string(index=False))

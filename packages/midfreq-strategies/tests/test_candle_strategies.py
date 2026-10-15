@@ -1,0 +1,315 @@
+"""Strategies: signal logic, regime classification, registry integrity."""
+from datetime import datetime, timedelta
+
+import pytest
+
+from midfreq.core.candle import Candle
+from midfreq.core.portfolio import Portfolio
+from midfreq.strategies.candle_strategies import (
+    STRATEGY_REGISTRY, MovingAverageCrossover, RegimeSwitchStrategy,
+    CrossSectionalReversal, MLDirectionClassifier,
+)
+
+T0 = datetime(2026, 1, 5, 10, 0)
+
+
+def feed(strategy, symbol, closes):
+    for i, c in enumerate(closes):
+        strategy.on_data(symbol, Candle(
+            timestamp=T0 + timedelta(hours=i),
+            open=c, high=c * 1.01, low=c * 0.99, close=c, volume=1000))
+
+
+def feed_cross_section(strategy, closes_by_symbol):
+    """Feed multiple symbols' candles interleaved by shared timestamp,
+    matching how the real event stream orders same-timestamp candles."""
+    n = len(next(iter(closes_by_symbol.values())))
+    for i in range(n):
+        ts = T0 + timedelta(hours=i)
+        for symbol, closes in closes_by_symbol.items():
+            c = closes[i]
+            strategy.on_data(symbol, Candle(
+                timestamp=ts, open=c, high=c * 1.01, low=c * 0.99, close=c, volume=1000))
+
+
+class TestSMACrossover:
+    def test_buys_on_golden_cross_and_sells_on_death_cross(self):
+        p = Portfolio(initial_cash=1e6)
+        s = MovingAverageCrossover(p, fast_period=3, slow_period=6)
+        # Fall (fast below slow), then sharp rise (golden cross), then fall again
+        closes = [100 - i for i in range(10)] + [92 + i * 3 for i in range(8)] \
+            + [113 - i * 3 for i in range(8)]
+        feed(s, 'A', closes)
+        actions = [t['action'] for t in p.trade_history]
+        assert actions[:2] == ['BUY', 'SELL']
+
+    def test_no_double_buy_while_holding(self):
+        p = Portfolio(initial_cash=1e6)
+        s = MovingAverageCrossover(p, fast_period=3, slow_period=6)
+        closes = [100 - i for i in range(10)] + [92 + i * 3 for i in range(12)]
+        feed(s, 'A', closes)
+        buys = [t for t in p.trade_history if t['action'] == 'BUY']
+        assert len(buys) == 1
+
+
+class TestRegimeSwitch:
+    def test_monotonic_series_classified_as_trend(self):
+        p = Portfolio(initial_cash=1e6)
+        s = RegimeSwitchStrategy(p, regime_lookback=10, er_threshold=0.3)
+        feed(s, 'A', [100 + i for i in range(15)])
+        assert s.regime.get('A') == 'TREND'
+
+    def test_oscillating_series_classified_as_range(self):
+        p = Portfolio(initial_cash=1e6)
+        s = RegimeSwitchStrategy(p, regime_lookback=10, er_threshold=0.3)
+        feed(s, 'A', [100 + (1 if i % 2 else -1) for i in range(20)])
+        assert s.regime.get('A') == 'RANGE'
+
+    def test_efficiency_ratio_bounds(self):
+        p = Portfolio()
+        s = RegimeSwitchStrategy(p, regime_lookback=5)
+        straight = [100, 101, 102, 103, 104, 105]
+        assert s._efficiency_ratio(straight) == pytest.approx(1.0)
+        churn = [100, 101, 100, 101, 100, 101]
+        er = s._efficiency_ratio(churn)
+        assert 0.0 <= er < 0.5
+
+    def test_flattens_position_on_regime_flip(self):
+        p = Portfolio(initial_cash=1e6)
+        s = RegimeSwitchStrategy(p, regime_lookback=6, er_threshold=0.5,
+                                 fast_period=2, slow_period=4, bb_period=4, num_std=1.0)
+        # Force a position, then force a regime flip from TREND to RANGE
+        trend = [100 + i * 2 for i in range(12)]
+        feed(s, 'A', trend)
+        assert s.regime.get('A') == 'TREND'
+        p.execute_trade('A', True, 100, trend[-1], T0)  # simulate an open position
+        churn_base = trend[-1]
+        churn = [churn_base + (1 if i % 2 else -1) for i in range(12)]
+        feed(s, 'A', churn)
+        assert s.regime.get('A') == 'RANGE'
+        exit_reasons = [t.get('exit_reason') for t in p.trade_history if t['action'] == 'SELL']
+        assert 'regime_change' in exit_reasons
+
+
+class TestCrossSectionalReversal:
+    def test_buys_the_relative_laggard(self):
+        p = Portfolio(initial_cash=1e6)
+        s = CrossSectionalReversal(p, lookback=5, top_n=1)
+        # A rallies, B is flat, C crashes -> C is the clear relative laggard
+        closes = {
+            'A': [100 + i * 2 for i in range(8)],
+            'B': [100.0] * 8,
+            'C': [100 - i * 3 for i in range(8)],
+        }
+        feed_cross_section(s, closes)
+        assert p.get_position_qty('C') > 0
+        assert p.get_position_qty('A') == 0
+        assert p.get_position_qty('B') == 0
+
+    def test_sells_when_no_longer_a_laggard(self):
+        p = Portfolio(initial_cash=1e6)
+        s = CrossSectionalReversal(p, lookback=5, top_n=1)
+        closes = {
+            'A': [100 + i * 2 for i in range(8)],
+            'B': [100.0] * 8,
+            # C crashes first (bought as laggard), then rallies hardest
+            # (no longer a laggard) -> should be sold on rebalance
+            'C': [100 - i * 3 for i in range(4)] + [88 + i * 10 for i in range(4)],
+        }
+        feed_cross_section(s, closes)
+        assert p.get_position_qty('C') == 0
+
+    def test_no_trade_with_fewer_symbols_than_basket_size(self):
+        p = Portfolio(initial_cash=1e6)
+        s = CrossSectionalReversal(p, lookback=5, top_n=3)  # basket bigger than universe
+        closes = {'A': [100 - i for i in range(8)], 'B': [100 + i for i in range(8)]}
+        feed_cross_section(s, closes)
+        assert p.trade_history == []
+
+    def test_history_grows_even_when_never_held(self):
+        p = Portfolio(initial_cash=1e6)
+        s = CrossSectionalReversal(p, lookback=5, top_n=1)
+        closes = {
+            'A': [100 - i * 3 for i in range(8)],   # always the laggard, always bought
+            'B': [100.0] * 8,                        # never a laggard, never bought
+        }
+        feed_cross_section(s, closes)
+        assert p.get_position_qty('B') == 0
+        assert len(s.history['B']) > 0  # still tracked despite never trading
+
+
+class TestMLDirectionClassifier:
+    def test_feature_row_is_causal(self):
+        """The feature at index i must be identical regardless of what
+        prices exist AFTER i — the single most important correctness
+        property for a no-lookahead predictive strategy."""
+        p = Portfolio()
+        s = MLDirectionClassifier(p)
+        prices = [100 + (i % 7) * 1.3 for i in range(30)]
+        feats_full = s._feature_row(prices, 15)
+        feats_truncated = s._feature_row(prices[:20], 15)
+        assert feats_full == feats_truncated
+
+    def test_feature_row_none_with_insufficient_history(self):
+        p = Portfolio()
+        s = MLDirectionClassifier(p)
+        assert s._feature_row([100.0] * 5, 3) is None
+
+    def test_fit_skipped_when_only_one_outcome_class(self):
+        # Strictly increasing prices -> "next candle higher" is always
+        # true -> only one class ever occurs -> fit must be skipped, not
+        # crash on a degenerate single-class logistic regression.
+        p = Portfolio()
+        s = MLDirectionClassifier(p, fit_window=50)
+        prices = [100 + i for i in range(60)]
+        s._fit_model('A', prices)
+        assert 'A' not in s._models
+
+    def test_fits_with_enough_varied_history(self):
+        p = Portfolio(initial_cash=1e6)
+        s = MLDirectionClassifier(p, fit_window=100, refit_every=20)
+        import random
+        rng = random.Random(0)
+        price, closes = 100.0, []
+        for _ in range(150):
+            price *= 1 + rng.uniform(-0.012, 0.012)
+            closes.append(price)
+        feed(s, 'A', closes)
+        assert 'A' in s._models
+        assert 'A' in s._scalers
+
+    def test_no_trade_before_first_fit(self):
+        p = Portfolio(initial_cash=1e6)
+        s = MLDirectionClassifier(p, fit_window=100)
+        feed(s, 'A', [100 + i * 0.1 for i in range(30)])  # too short to fit
+        assert p.trade_history == []
+
+
+class TestRegistry:
+    def test_every_entry_instantiates_with_defaults(self):
+        p = Portfolio()
+        for name, info in STRATEGY_REGISTRY.items():
+            defaults = {k: v['default'] for k, v in info['params'].items()}
+            strategy = info['class'](p, **defaults)
+            assert hasattr(strategy, 'on_data'), name
+
+    def test_param_metadata_complete(self):
+        for name, info in STRATEGY_REGISTRY.items():
+            for key, meta in info['params'].items():
+                for field in ('label', 'min', 'max', 'default', 'step'):
+                    assert field in meta, f"{name}.{key} missing {field}"
+                assert meta['min'] <= meta['default'] <= meta['max'], f"{name}.{key}"
+
+
+def test_basket_sizing_values_each_position_at_its_own_price():
+    """Regression: equity used to value every held position at the price of
+    the symbol being bought, so the second leg of a basket was undersized
+    whenever the two legs traded at very different prices."""
+    from midfreq.core.portfolio import Portfolio
+    from midfreq.core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+    from midfreq.strategies.candle_strategies import CrossSectionalReversal
+    from midfreq.core.candle import Candle
+    from datetime import datetime
+
+    pf = Portfolio(initial_cash=100_000.0, commission_rate=0.0)
+    rm = RiskManager(position_sizer=create_position_sizer(SizingMethod.EQUAL_DOLLAR,
+                                                          n_positions=2, cost_buffer=0.0))
+    s = CrossSectionalReversal(pf, risk_manager=rm, lookback=1, top_n=2, rebalance_every=1)
+    ts = datetime(2026, 1, 1, 10)
+    c = lambda px: Candle(timestamp=ts, open=px, high=px, low=px, close=px, volume=1)
+    s.pending = {'EXP': c(200.0), 'CHEAP': c(20.0)}
+    q1 = s._get_trade_qty('EXP', 200.0)
+    pf.execute_trade('EXP', True, q1, 200.0, ts)
+    q2 = s._get_trade_qty('CHEAP', 20.0)
+    exp_val, cheap_val = q1 * 200.0, q2 * 20.0
+    assert abs(exp_val - cheap_val) / exp_val < 0.01, (exp_val, cheap_val)
+
+
+def test_live_sizing_uses_the_live_price_not_the_decision_close():
+    """Regression: live, the decision close is an hour (or a night) old. A
+    stock that gapped up 22% since was bought 22% over its equal share."""
+    from midfreq.core.portfolio import Portfolio
+    from midfreq.core.risk_manager import RiskManager, SizingMethod, create_position_sizer
+    from midfreq.strategies.candle_strategies import CrossSectionalReversal
+
+    live = {'GAPPED': 223.76, 'FLAT': 50.0}
+    decision = {'GAPPED': 183.435, 'FLAT': 50.0}
+
+    def basket(with_live_price):
+        pf = Portfolio(initial_cash=120_000.0, commission_rate=0.0)
+        if with_live_price:
+            pf.price_ref = live.get
+        rm = RiskManager(position_sizer=create_position_sizer(SizingMethod.EQUAL_DOLLAR,
+                                                              n_positions=2, cost_buffer=0.0))
+        s = CrossSectionalReversal(pf, risk_manager=rm, lookback=1, top_n=2, rebalance_every=1)
+        ts = datetime(2026, 10, 1, 10, 30)
+        s.pending = {k: Candle(timestamp=ts, open=v, high=v, low=v, close=v, volume=1)
+                     for k, v in decision.items()}
+        spent = []
+        for sym in ('GAPPED', 'FLAT'):
+            q = s._get_trade_qty(sym, decision[sym])
+            pf.execute_trade(sym, True, q, live[sym], ts)      # the order fills at the live price
+            spent.append(q * live[sym])
+        return spent
+
+    a, b = basket(with_live_price=True)
+    assert abs(a - b) / max(a, b) < 0.01, (a, b)                # equal dollars, ~60k each
+    a, b = basket(with_live_price=False)
+    assert a > 1.2 * b, (a, b)                                  # what sizing on the stale close did
+
+
+# ── live: act when the cross-section is complete, not an hour later ──────────
+
+def _xs_strategy(full, lookback=1, top_n=1, rebalance_every=1):
+    from midfreq.strategies.candle_strategies import CrossSectionalReversal
+    pf = Portfolio(initial_cash=100_000.0, commission_rate=0.0)
+    s = CrossSectionalReversal(pf, lookback=lookback, top_n=top_n, rebalance_every=rebalance_every)
+    s.full_cross_section = full
+    return s, pf
+
+
+def _feed(s, ts, closes):
+    for sym, px in closes.items():
+        s.on_data(sym, Candle(timestamp=ts, open=px, high=px, low=px, close=px, volume=1))
+
+
+_T = [datetime(2026, 10, 8, 10, 30) + timedelta(hours=h) for h in range(6)]
+_PATH = [{'A': 100, 'B': 100, 'C': 100}, {'A': 90, 'B': 101, 'C': 102}, {'A': 91, 'B': 80, 'C': 103},
+         {'A': 92, 'B': 81, 'C': 70}, {'A': 99, 'B': 82, 'C': 71}, {'A': 99, 'B': 90, 'C': 72}]
+
+
+def test_backtest_closes_a_cross_section_only_when_the_next_timestamp_arrives():
+    s, pf = _xs_strategy(full=0)
+    _feed(s, _T[0], _PATH[0]); _feed(s, _T[1], _PATH[1])
+    assert s._cross_section_count == 1 and not pf.positions       # T1 is still open
+    _feed(s, _T[2], {'A': 91})                                    # first candle of T2 closes T1
+    assert s._cross_section_count == 2 and list(pf.positions) == ['A']
+
+
+def test_live_acts_as_soon_as_the_whole_universe_has_reported():
+    s, pf = _xs_strategy(full=3)
+    _feed(s, _T[0], _PATH[0]); _feed(s, _T[1], {'A': 90, 'B': 101})
+    assert s._cross_section_count == 1 and not pf.positions       # 2 of 3 in: not yet
+    _feed(s, _T[1], {'C': 102})                                   # the last symbol reports
+    assert s._cross_section_count == 2 and list(pf.positions) == ['A']
+    _feed(s, _T[2], {'A': 91})                                    # next hour must not count T1 again
+    assert s._cross_section_count == 2
+
+
+def test_live_falls_back_to_the_next_timestamp_when_a_symbol_never_reports():
+    s, pf = _xs_strategy(full=3)
+    _feed(s, _T[0], _PATH[0]); _feed(s, _T[1], {'A': 90, 'B': 101})    # C is missing this hour
+    assert s._cross_section_count == 1
+    _feed(s, _T[2], {'A': 91})
+    assert s._cross_section_count == 2 and list(pf.positions) == ['A']
+
+
+def test_live_and_backtest_make_the_same_decisions_on_the_same_candles():
+    def run(full):
+        s, pf = _xs_strategy(full=full)
+        for ts, closes in zip(_T, _PATH):
+            _feed(s, ts, closes)
+        _feed(s, _T[-1] + timedelta(hours=1), {'A': 1})           # lets the backtest close the last one
+        return [tuple(sorted((k, str(v)) for k, v in t.items())) for t in pf.trade_history]
+    backtest, live = run(0), run(3)
+    assert backtest and backtest == live

@@ -1,4 +1,4 @@
-# Dashboard theme. The colours match the report's figures; src/ui.py holds the
+# Dashboard theme. The colours match the report's figures; apps/dashboard/ui.py holds the
 # rest of the styling (cards, headings, sidebar).
 [theme]
 base = "light"

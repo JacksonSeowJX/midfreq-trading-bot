@@ -20,12 +20,11 @@ Usage:
 import argparse
 import sys
 import time
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from moomoo import (OpenSecTradeContext, OpenQuoteContext, TrdEnv, TrdMarket,
-                    TrdSide, OrderType, SecurityFirm, RET_OK)
+                    TrdSide, OrderType, RET_OK)
+
+from midfreq.live.order_gateway import moomoo_settings
 
 FILL_WAIT = 90
 
@@ -36,9 +35,14 @@ def main():
     ap.add_argument('--keep', nargs='*', default=[])
     args = ap.parse_args()
 
-    quote = OpenQuoteContext(host='127.0.0.1', port=11111)
-    trd = OpenSecTradeContext(filter_trdmarket=TrdMarket.HK, host='127.0.0.1',
-                              port=11111, security_firm=SecurityFirm.FUTUSECURITIES)
+    opend = moomoo_settings()
+    if opend['trd_env'] != TrdEnv.SIMULATE:
+        print("Refusing to run: this tool is for the paper (SIMULATE) account, but the "
+              "moomoo connection is set to trading_env: real.")
+        return
+    quote = OpenQuoteContext(host=opend['host'], port=opend['port'])
+    trd = OpenSecTradeContext(filter_trdmarket=TrdMarket.HK, host=opend['host'],
+                              port=opend['port'], security_firm=opend['security_firm'])
 
     ret, pos = trd.position_list_query(trd_env=TrdEnv.SIMULATE)
     if ret != RET_OK:
