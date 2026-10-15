@@ -7,7 +7,7 @@
 ### Start Date: 12 Jan 2026
 ### End Date: 19 Oct 2026
 
-**Live dashboard:** https://midfreq-dashboard-123943780205.asia-southeast1.run.app (no installation needed; its Guide page walks through every view)
+**Live dashboard:** https://midfreq-dashboard-123943780205.asia-southeast1.run.app (private: sign in with an invited Google account; nothing to install, and its Guide page walks through every view)
 
 **Documentation:** https://jacksonseowjx.github.io/midfreq-trading-bot/ (architecture, deployment, the dashboard guide and the API reference). It is built from `site_docs/` by `.github/workflows/pages.yml`; GitHub Pages must be enabled once, under Settings -> Pages -> Source: GitHub Actions.
 
