@@ -1,0 +1,285 @@
+{
+  "strategy": "Cross-Sectional Reversal",
+  "universe": "sp100",
+  "n_symbols": 100,
+  "dropped": [],
+  "start": "2023-08-22 16:00:00",
+  "end": "2026-08-21 16:00:00",
+  "commission_per_side": 5e-05,
+  "slippage_bps": 5.0,
+  "newey_west_lags": 5,
+  "verdict_alpha": false,
+  "by_config": {
+    "A (9 windows)": {
+      "windows": 9,
+      "mean_return": 5.725972630299217,
+      "mean_benchmark": 1.0825504344974664,
+      "mean_excess": 4.643422195801751,
+      "pct_windows_excess_positive": 44.44444444444444,
+      "days": 245,
+      "alpha_daily_pct": 0.14713329493866867,
+      "alpha_t": 1.1353071567956534,
+      "alpha_annual_pct": 37.0775903245445,
+      "beta": 1.5827131163862924,
+      "beta_t": 6.3646991059484606,
+      "r2": 0.32049752260758135,
+      "excess_daily_pct": 0.17187378368444334,
+      "excess_t": 1.272613076261169,
+      "excess_annual_pct": 43.31219348847972,
+      "strategy_daily_vol_pct": 3.017905610298486,
+      "benchmark_daily_vol_pct": 1.0794829552828746,
+      "passes_a": false,
+      "passes_b": false,
+      "rerun_mismatches": []
+    },
+    "B (15 windows)": {
+      "windows": 15,
+      "mean_return": 0.6319151102450185,
+      "mean_benchmark": 0.8959887774839795,
+      "mean_excess": -0.2640736672389613,
+      "pct_windows_excess_positive": 33.33333333333333,
+      "days": 245,
+      "alpha_daily_pct": -0.006078528070710174,
+      "alpha_t": -0.07065781814106156,
+      "alpha_annual_pct": -1.531789073818964,
+      "beta": 0.8082456305952778,
+      "beta_t": 5.161311833777396,
+      "r2": 0.17049936261325438,
+      "excess_daily_pct": -0.016808871349807037,
+      "excess_t": -0.19905827080940186,
+      "excess_annual_pct": -4.235835580151374,
+      "strategy_daily_vol_pct": 1.489443065360055,
+      "benchmark_daily_vol_pct": 0.7609251195050901,
+      "passes_a": false,
+      "passes_b": false,
+      "rerun_mismatches": []
+    }
+  },
+  "per_window": [
+    {
+      "window": 1,
+      "test_start": "2023-11-14 16:00:00",
+      "test_end": "2023-12-21 16:00:00",
+      "return": 5.883118372167621,
+      "benchmark_return": 8.133764561304108,
+      "excess": -2.2506461891364875,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 2,
+      "test_start": "2024-03-14 16:00:00",
+      "test_end": "2024-04-20 16:00:00",
+      "return": -5.248111896081726,
+      "benchmark_return": -2.390539464629779,
+      "excess": -2.857572431451947,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 3,
+      "test_start": "2024-07-13 16:00:00",
+      "test_end": "2024-08-19 16:00:00",
+      "return": -0.47203618946914505,
+      "benchmark_return": 1.7277329594385085,
+      "excess": -2.1997691489076536,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 4,
+      "test_start": "2024-11-11 16:00:00",
+      "test_end": "2024-12-18 16:00:00",
+      "return": 2.22006516913572,
+      "benchmark_return": -3.8092013147615504,
+      "excess": 6.0292664838972705,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 5,
+      "test_start": "2025-03-12 16:00:00",
+      "test_end": "2025-04-18 16:00:00",
+      "return": -6.85891484430115,
+      "benchmark_return": -5.224680319823892,
+      "excess": -1.6342345244772583,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 6,
+      "test_start": "2025-07-11 16:00:00",
+      "test_end": "2025-08-17 16:00:00",
+      "return": 7.404497596202389,
+      "benchmark_return": 1.670367387126331,
+      "excess": 5.734130209076058,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 7,
+      "test_start": "2025-11-09 16:00:00",
+      "test_end": "2025-12-16 16:00:00",
+      "return": -9.993400960872592,
+      "benchmark_return": 1.886958205695264,
+      "excess": -11.880359166567855,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 8,
+      "test_start": "2026-03-10 16:00:00",
+      "test_end": "2026-04-16 16:00:00",
+      "return": 14.234989100863618,
+      "benchmark_return": 2.963728913831801,
+      "excess": 11.271260187031817,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 9,
+      "test_start": "2026-07-09 16:00:00",
+      "test_end": "2026-08-15 16:00:00",
+      "return": 44.363547325048216,
+      "benchmark_return": 4.784822982296406,
+      "excess": 39.57872434275181,
+      "config": "A (9 windows)"
+    },
+    {
+      "window": 1,
+      "test_start": "2023-10-12 16:00:00",
+      "test_end": "2023-11-03 16:00:00",
+      "return": 0.7609634549336916,
+      "benchmark_return": 1.9233735836082049,
+      "excess": -1.1624101286745132,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 2,
+      "test_start": "2023-12-24 16:00:00",
+      "test_end": "2024-01-15 16:00:00",
+      "return": -7.523480361281341,
+      "benchmark_return": -0.3053421135310491,
+      "excess": -7.218138247750292,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 3,
+      "test_start": "2024-03-06 16:00:00",
+      "test_end": "2024-03-28 16:00:00",
+      "return": 1.8985149111824287,
+      "benchmark_return": 3.164024576298136,
+      "excess": -1.2655096651157072,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 4,
+      "test_start": "2024-05-18 16:00:00",
+      "test_end": "2024-06-09 16:00:00",
+      "return": 10.236357295340714,
+      "benchmark_return": -0.39335986653427246,
+      "excess": 10.629717161874986,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 5,
+      "test_start": "2024-07-30 16:00:00",
+      "test_end": "2024-08-21 16:00:00",
+      "return": 14.156002211244573,
+      "benchmark_return": 1.9450823725775261,
+      "excess": 12.210919838667047,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 6,
+      "test_start": "2024-10-11 16:00:00",
+      "test_end": "2024-11-02 16:00:00",
+      "return": -5.208772973122672,
+      "benchmark_return": -1.1598807621748128,
+      "excess": -4.048892210947859,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 7,
+      "test_start": "2024-12-23 16:00:00",
+      "test_end": "2025-01-14 16:00:00",
+      "return": 0.07217817840393399,
+      "benchmark_return": 0.9170661174453707,
+      "excess": -0.8448879390414367,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 8,
+      "test_start": "2025-03-06 16:00:00",
+      "test_end": "2025-03-28 16:00:00",
+      "return": 2.03145350060644,
+      "benchmark_return": -2.0679503517392583,
+      "excess": 4.099403852345699,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 9,
+      "test_start": "2025-05-18 16:00:00",
+      "test_end": "2025-06-09 16:00:00",
+      "return": 4.424058000543708,
+      "benchmark_return": 2.273754310739896,
+      "excess": 2.150303689803812,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 10,
+      "test_start": "2025-07-30 16:00:00",
+      "test_end": "2025-08-21 16:00:00",
+      "return": 2.682406279098097,
+      "benchmark_return": 2.1701332526746846,
+      "excess": 0.5122730264234123,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 11,
+      "test_start": "2025-10-11 16:00:00",
+      "test_end": "2025-11-02 16:00:00",
+      "return": 1.6937900096116065,
+      "benchmark_return": 2.788948655877495,
+      "excess": -1.0951586462658884,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 12,
+      "test_start": "2025-12-23 16:00:00",
+      "test_end": "2026-01-14 16:00:00",
+      "return": 1.0729218438396928,
+      "benchmark_return": 2.7056853288008424,
+      "excess": -1.6327634849611496,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 13,
+      "test_start": "2026-03-06 16:00:00",
+      "test_end": "2026-03-28 16:00:00",
+      "return": -8.058623502212155,
+      "benchmark_return": -4.87131712240829,
+      "excess": -3.187306379803865,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 14,
+      "test_start": "2026-05-18 16:00:00",
+      "test_end": "2026-06-09 16:00:00",
+      "return": -4.36554845514489,
+      "benchmark_return": 0.462066163182666,
+      "excess": -4.827614618327556,
+      "config": "B (15 windows)"
+    },
+    {
+      "window": 15,
+      "test_start": "2026-07-30 16:00:00",
+      "test_end": "2026-08-21 16:00:00",
+      "return": -4.393493739368554,
+      "benchmark_return": 3.8875475174425524,
+      "excess": -8.281041256811108,
+      "config": "B (15 windows)"
+    }
+  ],
+  "live_forward_test": {
+    "from_candle": "2026-10-05 10:30:00+00:00",
+    "to_candle": "2026-10-14 16:00:00+00:00",
+    "stocks": 98,
+    "equal_weight_index_return_pct": 1.1685366280682175,
+    "forward_test_return_pct": -0.5910090000000782,
+    "forward_test_as_of": "2026-10-15 04:01:06.717498",
+    "note": "descriptive only; the forward test is measured at its last recorded session, the index at its last recorded candle"
+  }
+}
