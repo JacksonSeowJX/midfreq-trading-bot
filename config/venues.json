@@ -1,0 +1,207 @@
+{
+  "_comment": "Trading venues for the mft package. Equity venues are keyed by ISO 10383 MIC; crypto exchanges, which have none, by name. Fee rates are per side as a fraction of traded value. 'calibrated': false marks a rate taken from a published schedule but not yet checked against real fills.",
+  "venues": {
+    "XHKG": {
+      "name": "Hong Kong Exchanges and Clearing (HKEX)",
+      "asset_class": "EQUITY",
+      "timezone": "Asia/Hong_Kong",
+      "currency": "HKD",
+      "sessions": [["09:30", "12:00"], ["13:00", "16:00"]],
+      "weekdays": [0, 1, 2, 3, 4],
+      "lot_size": {"rule": "per_instrument", "default": 100,
+                   "note": "Board lot differs per stock (Tencent 100, HSBC 400); the connector's instrument provider loads the real one."},
+      "price_increment": 0.001,
+      "fees": {"model": "percent", "rate": 0.0016, "calibrated": true,
+               "note": "All-in per side: broker commission, platform fee, 0.1% stamp duty and exchange/regulatory levies, calibrated against Moomoo paper fills on 2026-07-09 (core.portfolio.Portfolio.HK_FEE_RATE)."},
+      "default_connector": "moomoo",
+      "connectors": {
+        "moomoo": {"market": "HK"},
+        "ibkr": {"exchange": "SEHK", "currency": "HKD", "strip_leading_zeros": true, "code_width": 5},
+        "yfinance": {"suffix": ".HK", "zero_pad": 4, "code_width": 5}
+      }
+    },
+    "XNAS": {
+      "name": "Nasdaq",
+      "asset_class": "EQUITY",
+      "timezone": "America/New_York",
+      "currency": "USD",
+      "sessions": [["09:30", "16:00"]],
+      "weekdays": [0, 1, 2, 3, 4],
+      "lot_size": {"rule": "fixed", "default": 1},
+      "price_increment": 0.01,
+      "fees": {"model": "percent", "rate": 0.00005, "calibrated": true,
+               "note": "Moomoo SG published US schedule, about 0.005% per side; the rate the S&P 100 studies use."},
+      "default_connector": "moomoo",
+      "connectors": {
+        "moomoo": {"market": "US"},
+        "ibkr": {"exchange": "SMART", "primary_exchange": "NASDAQ", "currency": "USD", "class_separator": " "},
+        "yfinance": {"suffix": "", "class_separator": "-"}
+      }
+    },
+    "XNYS": {
+      "name": "New York Stock Exchange",
+      "asset_class": "EQUITY",
+      "timezone": "America/New_York",
+      "currency": "USD",
+      "sessions": [["09:30", "16:00"]],
+      "weekdays": [0, 1, 2, 3, 4],
+      "lot_size": {"rule": "fixed", "default": 1},
+      "price_increment": 0.01,
+      "fees": {"model": "percent", "rate": 0.00005, "calibrated": true,
+               "note": "Moomoo SG published US schedule, about 0.005% per side."},
+      "default_connector": "moomoo",
+      "connectors": {
+        "moomoo": {"market": "US"},
+        "ibkr": {"exchange": "SMART", "primary_exchange": "NYSE", "currency": "USD", "class_separator": " "},
+        "yfinance": {"suffix": "", "class_separator": "-"}
+      }
+    },
+    "XSES": {
+      "name": "Singapore Exchange (SGX)",
+      "asset_class": "EQUITY",
+      "timezone": "Asia/Singapore",
+      "currency": "SGD",
+      "sessions": [["09:00", "12:00"], ["13:00", "17:00"]],
+      "weekdays": [0, 1, 2, 3, 4],
+      "lot_size": {"rule": "per_instrument", "default": 100},
+      "price_increment": 0.001,
+      "fees": {"model": "percent", "rate": 0.001, "calibrated": false,
+               "note": "Approximate all-in (commission, platform, clearing 0.0325%, trading 0.0075%, GST); not checked against fills."},
+      "default_connector": "moomoo",
+      "connectors": {
+        "moomoo": {"market": "SG"},
+        "ibkr": {"exchange": "SGX", "currency": "SGD"},
+        "yfinance": {"suffix": ".SI"}
+      }
+    },
+    "XSHG": {
+      "name": "Shanghai Stock Exchange",
+      "asset_class": "EQUITY",
+      "timezone": "Asia/Shanghai",
+      "currency": "CNY",
+      "sessions": [["09:30", "11:30"], ["13:00", "15:00"]],
+      "weekdays": [0, 1, 2, 3, 4],
+      "lot_size": {"rule": "fixed", "default": 100},
+      "price_increment": 0.01,
+      "fees": {"model": "percent", "rate": 0.0006, "calibrated": false,
+               "note": "Average per side of commission, handling and transfer fees plus the 0.05% sell-side stamp duty; not checked against fills."},
+      "default_connector": "moomoo",
+      "connectors": {
+        "moomoo": {"market": "SH"},
+        "ibkr": {"exchange": "SEHKNTL", "currency": "CNH"},
+        "yfinance": {"suffix": ".SS"}
+      }
+    },
+    "XSHE": {
+      "name": "Shenzhen Stock Exchange",
+      "asset_class": "EQUITY",
+      "timezone": "Asia/Shanghai",
+      "currency": "CNY",
+      "sessions": [["09:30", "11:30"], ["13:00", "15:00"]],
+      "weekdays": [0, 1, 2, 3, 4],
+      "lot_size": {"rule": "fixed", "default": 100},
+      "price_increment": 0.01,
+      "fees": {"model": "percent", "rate": 0.0006, "calibrated": false,
+               "note": "As XSHG; not checked against fills."},
+      "default_connector": "moomoo",
+      "connectors": {
+        "moomoo": {"market": "SZ"},
+        "ibkr": {"exchange": "SEHKSZSE", "currency": "CNH"},
+        "yfinance": {"suffix": ".SZ"}
+      }
+    },
+    "XTKS": {
+      "name": "Tokyo Stock Exchange",
+      "asset_class": "EQUITY",
+      "timezone": "Asia/Tokyo",
+      "currency": "JPY",
+      "sessions": [["09:00", "11:30"], ["12:30", "15:30"]],
+      "weekdays": [0, 1, 2, 3, 4],
+      "lot_size": {"rule": "fixed", "default": 100},
+      "price_increment": 1.0,
+      "fees": {"model": "percent", "rate": 0.0005, "calibrated": false,
+               "note": "Placeholder; not checked against fills."},
+      "default_connector": "moomoo",
+      "connectors": {
+        "moomoo": {"market": "JP"},
+        "ibkr": {"exchange": "TSEJ", "currency": "JPY"},
+        "yfinance": {"suffix": ".T"}
+      }
+    },
+    "BINANCE": {
+      "name": "Binance (spot)",
+      "asset_class": "CRYPTOCURRENCY",
+      "timezone": "UTC",
+      "currency": "USDT",
+      "sessions": "24/7",
+      "weekdays": [0, 1, 2, 3, 4, 5, 6],
+      "lot_size": {"rule": "per_instrument", "default": 0.00001},
+      "price_increment": 0.01,
+      "fees": {"model": "maker_taker", "maker": 0.001, "taker": 0.001, "calibrated": false,
+               "note": "Standard spot tier without the BNB discount."},
+      "default_connector": "binance",
+      "connectors": {
+        "binance": {"base_url": "https://api.binance.com"},
+        "ccxt": {"exchange_id": "binance", "symbology": "native_id"}
+      }
+    },
+    "COINBASE": {
+      "name": "Coinbase Advanced Trade",
+      "asset_class": "CRYPTOCURRENCY",
+      "timezone": "UTC",
+      "currency": "USD",
+      "sessions": "24/7",
+      "weekdays": [0, 1, 2, 3, 4, 5, 6],
+      "lot_size": {"rule": "per_instrument", "default": 0.00000001},
+      "price_increment": 0.01,
+      "fees": {"model": "maker_taker", "maker": 0.006, "taker": 0.012, "calibrated": false,
+               "note": "Lowest 30-day-volume tier; check the current schedule."},
+      "default_connector": "ccxt",
+      "connectors": {
+        "ccxt": {"exchange_id": "coinbase", "symbology": "dash"}
+      }
+    },
+    "KRAKEN": {
+      "name": "Kraken",
+      "asset_class": "CRYPTOCURRENCY",
+      "timezone": "UTC",
+      "currency": "USD",
+      "sessions": "24/7",
+      "weekdays": [0, 1, 2, 3, 4, 5, 6],
+      "lot_size": {"rule": "per_instrument", "default": 0.00000001},
+      "price_increment": 0.1,
+      "fees": {"model": "maker_taker", "maker": 0.0025, "taker": 0.004, "calibrated": false,
+               "note": "Kraken Pro lowest tier. Kraken's OHLC endpoint only returns the most recent 720 bars of any interval."},
+      "default_connector": "ccxt",
+      "connectors": {
+        "ccxt": {"exchange_id": "kraken", "symbology": "dash", "max_bars_per_request": 720}
+      }
+    },
+    "OKX": {
+      "name": "OKX (spot)",
+      "asset_class": "CRYPTOCURRENCY",
+      "timezone": "UTC",
+      "currency": "USDT",
+      "sessions": "24/7",
+      "weekdays": [0, 1, 2, 3, 4, 5, 6],
+      "lot_size": {"rule": "per_instrument", "default": 0.00000001},
+      "price_increment": 0.1,
+      "fees": {"model": "maker_taker", "maker": 0.0008, "taker": 0.001, "calibrated": false,
+               "note": "Regular-user spot tier."},
+      "default_connector": "ccxt",
+      "connectors": {
+        "ccxt": {"exchange_id": "okx", "symbology": "dash", "max_bars_per_request": 100}
+      }
+    }
+  },
+  "listings": {
+    "_comment": "Moomoo's 'US' market, and the old data/US_<SYM> folders, do not say which exchange lists a stock. This table does; any US symbol not listed under XNAS is taken to be on XNYS. Both venues share a timezone, currency and fee model, so the choice only affects the instrument id.",
+    "US": {
+      "default": "XNYS",
+      "XNAS": ["AAPL", "ADBE", "AMAT", "AMD", "AMGN", "AMZN", "AVGO", "BKNG", "CMCSA", "COST",
+               "CSCO", "GILD", "GOOG", "GOOGL", "HON", "INTC", "INTU", "ISRG", "LIN", "LRCX",
+               "MDLZ", "META", "MSFT", "MU", "NFLX", "NVDA", "PEP", "PLTR", "QCOM", "SBUX",
+               "TMUS", "TSLA", "TXN"]
+    }
+  }
+}
