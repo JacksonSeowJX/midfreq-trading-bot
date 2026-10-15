@@ -39,9 +39,17 @@ git commit -q -m "chore: Session logs $(date +%Y-%m-%d) [vm]" 2>/dev/null
 # MERGE_HEAD; a rebase can stall silently mid-way with no clear signal.
 . ~/bin/git_selfheal.sh
 git_selfheal >> ~/preflight.log 2>&1
+. ~/bin/deploy_lib.sh
+BEFORE=$(git rev-parse HEAD)
 
 git fetch -q origin main
-if ! git merge --no-edit -q origin/main >/tmp/postclose_merge_err.log 2>&1; then
+# This merge deploys code for tonight's session, which no test on this VM
+# sees first, so take origin/main only once GitHub Actions has passed on it
+# (deploy_lib.sh). Held back, the logs stay committed here and the push
+# below is refused until a later run can merge.
+if has_incoming origin/main && ! ci_green origin/main >> ~/preflight.log 2>&1; then
+    echo "$(date) postclose: not merging origin/main yet, tonight runs on $(git rev-parse --short HEAD)" >> ~/preflight.log
+elif ! git merge --no-edit -q origin/main >/tmp/postclose_merge_err.log 2>&1; then
     echo "$(date) postclose: merge failed, aborting — local commit kept, will retry next run" >> ~/preflight.log
     # Surface the actual reason (2026-08-24 incident: an untracked stray
     # file silently blocked every merge for 8 trading days because the
@@ -49,6 +57,7 @@ if ! git merge --no-edit -q origin/main >/tmp/postclose_merge_err.log 2>&1; then
     head -5 /tmp/postclose_merge_err.log | sed 's/^/    | /' >> ~/preflight.log
     git merge --abort 2>/dev/null
 fi
+sync_env "$BEFORE" >> ~/preflight.log 2>&1
 
 if git push -q origin main; then
     echo "$(date) postclose OK: $(git log --oneline -1)" >> ~/preflight.log

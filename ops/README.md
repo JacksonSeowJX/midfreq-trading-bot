@@ -1,7 +1,41 @@
 # ops
 
-The shell scripts cron runs on the GCP VM, and the runbook for moving the VM onto the
-monorepo layout.
+The shell scripts cron runs on the GCP VM, the VM's deploy scripts (`vm/`), and the runbook
+for moving the VM onto the monorepo layout.
+
+> **On hold (15 Oct 2026):** the VM is NOT to be switched to this layout for now. It keeps
+> running `main` as it is. Because the VM deploys whatever is on `main`, this branch must not
+> be merged into `main` until the switch is approved.
+
+## CI/CD
+
+**CI** (`.github/workflows/ci.yml`) runs on every push and pull request, except commits that
+only touch `live_sessions/` (the VM's session logs). Two jobs, one per environment:
+
+| Job | Python | Versions | Runs |
+|---|---|---|---|
+| `research` | 3.12 | `uv.lock` (the Anaconda versions every reported result was produced with) | all tests, `lint-imports` |
+| `vm` | 3.10 | `vm/requirements-vm.txt` (the VM's live venv, frozen 15 Oct 2026, plus PyYAML) | all tests, launcher dry run |
+
+**CD** stays pull-based: the VM deploys itself at 09:10 (preflight) and 16:15 SGT (postclose),
+the only times no session is running, rather than GitHub pushing into it mid-session. What
+changes is a gate (`vm/deploy_lib.sh`): the VM merges `origin/main` only if CI passed on
+byte-identical code (everything outside `live_sessions/`). It fails closed: CI still running,
+failed, or GitHub unreachable all mean "stay on the current code and retry at the next sync".
+Before this, postclose merged `main` with no test at all, so a morning push went live that
+night untested (9 Oct). The gate is tested in `tests/e2e/test_deploy_gate.py`.
+
+| File in `vm/` | Installed as | What it does |
+|---|---|---|
+| `preflight.sh` | `~/bin/preflight.sh` | 09:10: self-heal git, gated pull, sync the venv, run all tests, roll back on failure |
+| `postclose.sh` | `~/bin/postclose.sh` | 16:15: commit session logs, gated merge of `main`, sync the venv, push |
+| `deploy_lib.sh` | `~/bin/deploy_lib.sh` | `ci_green`, `has_incoming`, `sync_env` |
+| `git_selfheal.sh`, `memlog.sh` | `~/bin/` | unchanged copies of what runs on the VM |
+| `requirements-vm.txt` | (read by `sync_env`) | the VM venv's exact package versions |
+
+The `~/bin` copies are installed by hand (step 4 below), never run from the working tree:
+bash reads a script while running it, and a pull that rewrote the running script would
+corrupt it.
 
 | Script | What it does |
 |---|---|
@@ -35,6 +69,7 @@ every night.
 uv sync
 uv run pytest -q -p no:cacheprovider
 uv run lint-imports
+# CI must be green on the branch (both jobs) before it is merged
 # Needs the bar cache: point MIDFREQ_ROOT at a checkout that has data/ (it is only read)
 uv run python scripts/live/replay_live_sessions.py      # must end with ALL INVARIANTS HELD
 DRY_RUN=1 FAKE_ET=2026-11-16T09:35:01 ./ops/run_sp100_forward_test.sh --scheduled
@@ -48,15 +83,20 @@ cd ~/midfreq-trading-bot && git rev-parse HEAD > ~/pre_monorepo_commit.txt
 for f in ~/bin/*.sh; do cp "$f" "$f.pre_monorepo"; done
 crontab -l > ~/crontab.pre_monorepo
 
-# Install uv (once) and build the workspace venv at the repository root (.venv/)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-git pull --ff-only origin main
-uv sync
+git pull -q --rebase --autostash origin main
+
+# Keep the VM's own venv (Python 3.10, its current versions); add PyYAML and the
+# six midfreq packages, installed editable without touching any other version
+.venv/bin/python -m pip install -r ops/vm/requirements-vm.txt
+.venv/bin/python -m pip install --no-deps -e packages/midfreq-core -e packages/midfreq-data \
+    -e packages/midfreq-strategies -e packages/midfreq-backtest -e packages/midfreq-live \
+    -e packages/midfreq-research
 ```
 
-`uv sync` installs the six `midfreq-*` packages editable, so `.venv/bin/python` imports
-`midfreq.*` with no `sys.path` set-up. `/opt/anaconda3` is no longer used by these scripts and
-can stay installed for rollback.
+Do NOT run `uv sync` on the VM: it would rebuild `.venv` from `uv.lock`, the research
+environment, which moves the live engine to Python 3.12 and downgrades the moomoo SDK
+(10.8.6808 -> 10.2.6208) and numpy (2.2.6 -> 1.26.4) mid forward test. The VM's versions are
+the ones in `vm/requirements-vm.txt`, which CI's `vm` job tests on every push.
 
 ### 3. Cron
 
@@ -72,18 +112,23 @@ Only the script paths change; the times stay as they are. For example:
 ```
 
 Likewise `scripts/live/run_daily_candidates.sh` becomes `ops/run_daily_candidates.sh` if the
-HK roster is re-enabled. If cron sets `PYTHON=/opt/anaconda3/bin/python`, remove it: that
-interpreter does not have the `midfreq` packages installed.
+HK roster is re-enabled. The cron line's `PYTHON=.../.venv/bin/python` stays as it is.
 
 ### 4. Preflight and postclose
 
-- The preflight's test step becomes `uv run pytest -q -p no:cacheprovider` (it ran pytest
-  under /opt/anaconda3). It collects every package's tests plus `tests/`; the slow
-  real-data tests stay out of the default run.
-- Any `python` or `python3` call in `~/bin` that imports project code becomes `uv run python`
-  (or `.venv/bin/python`). Any path under `scripts/live/run_*.sh` becomes `ops/run_*.sh`.
-- Run `uv sync` after each `git merge`/`git pull` in preflight and postclose, so a change to
-  dependencies is installed before the next session.
+Install the tracked versions, which add the CI gate and the venv sync, over the backups
+taken in step 2:
+
+```bash
+install -m 755 ops/vm/preflight.sh ops/vm/postclose.sh ops/vm/deploy_lib.sh \
+    ops/vm/git_selfheal.sh ops/vm/memlog.sh ~/bin/
+```
+
+- The preflight's test step becomes `.venv/bin/python -m pytest -q -p no:cacheprovider` (every
+  package's tests plus `tests/`; the slow real-data tests stay out of the default run).
+- The gate needs `curl` and `jq` (both on the VM) and reads the public GitHub API without a
+  token (60 requests an hour; it makes two a day). CI must have passed on `main` before the
+  first gated sync, or the VM holds its current code until it has.
 - Process checks still match: `pgrep -f "[r]un_live.py"` finds
   `apps/live_runner/run_live.py`.
 
@@ -115,7 +160,7 @@ crontab ~/crontab.pre_monorepo
 for f in ~/bin/*.sh.pre_monorepo; do cp "$f" "${f%.pre_monorepo}"; done
 ```
 
-This restores `scripts/live/*.sh`, `run_live.py` at the root and the anaconda interpreter.
+This restores `scripts/live/*.sh`, `run_live.py` at the root and the previous `~/bin` scripts.
 Do not roll back with `git checkout <previous commit> -- .` or `git reset --hard`: both would
 also restore the old `live_sessions/state_*.json`, losing the rebalance clock and position
 ownership recorded since. The state file format is unchanged by the layout, so a rolled-back

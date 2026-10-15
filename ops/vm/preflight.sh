@@ -27,11 +27,16 @@ GOOD=$(git rev-parse HEAD)
 # persist a marker so a repeat day is impossible to mistake for routine.
 . ~/bin/git_selfheal.sh
 git_selfheal >> ~/preflight.log 2>&1
+. ~/bin/deploy_lib.sh
 
 git fetch -q origin main 2>/dev/null
+# Deploy origin/main only once GitHub Actions has passed on its code
+# (deploy_lib.sh); otherwise today runs on the code already here.
+if has_incoming origin/main && ! ci_green origin/main >> ~/preflight.log 2>&1; then
+    echo "$(date) preflight: not deploying origin/main yet, running on $(git rev-parse --short HEAD)" >> ~/preflight.log
 # --autostash: the live state files are tracked and change every night;
 # a plain pull refuses to run with them modified, and they must survive it.
-if ! git pull -q --rebase --autostash origin main > /tmp/preflight_pull_err.log 2>&1; then
+elif ! git pull -q --rebase --autostash origin main > /tmp/preflight_pull_err.log 2>&1; then
     AHEAD=$(git rev-list --count origin/main..HEAD 2>/dev/null)
     BEHIND=$(git rev-list --count HEAD..origin/main 2>/dev/null)
     if [ -f ~/.git_sync_broken_since ]; then
@@ -44,7 +49,9 @@ if ! git pull -q --rebase --autostash origin main > /tmp/preflight_pull_err.log 
 else
     rm -f ~/.git_sync_broken_since
 fi
-if ! .venv/bin/python -m pytest tests/ -q > /tmp/preflight_tests.log 2>&1; then
+sync_env "$GOOD" >> ~/preflight.log 2>&1
+# Every package's tests plus tests/ (the testpaths in pyproject.toml)
+if ! .venv/bin/python -m pytest -q -p no:cacheprovider > /tmp/preflight_tests.log 2>&1; then
     echo "$(date) TESTS FAILED after pull — rolling back to $GOOD" >> ~/preflight.log
     # reset --hard would also discard the live state files (rebalance
     # counter, positions), so keep them aside and put them back.

@@ -2,7 +2,7 @@
 name = "midfreq-trading-bot"
 version = "0.1.0"
 description = "Mid-frequency quantitative trading bot (NTU FYP CCDS25-1040): workspace root with the dashboard and the live runner."
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "midfreq-core",
     "midfreq-data",
