@@ -10,6 +10,8 @@ COPY apps/api/openapi.json apps/api/openapi.json
 COPY apps/web/package.json apps/web/package-lock.json apps/web/
 RUN cd apps/web && npm ci --no-audit --no-fund
 COPY apps/web apps/web
+# the user guide, shown on the dashboard's Guide page (imported by the web build)
+COPY docs/DASHBOARD_GUIDE.md docs/DASHBOARD_GUIDE.md
 RUN cd apps/web && npm run build
 
 FROM python:3.12-slim

@@ -7,6 +7,8 @@
 ### Start Date: 12 Jan 2026
 ### End Date: 19 Oct 2026
 
+**Live dashboard:** https://midfreq-dashboard-123943780205.asia-southeast1.run.app (no installation needed; its Guide page walks through every view)
+
 ## Contact
 - Email: seow0126@e.ntu.edu.sg
 - Linkedin: https://www.linkedin.com/in/jackson-seow-jia-xian-798186182/
@@ -87,7 +89,7 @@ Update 14 (18 Oct 26)
 - **Backtester** (`midfreq-backtest`: `backtester.py`; `midfreq-core`: `portfolio.py`, `risk_manager.py`): event-driven, with per-market fees checked against real fills (Hong Kong 0.16% and US 0.005% per side), slippage, board lots, stop-loss, trailing stop, take-profit, position sizing and a drawdown halt.
 - **Validation** (`midfreq-backtest`: `optimizer.py`; `midfreq-research`: `overfitting.py`, `reality_check.py`): grid search, walk-forward optimisation, Probability of Backtest Overfitting, and White's Reality Check.
 - **Live trading** (`midfreq-live`: `live_engine.py`, `order_gateway.py`; `apps/live_runner/run_live.py`): streams hourly candles, places marketable limit orders, records only what the broker confirms as filled, and keeps its state between daily sessions. Cron starts a session on the VM each US trading day; `ops/fetch_live_logs.sh` copies the session logs to a laptop. Code reaches the VM only as a versioned release deployed by hand (`ops/deploy.sh`, see [ops/README.md](ops/README.md)).
-- **Dashboard** (`apps/dashboard/app.py`): a Streamlit app for backtests, optimisation, the live accounts and every research result. See [docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md).
+- **Dashboard** (`apps/web` over `apps/api`): a web app for backtests, comparisons, optimisation, the live forward test and every research result, hosted on Google Cloud Run. See [docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md).
 
 ## Project Structure
 
@@ -104,7 +106,9 @@ packages/           six installable packages, all under the `midfreq` namespace,
   midfreq-live/       live trading engine and broker order gateway
   midfreq-research/   PBO, White's Reality Check, results index, forward-test read-back
 apps/
-  dashboard/        Streamlit dashboard (see docs/DASHBOARD_GUIDE.md)
+  api/              the dashboard's HTTP API (FastAPI)
+  web/              the dashboard (React + TypeScript); guide in docs/DASHBOARD_GUIDE.md
+  dashboard/        the earlier Streamlit dashboard, kept until it is removed
   live_runner/      run_live.py, runs `midfreq-live` (the live engine) from a checkout
 research/studies/   every study the final report draws on (superseded/: earlier
                     versions replaced after the 2026-09-08 testing audit)
@@ -151,12 +155,7 @@ come through each connector's read-only account client, listed under `accounts` 
 `apps/web` beside the API. See [apps/web/README.md](apps/web/README.md) and
 [apps/api/README.md](apps/api/README.md).
 
-The backtest, compare and optimise views still run in the original Streamlit app while they
-are being moved:
-```bash
-uv run streamlit run apps/dashboard/app.py
-```
-See **[docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md)** for a walkthrough of the Streamlit views.
+See **[docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md)** (also the dashboard's Guide page) for a walkthrough of every view.
 
 Run the tests:
 ```bash

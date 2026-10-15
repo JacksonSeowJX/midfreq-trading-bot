@@ -22,7 +22,7 @@ IMAGE=$REGION-docker.pkg.dev/$PROJECT/midfreq/dashboard:$TAG
   || echo "note: uncommitted changes are NOT deployed; this builds $TAG as committed" >&2
 
 SRC=$(mktemp -d); trap 'rm -rf "$SRC"' EXIT
-git archive HEAD pyproject.toml uv.lock packages apps/api apps/web config results ops/dashboard | tar -x -C "$SRC"
+git archive HEAD pyproject.toml uv.lock packages apps/api apps/web config results ops/dashboard docs/DASHBOARD_GUIDE.md | tar -x -C "$SRC"
 mkdir -p "$SRC/data" && { [ -d data ] && cp -R data/. "$SRC/data/" || true; }
 echo "price cache: $(find "$SRC/data" -name '*.parquet' | wc -l | tr -d ' ') files"
 gcloud builds submit "$SRC" --region "$REGION" --config ops/dashboard/cloudbuild.yaml \
