@@ -553,8 +553,16 @@
       "PositionOut": {
         "properties": {
           "average_price": {
-            "title": "Average Price",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "cost basis per unit; null where the venue reports none (exchange spot balances)",
+            "title": "Average Price"
           },
           "instrument_id": {
             "anyOf": [
@@ -611,8 +619,7 @@
         },
         "required": [
           "symbol",
-          "quantity",
-          "average_price"
+          "quantity"
         ],
         "title": "PositionOut",
         "type": "object"
@@ -998,6 +1005,18 @@
             "title": "Crashed",
             "type": "boolean"
           },
+          "end_total_assets": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the broker's account total when it ended; null if it has not ended",
+            "title": "End Total Assets"
+          },
           "ended_at": {
             "anyOf": [
               {
@@ -1019,6 +1038,18 @@
             "title": "Market",
             "type": "string"
           },
+          "start_total_assets": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the broker's account total when the session started, account currency",
+            "title": "Start Total Assets"
+          },
           "started_at": {
             "anyOf": [
               {
@@ -1038,6 +1069,17 @@
           "symbols": {
             "title": "Symbols",
             "type": "integer"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
           },
           "trades": {
             "title": "Trades",
@@ -1119,6 +1161,12 @@
         "properties": {
           "default": {
             "title": "Default"
+          },
+          "label": {
+            "default": "",
+            "description": "the control's caption, as the registry gives it",
+            "title": "Label",
+            "type": "string"
           },
           "max": {
             "anyOf": [

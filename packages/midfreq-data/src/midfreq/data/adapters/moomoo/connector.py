@@ -15,11 +15,13 @@ OpenD quote context are reused as they are. The connector owns what the provider
   timezone, so ts_event is the true UTC close.
 - Intervals: only intervals OpenD serves natively. The provider quietly returned hourly bars when
   asked for 4-hour ones; this connector refuses 4-HOUR with UnsupportedIntervalError.
+- Accounts: `account_client(market='US')` is a read-only view of the trade account through OpenD
+  (see midfreq.data.adapters.moomoo.account).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence
 
 import pandas as pd
 
@@ -27,6 +29,7 @@ from midfreq.data.adapters.base import (
     Connector, ConnectorCapabilities, ConnectorConfig, ConnectorError, DataClient,
     InstrumentProvider, QuotaExceededError, RateLimitError, bars_from_frame,
 )
+from midfreq.data.adapters.moomoo.account import MoomooAccountClient, OpenDTransport
 from midfreq.data.connection_settings import connection_settings
 from midfreq.core.model.data import Bar, BarType
 from midfreq.core.model.identifiers import InstrumentId, as_instrument_id, as_venue
@@ -69,11 +72,14 @@ class MoomooConnector(Connector):
     name = "moomoo"
     config_class = MoomooConnectorConfig
 
-    def __init__(self, config=None, venues=None, provider: Any = None, **kwargs):
+    def __init__(self, config=None, venues=None, provider: Any = None,
+                 trade_transport: Optional[OpenDTransport] = None, **kwargs):
         """`provider` defaults to a MoomooProvider for the configured host/port; tests pass a fake
-        exposing the same `_get_context()`, `get_lot_sizes()` and `close()`."""
+        exposing the same `_get_context()`, `get_lot_sizes()` and `close()`. `trade_transport`
+        is how account clients reach OpenD (an OpenDTransport by default; tests pass a fake)."""
         super().__init__(config, venues, **kwargs)
         self._provider = provider
+        self._trade_transport = trade_transport
 
     @property
     def capabilities(self) -> ConnectorCapabilities:
@@ -128,6 +134,33 @@ class MoomooConnector(Connector):
 
     def _create_data_client(self) -> DataClient:
         return MoomooDataClient(self, now_ns=self._now_ns)
+
+    def account_client(self, market: str = "US", trading_env: Optional[str] = None,
+                       security_firm: Optional[str] = None, acc_id: int = 0,
+                       timezone: Optional[str] = None, secrets: Sequence[str] = ()) -> MoomooAccountClient:
+        """
+        The read-only trade account of one market ('US', 'HK') on the configured OpenD. The
+        trading environment (simulate unless `real` is set on purpose) and security firm come from
+        the `moomoo` connection unless given here; the account currency and the timezone of order
+        times are those of the market's venue in config/venues.json. OpenD holds the login, so
+        Moomoo accounts take no secrets.
+        """
+        if secrets:
+            raise ConnectorError(f"moomoo accounts are read through OpenD, which holds the login; "
+                                 f"remove secrets {list(secrets)} from the account entry")
+        market = str(market).upper()
+        specs = [s for s in self.venues.served_by(self.name)
+                 if str(s.connector_options(self.name).get("market", "")).upper() == market]
+        if not specs:
+            raise ConnectorError(f"no venue in config/venues.json has moomoo market {market!r}")
+        conn = connection_settings("moomoo", {"trading_env": "simulate", "security_firm": "FUTUSECURITIES"},
+                                   trading_env=trading_env, security_firm=security_firm)
+        return MoomooAccountClient(
+            market=market, host=self.config.host, port=self.config.port,
+            trading_env=conn["trading_env"], security_firm=conn["security_firm"],
+            currency=specs[0].currency, timezone=timezone or specs[0].timezone, acc_id=acc_id,
+            transport=self._trade_transport, instrument_id=lambda code: str(self.from_native(code)),
+            now_ns=self._now_ns)
 
 
 class MoomooDataClient(DataClient):

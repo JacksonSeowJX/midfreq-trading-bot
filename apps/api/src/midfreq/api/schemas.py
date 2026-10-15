@@ -84,6 +84,11 @@ class SessionSummary(BaseModel):
     candles: int
     trades: int
     crashed: bool = Field(description="its console log has a Traceback or CRITICAL line")
+    timeframe: Optional[str] = None
+    start_total_assets: Optional[float] = Field(
+        default=None, description="the broker's account total when the session started, account currency")
+    end_total_assets: Optional[float] = Field(
+        default=None, description="the broker's account total when it ended; null if it has not ended")
 
 
 class SessionTrade(BaseModel):
@@ -121,7 +126,8 @@ class AccountSnapshotOut(BaseModel):
 class PositionOut(BaseModel):
     symbol: str
     quantity: float
-    average_price: float
+    average_price: Optional[float] = Field(
+        default=None, description="cost basis per unit; null where the venue reports none (exchange spot balances)")
     market_price: Optional[float] = None
     market_value: Optional[float] = None
     unrealized_pnl: Optional[float] = None
@@ -223,6 +229,7 @@ class ResearchFileContent(BaseModel):
 
 class StrategyParam(BaseModel):
     name: str
+    label: str = Field(default="", description="the control's caption, as the registry gives it")
     default: Any
     min: Optional[float] = None
     max: Optional[float] = None

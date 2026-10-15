@@ -26,6 +26,39 @@ Each venue's default connector and its per-connector options (market code, excha
 are in `config/venues.json`. Importing the package never imports a vendor SDK; a connector loads
 its SDK when it is first used.
 
+## Account clients
+
+A connector can also give a read-only view of an account: `connector.account_client(**options)`
+returns an `AccountClient` (`midfreq.data.adapters.base`) with `available()`, `snapshot()`,
+`positions()`, `orders(days=14)` and `close()`. It never places, changes or cancels anything. The
+dashboard lists the accounts in the `accounts` section of `config/connections.yaml` and reads each
+through `midfreq.data.adapters.accounts`:
+
+    from midfreq.data.adapters.accounts import account_ids, account_config, create_account_client
+    client = create_account_client("moomoo-us")
+    ok, reason = client.available()          # a quick probe; never hangs
+    if ok:
+        snapshot, positions, orders = client.snapshot(), client.positions(), client.orders(days=14)
+    client.close()
+
+| Connector | Options | Reads through |
+|---|---|---|
+| `moomoo` | `market` (US, HK), optionally `trading_env`, `acc_id`, `timezone` | OpenD's trade context; the port is probed first (1.5 s), because the SDK retries a refused connection forever |
+| `ccxt` | `exchange` (okx), optionally `quote`, `exchange_options`, `timeout_ms` | ccxt with a read-only API key; values in the quote currency, spot holdings priced at the last `<ASSET>/<quote>` trade, or left unpriced |
+
+A venue that cannot be read now (OpenD down, a missing key, a network error) makes `available()`
+return `(False, reason)` and the reads raise `AccountUnavailableError`. Order times are UTC.
+
+To add a venue:
+
+1. give its connector an `account_client(**options, secrets=())` that returns an `AccountClient`
+   subclass, calling only the venue's read methods (see `moomoo/account.py`, `ccxt/account.py`);
+2. add an entry under `accounts:` in `config/connections.yaml` with `label`, `connector` and
+   `options`, and for an exchange `secrets`: the NAMES of the environment variables that hold its
+   key (`OKX_READ_API_KEY`, `..._SECRET`, `..._PASSPHRASE`);
+3. create a READ-ONLY API key at the exchange (no trading, no withdrawal) and put it in the
+   environment or the untracked `.env`. Key values never go in the file.
+
 ## Command line
 
 Run from the repository root:

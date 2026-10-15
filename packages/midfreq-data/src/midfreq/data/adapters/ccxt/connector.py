@@ -13,6 +13,8 @@ ccxt gives one interface to over a hundred exchanges; this connector maps it ont
   logged rather than hidden.
 - Rate limits: ccxt's own `enableRateLimit` spaces requests; RateLimitExceeded and DDoSProtection
   are retried with backoff.
+- Accounts: `account_client(exchange='okx', secrets=[...])` is a read-only view of an account,
+  with a key from the environment (see midfreq.data.adapters.ccxt.account).
 
 ccxt is optional: the package imports without it, and creating a real exchange object without it
 raises a clear error. Tests inject a fake exchange object.
@@ -21,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import pandas as pd
 
@@ -29,6 +31,7 @@ from midfreq.data.adapters.base import (
     Connector, ConnectorCapabilities, ConnectorConfig, ConnectorError, DataClient,
     InstrumentProvider, RateLimitError,
 )
+from midfreq.data.adapters.ccxt.account import CcxtAccountClient
 from midfreq.data.connection_settings import connection_settings
 from midfreq.core.common.timestamps import ms_to_ns
 from midfreq.core.model.data import Bar, BarSpecification, BarType
@@ -78,12 +81,16 @@ class CcxtConnector(Connector):
     name = "ccxt"
     config_class = CcxtConnectorConfig
 
-    def __init__(self, config=None, venues=None, exchanges: Optional[Dict[str, Any]] = None, **kwargs):
+    def __init__(self, config=None, venues=None, exchanges: Optional[Dict[str, Any]] = None,
+                 account_exchange_factory: Optional[Callable[[str, Dict[str, Any]], Any]] = None, **kwargs):
         """`exchanges` maps a venue ('KRAKEN') to a ready ccxt exchange object; by default one is
-        created per venue from its `exchange_id`."""
+        created per venue from its `exchange_id`. `account_exchange_factory(exchange_id, config)`
+        makes the authenticated exchange objects of account clients (ccxt's class by default;
+        tests pass a fake)."""
         super().__init__(config, venues, **kwargs)
         self._exchanges: Dict[str, Any] = {str(k).upper(): v for k, v in (exchanges or {}).items()}
         self._markets_loaded: set = set()
+        self._account_exchange_factory = account_exchange_factory
 
     @property
     def capabilities(self) -> ConnectorCapabilities:
@@ -174,6 +181,34 @@ class CcxtConnector(Connector):
 
     def _create_data_client(self) -> DataClient:
         return CcxtDataClient(self, now_ns=self._now_ns)
+
+    def account_client(self, exchange: str, secrets: Sequence[str] = (), quote: Optional[str] = None,
+                       exchange_options: Optional[Dict[str, Any]] = None,
+                       timeout_ms: int = 5000) -> CcxtAccountClient:
+        """
+        A read-only account at ccxt exchange `exchange` ('okx'), whose key is in the environment
+        variables named by `secrets`. Values are in `quote`, by default the currency of the venue
+        in config/venues.json whose exchange_id is `exchange` (OKX: USDT); spot holdings get that
+        venue's instrument ids where its symbology is 'dash'. `exchange_options` go to the ccxt
+        constructor after this connector's own `options`.
+        """
+        exchange_id = str(exchange).lower()
+        specs = [s for s in self.venues.served_by(self.name)
+                 if str(s.connector_options(self.name).get("exchange_id", "")).lower() == exchange_id]
+        spec = specs[0] if specs else None
+        if quote is None:
+            if spec is None:
+                raise ConnectorError(f"no venue in config/venues.json has ccxt exchange_id {exchange_id!r}; "
+                                     "give the account a `quote` option (e.g. USDT)")
+            quote = spec.currency
+        instrument_id = None
+        if spec is not None and self._symbology(spec.venue) == "dash":
+            def instrument_id(symbol: str) -> Optional[str]:
+                return None if ":" in symbol else str(self.from_native(symbol, spec.venue))   # ':' = a derivative
+        return CcxtAccountClient(
+            exchange_id, secrets=secrets, quote=quote, exchange_factory=self._account_exchange_factory,
+            exchange_options={**self.config.options, **(exchange_options or {})},
+            instrument_id=instrument_id, timeout_ms=timeout_ms, now_ns=self._now_ns)
 
 
 class CcxtDataClient(DataClient):

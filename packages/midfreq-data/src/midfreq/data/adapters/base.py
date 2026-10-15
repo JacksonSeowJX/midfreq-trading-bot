@@ -236,7 +236,7 @@ class PositionReport:
     'BTC/USDT'); `instrument_id` the framework's, when the connector can map it."""
     symbol: str
     quantity: float
-    average_price: float
+    average_price: Optional[float]        # None where the venue keeps no cost basis (exchange spot)
     market_price: Optional[float]
     market_value: Optional[float]
     unrealized_pnl: Optional[float]

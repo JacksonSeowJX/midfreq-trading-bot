@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "import-linter>=2"]
+dev = ["pytest>=8", "import-linter>=2", "httpx"]
 
 [tool.uv]
 package = false
