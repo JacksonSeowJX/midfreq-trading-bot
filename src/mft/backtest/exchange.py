@@ -14,7 +14,7 @@ from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 
-from mft.backtest.models import CLOSE, NEXT_OPEN, REFERENCE, FillModel
+from mft.backtest.models import CLOSE, REFERENCE, FillModel
 from mft.model.data import Bar
 from mft.model.enums import LiquiditySide, OrderSide, OrderType, TimeInForce
 from mft.model.events import OrderAccepted, OrderCanceled, OrderFilled, OrderRejected

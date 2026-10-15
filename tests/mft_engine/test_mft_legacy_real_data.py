@@ -93,6 +93,49 @@ def test_sp100_reversal_full_history():
           f"Backtester {t_old:.1f}s, engine {t_new:.1f}s")
 
 
+def test_native_reversal_port_on_the_sp100():
+    """The native ranking-signal + equal-weight-basket port against the core strategy on the full
+    S&P 100 cache: identical trades, except that the port may also rebalance on the final slice."""
+    import pandas as pd
+    from mft.backtest import BacktestEngine, FillModel
+    from mft.model import PercentFeeModel
+    from mft.persistence import LegacyDataReader
+    from mft.strategies import (CrossSectionalRanker, CrossSectionalRankerConfig, EqualWeightBasket,
+                                EqualWeightBasketConfig)
+
+    cfg = json.loads((REPO / "config" / "sp100_forward_test.json").read_text())
+    symbols = available(cfg["symbols"])
+    params = {k: v["default"] for k, v in STRATEGY_REGISTRY["Cross-Sectional Reversal"]["params"].items()}
+    with contextlib.redirect_stdout(io.StringIO()):
+        core = run_legacy_backtest(STRATEGY_REGISTRY["Cross-Sectional Reversal"]["class"], symbols, "1h", DATA,
+                                   100_000.0, 0.00005, 5.0, **params)
+    reader = LegacyDataReader(DATA)
+    engine = BacktestEngine()
+    for venue, cash in (("XNAS", {"USD": 100_000.0}), ("XNYS", None)):
+        engine.add_venue(venue, cash, fill_model=FillModel(slippage_bps=5.0), fee_model=PercentFeeModel(0.00005))
+    ids = [reader.instrument_id(s) for s in symbols]
+    for iid in ids:
+        engine.add_data(reader.read_bars(iid, "1-HOUR"))
+    engine.add_strategy(CrossSectionalRanker(CrossSectionalRankerConfig(
+        instrument_ids=[str(i) for i in ids], lookback=params["lookback"],
+        rebalance_every=params["rebalance_every"])))
+    engine.add_strategy(EqualWeightBasket(EqualWeightBasketConfig(
+        top_n=params["top_n"], slippage_bps=5.0, commission_rate=0.00005)))
+    result = engine.run()
+
+    core_trades = []
+    for t in core.portfolio.trade_history:
+        iid = reader.instrument_id(t["symbol"])
+        utc = reader.venues.get(iid.venue).localize(pd.DatetimeIndex([t["timestamp"]]))[0]
+        core_trades.append((str(iid), utc, t["action"], t["qty"], t["price"], t["commission"]))
+    native = [(t["instrument_id"], t["timestamp"], t["side"], t["qty"], t["price"], t["commission"])
+              for t in result.trade_log]
+    assert native[:len(core_trades)] == core_trades
+    assert all(t[1] == result.last_ts for t in native[len(core_trades):])
+    print(f"\nnative port: {len(native)} trades ({len(native) - len(core_trades)} on the final slice), "
+          f"return {result.return_pct('USD'):+.2f}% vs core {core.metrics['return_pct']:+.2f}%")
+
+
 @pytest.mark.parametrize("name", sorted(STRATEGY_REGISTRY))
 @pytest.mark.parametrize("universe, rate", [
     (["HK.00700", "HK.00005", "HK.09988", "HK.00941", "HK.01299"], Portfolio.HK_FEE_RATE),

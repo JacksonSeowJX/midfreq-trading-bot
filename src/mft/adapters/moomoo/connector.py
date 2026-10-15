@@ -28,7 +28,7 @@ from mft.adapters.base import (
     InstrumentProvider, QuotaExceededError, RateLimitError, bars_from_frame,
 )
 from mft.model.data import Bar, BarType
-from mft.model.identifiers import InstrumentId, Venue, as_instrument_id, as_venue
+from mft.model.identifiers import InstrumentId, as_instrument_id, as_venue
 from mft.model.instruments import Equity, Instrument
 from mft.venues.spec import VenueSpec
 

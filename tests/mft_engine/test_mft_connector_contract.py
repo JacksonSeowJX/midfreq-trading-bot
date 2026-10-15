@@ -10,7 +10,7 @@ its source's native format (no network, no gateway).
 6. a rate-limit response is retried after a backoff and the result is still complete.
 """
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List
+from typing import Callable, Dict
 
 import pytest
 

@@ -30,7 +30,7 @@ from mft.adapters.base import (
     RateLimitError, bars_from_frame, time_windows, utc_dates_or_local,
 )
 from mft.model.data import Bar, BarType
-from mft.model.identifiers import InstrumentId, as_instrument_id, as_venue
+from mft.model.identifiers import InstrumentId, as_instrument_id
 from mft.model.instruments import Instrument
 from mft.venues.spec import VenueSpec
 
