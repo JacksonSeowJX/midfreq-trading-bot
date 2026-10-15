@@ -4,8 +4,24 @@ The shell scripts cron runs on the GCP VM, the VM's deploy scripts (`vm/`), and 
 for moving the VM onto the monorepo layout.
 
 > **On hold (15 Oct 2026):** the VM is NOT to be switched to this layout for now. It keeps
-> running `main` as it is. Because the VM deploys whatever is on `main`, this branch must not
-> be merged into `main` until the switch is approved.
+> running the code it has.
+
+## Migration: from "the VM pulls main" to manual, versioned releases
+
+Until 15 Oct 2026 the VM deployed by `git pull`: cron pulled `main` at 09:10 SGT and merged it
+at 16:15 SGT, so whatever was on `main` traded that night, and the VM pushed its session logs
+and state back to `main`. The target is the usual model: CI builds versioned wheels, a release
+is deployed to the VM by hand when no session is running, and the VM has no tie to GitHub.
+
+| Phase | When | What | Status |
+|---|---|---|---|
+| 0. Cut the GitHub link | 15 Oct 2026 | Comment out the `preflight.sh` and `postclose.sh` cron lines (backup in `~/backup_20261015_phase0/` on the VM). The VM keeps trading on the code it has; the session launcher, memlog and log cleanup stay. Session logs come to a laptop with `ops/fetch_live_logs.sh`, which also reports what preflight checked. | **done** |
+| 1. Build the release model | before 13 Nov, on this branch, no VM changes | Wheels built in CI and attached to a GitHub Release on a `vX.Y.Z` tag; a `midfreq-live` entry point; `ops/deploy.sh vX.Y.Z` installs a release into `~/midfreq/releases/vX.Y.Z/` (VM-pinned versions), smoke-tests it and switches `~/midfreq/current`, rollback = switch back; runtime data (config, bar cache, state, logs) in `~/midfreq/runtime/` via `MIDFREQ_ROOT` | to do |
+| 2. Cutover | after the forward test (~13 Nov) | Copy data/, live_sessions/ and config into the runtime folder; deploy v0.1.0; point the launcher's cron line at `~/midfreq/current`; dry run; first session checked (7 candles, clock +7, bot == broker); remove the VM's GitHub SSH key; keep the old clone a week for rollback | to do |
+| 3. Clean up | after cutover | Delete `vm/preflight.sh`, `vm/postclose.sh`, `vm/deploy_lib.sh` (the CI gate below, superseded); stop committing to `live_sessions/` | to do |
+
+The CI gate described below was the first answer to "main goes live untested"; Phase 1
+replaces it, and its scripts are not installed on the VM.
 
 ## CI/CD
 
