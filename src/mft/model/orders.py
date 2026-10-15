@@ -15,7 +15,7 @@ from mft.model.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from mft.model.identifiers import ClientOrderId, InstrumentId, StrategyId
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)   # identity semantics: an order is one mutable object, hashable
 class Order:
     client_order_id: ClientOrderId
     strategy_id: StrategyId
@@ -67,14 +67,15 @@ class Order:
 class OrderFactory:
     """Creates orders for one strategy with unique, readable ids ('O-XSReversal-000001')."""
 
-    def __init__(self, strategy_id: StrategyId, clock: Callable[[], int] = lambda: 0):
+    def __init__(self, strategy_id: StrategyId, clock: Callable[[], int] = lambda: 0, prefix: str = "O"):
         self.strategy_id = strategy_id
         self._clock = clock
+        self._prefix = prefix
         self._count = 0
 
     def _next_id(self) -> ClientOrderId:
         self._count += 1
-        return ClientOrderId(f"O-{self.strategy_id}-{self._count:06d}")
+        return ClientOrderId(f"{self._prefix}-{self.strategy_id}-{self._count:06d}")
 
     def market(self, instrument_id: InstrumentId, side: OrderSide, quantity: float,
                time_in_force: TimeInForce = TimeInForce.GTC,
