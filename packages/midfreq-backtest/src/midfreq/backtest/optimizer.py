@@ -16,6 +16,7 @@ The results are the same on either engine.
 """
 
 import itertools
+import os
 import pandas as pd
 from typing import Dict, Any, List, Optional, Callable, Type
 from datetime import datetime, timedelta
@@ -171,8 +172,9 @@ def grid_search(
     # default (0.16%/side incl. stamp duty) whatever the market, including US searches.
     runner = BatchRunner(engine, strategy_class, symbols, timeframe, storage, initial_capital,
                          commission_rate, risk_manager, slippage_bps)
-    # natively the combinations run in parallel batches; progress is reported per combination
-    chunk = max(1, total // 20) if runner.engine == "native" else 1
+    # natively the combinations run in parallel batches (enough for every core, and about ten
+    # progress updates); progress is still reported per combination
+    chunk = max(-(-total // 10), 4 * (os.cpu_count() or 1)) if runner.engine == "native" else 1
 
     for lo in range(0, total, chunk):
         batch = param_grid[lo:lo + chunk]
