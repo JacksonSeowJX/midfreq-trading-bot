@@ -5,7 +5,9 @@ against each other:
 
 - the **candle backtester**, `midfreq.backtest.backtester.Backtester`, which replays the price
   cache candle by candle through a [candle strategy](strategies.md#the-candle-api). Every
-  reported result, the optimizer and the dashboard use it.
+  reported result was produced with it. Its core also exists in C++
+  ([the C++ engine](native_engine.md)), with identical results; the optimizer and the dashboard
+  API run on that wherever it can run the strategy.
 - the **venue engine**, `midfreq.backtest.BacktestEngine`, which runs
   [event-driven strategies](strategies.md#the-event-driven-strategy-api) on simulated venues
   with fill, slippage and fee models, a risk engine and one cash account per currency. Every

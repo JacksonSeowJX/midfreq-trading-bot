@@ -1,7 +1,7 @@
 """
 Generates the Python API reference (mkdocs-gen-files script, mkdocs.yml `plugins: gen-files`).
 
-One page per public module of the six packages in packages/*/src/midfreq/, written under
+One page per public module of the packages in packages/*/src/midfreq/, written under
 api/python/ when the site is built, plus api/python/SUMMARY.md, the navigation that
 mkdocs-literate-nav reads. Nothing is written to site_docs/: the pages exist only in the build, so
 the reference cannot drift from the code.
@@ -14,7 +14,7 @@ the reference cannot drift from the code.
   of its modules with the first sentence of each module's docstring. A README section that a
   hand-written page includes on its own (`<!-- include: packages/x/README.md#section -->`) is
   left out of the package page, which links to that page instead, so no text appears twice.
-- The packages are listed in layer order: core, data, strategies, backtest, live, research.
+- The packages are listed in layer order: core, engine, data, strategies, backtest, live, research.
 - Private modules (a name starting with "_", including __main__) are left out, and so is any
   folder without an __init__.py below midfreq/ (an implicit namespace subpackage, which griffe
   does not traverse): midfreq.data.providers.
@@ -197,7 +197,7 @@ def _walk(package_dir: Path, identifier: str, doc_dir: Path, readme: Optional[Pa
 
 
 # the packages in layer order, foundation first; any package not named here follows, by name
-LAYER_ORDER = ["core", "data", "strategies", "backtest", "live", "research"]
+LAYER_ORDER = ["core", "engine", "data", "strategies", "backtest", "live", "research"]
 
 
 def _layer(init: Path):
