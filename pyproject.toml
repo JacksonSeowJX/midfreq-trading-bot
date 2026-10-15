@@ -62,6 +62,8 @@ midfreq-research = { workspace = true }
 [tool.pytest.ini_options]
 testpaths = ["packages", "tests"]
 addopts = "--import-mode=importlib"
+# shared test helpers (fake connectors, synthetic markets) importable from any package's tests
+pythonpath = ["tests/support"]
 markers = ["slow: needs the real data/ cache (opt-in: MFT_SLOW=1)"]
 
 # Layering: a package may only import packages below it.
