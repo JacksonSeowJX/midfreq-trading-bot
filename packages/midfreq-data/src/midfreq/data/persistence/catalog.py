@@ -2,6 +2,7 @@
 ParquetDataCatalog, after NautilusTrader's `persistence.catalog`.
 
 Layout:
+
     <root>/data/bar/<bar_type>/<first_ts_event>-<last_ts_event>.parquet
     <root>/instruments/<instrument_id>.json
 

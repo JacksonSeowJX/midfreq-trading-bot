@@ -2,8 +2,11 @@
 # published to GitHub Pages at https://jacksonseowjx.github.io/midfreq-trading-bot/.
 #
 # Built on every push to main that changes its sources: the site's own pages, the repository
-# documents it includes (docs/, the package READMEs), and the API contract its reference renders
-# (apps/api/openapi.json). --strict fails the build on any broken link or anchor.
+# documents it includes (docs/, the package READMEs), the packages whose docstrings the Python API
+# reference is generated from (packages/**), the API contract the HTTP reference renders
+# (apps/api/openapi.json), and the venue file its tables are generated from (config/venues.json).
+# --strict fails the build on any warning: a broken link or anchor, a page missing from the
+# navigation, or a docstring the API reference cannot render.
 #
 # One-time setup: Settings -> Pages -> Source: GitHub Actions.
 name: Pages
@@ -17,6 +20,8 @@ on:
       - "docs/**"
       - "apps/api/openapi.json"
       - "packages/*/README.md"
+      - "packages/**"              # docstrings: the Python API reference is generated from them
+      - "config/venues.json"       # the venue tables are generated from it
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

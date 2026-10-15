@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.6" stroke-linecap="round">
+  <!-- the site's mark: three candles, in the accent colour, which reads on both palettes -->
+  <line x1="5" y1="3.5" x2="5" y2="20.5"/>
+  <rect x="3" y="7" width="4" height="9" rx="0.6" fill="#3b82f6" stroke="none"/>
+  <line x1="12" y1="2" x2="12" y2="17"/>
+  <rect x="10" y="5" width="4" height="7" rx="0.6"/>
+  <line x1="19" y1="6" x2="19" y2="22"/>
+  <rect x="17" y="9.5" width="4" height="8.5" rx="0.6" fill="#3b82f6" stroke="none"/>
+</svg>

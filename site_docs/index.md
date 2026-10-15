@@ -1,74 +1,144 @@
-# Quantitative trading bot for mid-frequency stock trading
+---
+hide:
+  - navigation
+  - toc
+---
 
-This site documents the software of the NTU final-year project *Development of a Quantitative
-Trading Bot for Mid-Frequency Stock Trading* (CCDS25-1040), by Seow Jia Xian Jackson, supervised
-by Prof Chng Eng Siong. It describes how the system is organized, how it is deployed and
-operated, and the HTTP API behind its dashboard.
+# midfreq trading bot
 
-- **Live dashboard:** <https://midfreq-dashboard-123943780205.asia-southeast1.run.app>, with the
-  live paper trading, every research result and backtests on request. No installation is needed.
-- **Source code:** <https://github.com/JacksonSeowJX/midfreq-trading-bot>
+<p class="lead">
+A Python framework for researching, validating and paper trading mid-frequency (hourly)
+strategies on Hong Kong and US equities. It covers the whole path from market data to orders:
+connectors and a Parquet price cache, two backtesting engines with each market's trading costs,
+walk-forward validation with corrections for the number of things tried, a live engine that
+trades through a broker's paper account, and a dashboard over all of it.
+</p>
 
-## What the project is
+[Get started](getting_started/index.md){ .md-button .md-button--primary }
+[Read the results](results/index.md){ .md-button }
 
-The project builds and evaluates a trading bot for hourly (mid-frequency) trading of Hong Kong
-and US equities, using the moomoo OpenAPI for both market data and paper trading.
+The software was built for the NTU final-year project *Development of a Quantitative Trading Bot
+for Mid-Frequency Stock Trading* (CCDS25-1040), by Seow Jia Xian Jackson, supervised by
+Prof Chng Eng Siong. Its venue-based engine follows the design of
+[NautilusTrader](https://nautilustrader.io); it is an independent implementation, not that
+library.
 
-The system covers the whole path from data to orders: market data download and storage, a
-backtester with each market's trading costs, walk-forward validation, tests for
-overfitting, a live paper-trading engine that runs unattended on a cloud virtual machine, and a
-dashboard over all of it.
+## Where to start
 
-The research question was whether any systematic strategy shows a real, tradable edge on these
-markets once it is tested properly. After 13 strategies on 4 stock universes, the answer reached
-is that none does.
+- **[Architecture](concepts/architecture.md)**: the six packages, the layers they import across,
+  and how data flows from the broker's gateway to results.
+- **[Backtesting](concepts/backtesting.md)**: the candle backtester the research used, the
+  event-driven venue engine, fill and slippage models, and trading costs.
+- **[Optimization and validation](concepts/optimization_and_validation.md)**: grid search,
+  walk-forward, the two-configuration standard, White's Reality Check and the Probability of
+  Backtest Overfitting.
+- **[Live trading](concepts/live_trading.md)**: the live engine, the order gateway, session logs,
+  and the reconciliation of the bot's record against the broker's.
 
-## Results in brief
+## Documentation
 
-| Measure | Result |
-|---|---|
-| Strategies implemented | 13: trend following, mean reversion, pairs trading, regime switching, cross-sectional reversal and momentum, an ML direction classifier, and buy-and-hold with a risk overlay |
-| Stock universes | 19 Hong Kong stocks, 15 large US stocks, the S&P 100, and the Hang Seng Index (88 stocks) |
-| Validation standard | Walk-forward over 3 years, split two ways: Config A with 9 windows and Config B with 15, each 70% training and 30% test. A result passes only if, under both splits, its mean out-of-sample return per test window is positive and at least 50% of its test windows are profitable |
-| Results held to that standard | **217**, of which **13 passed** (6%) |
-| Strongest result | Cross-sectional reversal on the S&P 100. It passes at the broker's real fee of 0.005% per side, with +5.73% (Config A) and +0.63% (Config B) mean return per test window, and a Probability of Backtest Overfitting (PBO) of **0.274** over 96 configurations (pure noise gives 0.5) |
-| Corrected for the search | White's Reality Check over the 8 cross-sectional candidates gives **p = 0.094** (Config A) and **p = 0.098** (Config B), above the 5% needed. **No result survives the correction**: the best cannot be told apart from the luck of picking the best of eight. It also passes or fails depending on the week its data ends |
-| Live trading | Paper trading from a Google Cloud virtual machine: Hong Kong single-stock strategies from July to September 2026, then a forward test of S&P 100 reversal on a US$100,000 allocation from 28 September 2026 |
+<div class="grid cards" markdown>
 
-No strategy beat chance once the number of things tried was accounted for, and the single-stock
-strategies did not beat simply holding the same stocks. What the project delivers is the
-framework, a validation method that catches results a single backtest would have reported as
-real, and a live system checked against a real broker. The [dashboard guide](dashboard.md#example-b-the-13-results-that-pass-and-the-correction-for-the-search)
-walks through these figures on the live dashboard.
+-   :material-rocket-launch-outline:{ .lg .middle } **Getting started**
+
+    ---
+
+    Install the workspace with uv, then run a backtest and a walk-forward in a few lines of
+    Python or in the dashboard.
+
+    [:octicons-arrow-right-24: Getting started](getting_started/index.md)
+
+-   :material-book-open-variant:{ .lg .middle } **Concepts**
+
+    ---
+
+    Architecture, data and connectors, instruments and venues, strategies, backtesting,
+    validation, live trading, saved runs and the dashboard.
+
+    [:octicons-arrow-right-24: Concepts](concepts/index.md)
+
+-   :material-school-outline:{ .lg .middle } **Tutorials**
+
+    ---
+
+    Step-by-step walkthroughs whose code runs as shown: a backtest, a walk-forward, an
+    event-driven strategy and a new connector.
+
+    [:octicons-arrow-right-24: Tutorials](tutorials/index.md)
+
+-   :material-connection:{ .lg .middle } **Integrations**
+
+    ---
+
+    Moomoo OpenD, Interactive Brokers, yfinance, Binance and ccxt: capabilities, symbology,
+    setup and limits of each connector.
+
+    [:octicons-arrow-right-24: Integrations](integrations/index.md)
+
+-   :material-code-braces:{ .lg .middle } **API reference**
+
+    ---
+
+    The Python API, generated from the packages' docstrings, and the HTTP API behind the
+    dashboard, rendered from its OpenAPI contract.
+
+    [:octicons-arrow-right-24: API reference](api/index.md)
+
+-   :material-wrench-outline:{ .lg .middle } **Developer guide**
+
+    ---
+
+    The development environment, tests, CI workflows, releases and deployment, and how this
+    site is built.
+
+    [:octicons-arrow-right-24: Developer guide](developer_guide/index.md)
+
+-   :material-chart-line:{ .lg .middle } **Results**
+
+    ---
+
+    What the research found: 217 results held to the validation standard, 13 passed, and none
+    survived the correction for the search. The live forward test.
+
+    [:octicons-arrow-right-24: Results](results/index.md)
+
+-   :material-github:{ .lg .middle } **Source code**
+
+    ---
+
+    The repository on GitHub: the packages, the applications, the research studies and the
+    operations scripts.
+
+    [:octicons-arrow-right-24: JacksonSeowJX/midfreq-trading-bot](https://github.com/JacksonSeowJX/midfreq-trading-bot)
+
+</div>
 
 ## The system in one picture
 
 ```mermaid
-flowchart TB
+flowchart LR
     opend["moomoo OpenD<br/>market data and the paper account"]
     cache[("Parquet price cache<br/>data/")]
+    research["Backtesters, optimizer,<br/>research studies"]
+    results[("Results<br/>results/")]
     live["Live engine<br/>on the trading VM"]
-    research["Backtester, optimizer,<br/>research studies"]
     record[("Bot record<br/>session logs, broker snapshots")]
-    results[("Results<br/>results/, CSV and JSON")]
     api["Dashboard API<br/>apps/api"]
     web["Dashboard<br/>apps/web"]
 
     opend -- "historical candles" --> cache
-    opend <-- "live candles, orders, fills" --> live
     cache --> research --> results --> api
+    opend <-- "live candles, orders, fills" --> live
     live --> record --> api
     cache -- "backtests on request" --> api
     api --> web
 ```
 
-## Contents
-
-| Page | What it covers |
+| | |
 |---|---|
-| [Architecture](architecture/index.md) | The six packages and their import layers, the data flow from the broker gateway to results, the live trading path, and the venue-based engine |
-| [Packages](packages/index.md) | One page per package, from its README |
-| [API](api/index.md) | The design of the dashboard's HTTP API, its routes, and the [full reference](api/reference.md) rendered from its OpenAPI contract |
-| [Dashboard](dashboard.md) | The dashboard guide: every view, and five examples that reproduce the main findings |
-| [Deployment](deployment.md) | The trading VM and its schedule, versioned releases and deploys, CI workflows, and the hosted dashboard |
-| [Development](development.md) | Setting up the workspace with uv, tests, the API contract, CI, the release process and this site |
+| Packages | Six installable packages in one `midfreq` namespace: core, data, strategies, backtest, live, research |
+| Markets | Hong Kong (HKEX) and US (Nasdaq, NYSE) equities, hourly bars; seven equity venues and four crypto exchanges configured |
+| Connectors | Moomoo OpenD, Interactive Brokers, yfinance, Binance, ccxt |
+| Strategies | 13 candle strategies behind one registry; an event-driven Strategy API with native strategies |
+| Validation | Walk-forward under two configurations, White's Reality Check, Probability of Backtest Overfitting |
+| Live trading | Paper trading through moomoo OpenD from a cloud virtual machine, recorded and reconciled against the broker |

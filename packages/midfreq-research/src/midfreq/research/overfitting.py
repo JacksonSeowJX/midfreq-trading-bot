@@ -110,7 +110,7 @@ def pbo_from_matrix(matrix: List[List[float]]) -> Dict[str, Any]:
     """
     Run CSCV over a subset-by-configuration performance matrix.
 
-    matrix[s][c] = score of configuration c in subset s.
+    `matrix[s][c]` = score of configuration c in subset s.
     """
     n_subsets = len(matrix)
     if n_subsets < 4 or n_subsets % 2 != 0:

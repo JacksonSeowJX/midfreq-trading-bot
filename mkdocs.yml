@@ -1,6 +1,9 @@
 # The documentation site, published to GitHub Pages by .github/workflows/pages.yml.
-# Sources are in site_docs/; pages that show a repository document (docs/*.md, the package
-# READMEs) include it at build time through site_docs/hooks/repo_docs.py, and the API reference
+#
+# Sources are in site_docs/. Pages that show a repository document (docs/*.md, the package
+# READMEs) include it, or one of its sections, at build time through site_docs/hooks/repo_docs.py;
+# the Python API reference is generated from the packages' docstrings by
+# site_docs/hooks/gen_api_pages.py (mkdocs-gen-files, mkdocstrings); the HTTP API reference
 # renders apps/api/openapi.json as of the commit built. Preview locally:
 #
 #     uvx --with-requirements site_docs/requirements.txt mkdocs serve
@@ -8,13 +11,15 @@
 site_name: midfreq trading bot
 site_url: https://jacksonseowjx.github.io/midfreq-trading-bot/
 site_description: >-
-  Architecture, deployment and HTTP API of a quantitative trading bot for mid-frequency stock
-  trading (NTU final-year project CCDS25-1040).
+  A framework for mid-frequency trading research and paper trading on Hong Kong and US equities:
+  connectors, a Parquet price cache, two backtesting engines, walk-forward validation with
+  corrections for the search, and a live engine reconciled against the broker (NTU final-year
+  project CCDS25-1040).
 site_author: Seow Jia Xian Jackson
 copyright: Seow Jia Xian Jackson · NTU final-year project CCDS25-1040
 repo_url: https://github.com/JacksonSeowJX/midfreq-trading-bot
 repo_name: JacksonSeowJX/midfreq-trading-bot
-edit_uri: blob/main/site_docs/
+edit_uri: edit/main/site_docs/
 
 docs_dir: site_docs
 site_dir: site
@@ -25,7 +30,9 @@ hooks:
   - site_docs/hooks/repo_docs.py
 watch:
   - docs
+  - packages
   - apps/api/openapi.json
+  - config/venues.json
 
 # The Pages workflow builds with --strict, so any of these fails the build there.
 validation:
@@ -36,64 +43,152 @@ validation:
 
 nav:
   - Home: index.md
-  - Architecture:
-      - architecture/index.md
-      - Venue-based engine: architecture/engine.md
-  - Packages:
-      - packages/index.md
-      - midfreq-core: packages/midfreq-core.md
-      - midfreq-data: packages/midfreq-data.md
-      - midfreq-strategies: packages/midfreq-strategies.md
-      - midfreq-backtest: packages/midfreq-backtest.md
-      - midfreq-live: packages/midfreq-live.md
-      - midfreq-research: packages/midfreq-research.md
-  - API:
+  - Getting started:
+      - getting_started/index.md
+      - Installation: getting_started/installation.md
+      - Quickstart: getting_started/quickstart.md
+  - Concepts:
+      - concepts/index.md
+      - Architecture: concepts/architecture.md
+      - Data and connectors: concepts/data.md
+      - Instruments and venues: concepts/instruments_and_venues.md
+      - Strategies: concepts/strategies.md
+      - Backtesting: concepts/backtesting.md
+      - Optimization and validation: concepts/optimization_and_validation.md
+      - Live trading: concepts/live_trading.md
+      - Saved runs: concepts/saved_runs.md
+      - The dashboard: concepts/dashboard.md
+  - Tutorials:
+      - tutorials/index.md
+      - Backtest a strategy: tutorials/backtest_a_strategy.md
+      - Walk-forward a strategy: tutorials/walk_forward.md
+      - Write an event-driven strategy: tutorials/event_driven_strategy.md
+      - Add a connector: tutorials/add_a_connector.md
+  - Integrations:
+      - integrations/index.md
+      - Moomoo (OpenD): integrations/moomoo.md
+      - Interactive Brokers: integrations/interactive_brokers.md
+      - yfinance: integrations/yfinance.md
+      - Binance: integrations/binance.md
+      - ccxt: integrations/ccxt.md
+  - API reference:
       - api/index.md
-      - Reference: api/reference.md
-  - Dashboard: dashboard.md
-  - Deployment: deployment.md
-  - Development: development.md
+      # one page per public module, generated when the site is built (api/python/SUMMARY.md)
+      - Python API: api/python/
+      - HTTP API:
+          - api/http/index.md
+          - Reference: api/http/reference.md
+  - Developer guide:
+      - developer_guide/index.md
+      - Environment: developer_guide/environment.md
+      - Testing: developer_guide/testing.md
+      - CI workflows: developer_guide/ci.md
+      - Releases and deployment: developer_guide/releases_and_deployment.md
+      - Documentation: developer_guide/documentation.md
+  - Results:
+      - results/index.md
+      - The forward test: results/forward_test.md
+      - Reproducing the numbers: results/reproducing.md
 
 theme:
   name: material
   language: en
+  font:
+    text: Inter
+    code: JetBrains Mono
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
   icon:
     repo: fontawesome/brands/github
+    edit: material/pencil-outline
   features:
     - content.action.edit
+    - content.code.annotate
     - content.code.copy
+    - content.tabs.link
+    - content.tooltips
     - navigation.footer
-    - navigation.indexes
+    - navigation.path
     - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.top
+    - navigation.tracking
     - search.highlight
+    - search.share
     - search.suggest
     - toc.follow
+  # Dark by default; the toggle in the header switches between the two. Colours are in
+  # stylesheets/extra.css.
   palette:
-    - media: "(prefers-color-scheme)"
+    - scheme: slate
+      primary: custom
+      accent: custom
       toggle:
-        icon: material/brightness-auto
+        icon: material/weather-sunny
         name: Switch to light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: blue grey
-      accent: deep orange
+    - scheme: default
+      primary: custom
+      accent: custom
       toggle:
-        icon: material/brightness-7
+        icon: material/weather-night
         name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: blue grey
-      accent: deep orange
-      toggle:
-        icon: material/brightness-4
-        name: Switch to system preference
+
+extra_css:
+  - stylesheets/extra.css
 
 extra:
   generator: false
   repo_branch: main
   # where the dashboard guide's links to app pages (/live, /backtest?preset=...) go on this site
   dashboard_url: https://midfreq-dashboard-123943780205.asia-southeast1.run.app
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/JacksonSeowJX/midfreq-trading-bot
+      name: Source code on GitHub
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - site_docs/hooks/gen_api_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          # static analysis with griffe: nothing is imported, so the vendor SDKs are not needed
+          paths:
+            - packages/midfreq-core/src
+            - packages/midfreq-data/src
+            - packages/midfreq-strategies/src
+            - packages/midfreq-backtest/src
+            - packages/midfreq-live/src
+            - packages/midfreq-research/src
+          options:
+            docstring_style: google
+            docstring_options:
+              ignore_init_summary: true
+              # many signatures are annotated where their Args are not; that is not an error
+              warn_missing_types: false
+            docstring_section_style: table
+            filters: ["!^_"]
+            heading_level: 1
+            inherited_members: false
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
+            show_root_heading: true
+            show_root_full_path: true
+            show_if_no_docstring: true
+            show_signature_annotations: true
+            show_source: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            signature_crossrefs: true
+            summary: true
 
 markdown_extensions:
   - abbr
@@ -111,11 +206,21 @@ markdown_extensions:
         kwds:
           case: lower
   - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower

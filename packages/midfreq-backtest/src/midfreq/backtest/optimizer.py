@@ -4,10 +4,10 @@ Strategy Optimizer Module
 Provides grid search and walk-forward optimization for strategy parameters.
 
 Grid Search: Exhaustively tests all parameter combinations to find the best
-             configuration for a given objective (Sharpe, Return, etc.)
+configuration for a given objective (Sharpe, Return, etc.)
 
 Walk-Forward: Splits data into rolling train/test windows to validate that
-              optimized parameters generalize to unseen data (prevents overfitting).
+optimized parameters generalize to unseen data (prevents overfitting).
 """
 
 import itertools

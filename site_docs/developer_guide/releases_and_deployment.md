@@ -1,4 +1,4 @@
-# Deployment
+# Releases and deployment
 
 The system runs in three places, each with its own path for code to reach it:
 
@@ -9,29 +9,29 @@ The system runs in three places, each with its own path for code to reach it:
 | This documentation site | **GitHub Pages** | a push to `main` | a build by the Pages workflow |
 
 This page describes roles and procedures. Host addresses, account names, keys and access
-bindings are deliberately not published here; the operational runbook is
+bindings are deliberately not published; the operational runbook is
 [`ops/README.md`](repo:ops/README.md) in the repository.
 
 ## The trading VM
 
 The VM runs the bot's live paper-trading sessions next to moomoo OpenD, the broker's gateway,
-which only the VM can reach. Its Python environment is Python 3.10 with the third-party
-versions pinned in [`ops/vm/requirements-vm.txt`](repo:ops/vm/requirements-vm.txt), the versions
-the VM's OpenD works with. It is not `uv.lock`, which is the research environment on Python 3.12.
+which only the VM can reach. Its Python environment is Python 3.10 with the third-party versions
+pinned in [`ops/vm/requirements-vm.txt`](repo:ops/vm/requirements-vm.txt), the versions the VM's
+OpenD works with. It is not `uv.lock`, which is the research environment on Python 3.12.
 
 ### Layout
 
 The VM never pulls code. Each release is installed into its own folder, and code and data are
 kept apart: a release never writes to `runtime/`, and nothing in `runtime/` is in git.
 
-```
+```text
 ~/midfreq/
   releases/<version>/   one folder per release, never modified once installed:
                         its own .venv/, the session launchers (ops/), the configuration as
                         committed (defaults/config/), and a MANIFEST with wheel checksums
   current -> releases/<version>    the release cron runs
   previous              the release current pointed at before the last switch
-  runtime/              MIDFREQ_ROOT: config/, data/ (the bar cache), live_sessions/ (kept)
+  runtime/              MIDFREQ_ROOT: config/, data/ (the price cache), live_sessions/ (kept)
   logs/, archive/       operations logs, and their monthly archive
 ```
 
@@ -46,7 +46,7 @@ clock, Singapore time (SGT).
 | 21:35 and 22:35, Monday to Friday | The S&P 100 forward test (`ops/run_sp100_forward_test.sh --scheduled`). The US open, 09:30 ET, is 21:30 SGT under daylight saving time and 22:30 SGT otherwise; the launcher proceeds only within 30 minutes after the open, so exactly one of the two starts a session, which ends just after the close |
 | 09:25, Monday to Friday (paused) | The Hong Kong roster (`ops/run_daily_candidates.sh`). Paused while the S&P 100 test runs, because the two together exceed the account's 100-symbol subscription quota |
 | Every 2 minutes | `ops/vm/sync_logs.sh`: uploads the bot's record to the hosted dashboard's bucket; never deletes |
-| Every 5 minutes | `ops/vm/broker_snapshot.sh`: reads each published broker account, read-only, into a snapshot file (see [Broker snapshots](#broker-snapshots)) |
+| Every 5 minutes | `ops/vm/broker_snapshot.sh`: reads each published broker account, read-only, into a snapshot file ([Broker snapshots](../concepts/live_trading.md#broker-snapshots)) |
 | Every minute | `ops/vm/memlog.sh`: memory and the largest processes, about 10 days kept |
 | 17:05 daily | `ops/vm/maintain.sh`: monthly log archive, retention of OpenD's and the SDK's logs, one health line |
 
@@ -64,8 +64,8 @@ phases:
 |---|---|---|
 | 0. Cut the GitHub link | The VM's pull and push jobs disabled; the VM keeps trading on the code it has, and session logs are copied to a laptop with `ops/fetch_live_logs.sh` | done, 15 October 2026 |
 | 1. Release tooling | Release bundle, installer, deploy script and workflows; CI tests the installed bundle | done, 15 October 2026 |
-| 2. Cutover | First release installed, runtime folder created, the versioned schedule installed, log uploads configured | to do |
-| 3. Clean up | The pull-based scripts and their CI gate removed | to do |
+| 2. Cutover | First release installed, runtime folder created, the versioned schedule installed, log uploads configured | after the forward test |
+| 3. Clean up | The pull-based scripts and their CI gate removed | after the cutover |
 
 Until the cutover the VM runs its earlier schedule for the trading session, the memory log and
 log clean-up, and the hosted dashboard's record is uploaded from a laptop.
@@ -100,11 +100,7 @@ flowchart TB
 1. **Version.** `ops/set_version.sh X.Y.Z` sets one version on every package; commit it and push
    `main`.
 2. **Release.** Start the Release workflow (Actions, Release, *Run workflow*, with the version),
-   or push a tag `vX.Y.Z`. The workflow checks that the version matches every package and is not
-   released yet, builds the bundle with `ops/build_release.sh`, installs it with the VM's
-   installer on Python 3.10 (including its smoke test and a dry run of the session launcher),
-   removes the packages' source folders and runs the packages' and the cross-package tests
-   against the installed wheels, and publishes a GitHub Release with the bundle and its checksum.
+   or push a tag `vX.Y.Z` ([CI workflows](ci.md#release)).
 
 The bundle, `midfreq-X.Y.Z.tar.gz`, holds:
 
@@ -132,36 +128,23 @@ smoke-tests it and, unless the release is only staged, points `current` at it. T
 trades from the next session; a session already running keeps the code it started with, because
 its release folder is never changed. Rolling back points `current` at the previous release again.
 
-The Deploy workflow has two jobs. `plan` checks the inputs and that the release is published, and
-shows the exact command. `apply` runs in the protected `production` environment, so it waits for
-the owner's approval and runs only from `main`; it then sends the command to the VM over SSH. The
-key it uses is held as a secret of that environment, and the VM accepts it for one program only,
-the deploy gate ([`ops/vm/deploy_gate.sh`](repo:ops/vm/deploy_gate.sh)), which allows `status`,
-`rollback`, `switch X.Y.Z` and `deploy X.Y.Z [--stage] [--force]` and nothing else. For a deploy,
-the VM downloads the release from GitHub itself and verifies its checksum, so the key never
-uploads code; it is also denied a terminal and all port forwarding. Every request is logged on the
-VM.
+The Deploy workflow's `apply` job runs in the protected `production` environment, so it waits
+for the owner's approval and runs only from `main`. The key it reaches the VM with is a secret of
+that environment, and the VM accepts it for one program only, the deploy gate
+([`ops/vm/deploy_gate.sh`](repo:ops/vm/deploy_gate.sh)), which allows `status`, `rollback`,
+`switch X.Y.Z` and `deploy X.Y.Z [--stage] [--force]` and nothing else. For a deploy, the VM
+downloads the release from GitHub itself and verifies its checksum, so the key never uploads
+code; it is also denied a terminal and all port forwarding. Every request is logged on the VM.
 
-## Continuous integration
+## The hosted dashboard
 
-| Workflow | Runs on | What it does |
-|---|---|---|
-| [`ci.yml`](repo:.github/workflows/ci.yml) | every push and pull request, except commits that touch only `live_sessions/` | **research**: Python 3.12 with `uv.lock`, all tests and the package-layer check (`lint-imports`). **vm**: Python 3.10 with the VM's pinned versions; builds the release bundle, installs it as the VM would and runs the tests against the installed wheels. **web**: Node 22; checks that the web app's API types match `apps/api/openapi.json`, then typecheck, lint, tests and build |
-| [`release.yml`](repo:.github/workflows/release.yml) | a `vX.Y.Z` tag, or *Run workflow* | builds, installs, tests and publishes a release ([Releases](#releases)) |
-| [`deploy.yml`](repo:.github/workflows/deploy.yml) | *Run workflow* only | deploys, stages, switches or rolls back a release on the VM, after approval ([Deploys](#deploys)) |
-| [`pages.yml`](repo:.github/workflows/pages.yml) | a push to `main` that changes the documentation's sources, or *Run workflow* | builds this site with `mkdocs build --strict` and publishes it to GitHub Pages ([Documentation site](#documentation-site)) |
-
-## Hosted dashboard
-
-The dashboard is hosted at
-<https://midfreq-dashboard-123943780205.asia-southeast1.run.app> as a Cloud Run service,
-separate from the trading VM. One process serves both the API and the built web app. It is
-read-only towards the trading system: it reads the bot's record and the broker snapshots from
-Cloud Storage and cannot reach OpenD or the bot.
+The dashboard runs as a Cloud Run service, separate from the trading VM. One process serves both
+the API and the built web app. It is read-only towards the trading system: it reads the bot's
+record and the broker snapshots from Cloud Storage and cannot reach OpenD or the bot.
 
 ### Build and deploy
 
-`ops/dashboard/deploy_dashboard.sh`, run from a laptop, deploys the dashboard:
+`ops/dashboard/deploy_dashboard.sh`, run from a laptop, deploys it:
 
 1. It archives the **committed** code (`git archive HEAD`), so local edits never reach the hosted
    site, and adds the laptop's price cache (`data/`, which is not in git) for backtests.
@@ -171,8 +154,8 @@ Cloud Storage and cannot reach OpenD or the bot.
    the dashboard guide. Images are kept in Artifact Registry.
 3. The image is deployed to Cloud Run, where it runs as a dedicated runtime service account.
 
-The one-time cloud setup (APIs, the image repository, the record bucket and the runtime account)
-is [`ops/dashboard/setup_gcp.sh`](repo:ops/dashboard/setup_gcp.sh).
+The one-time cloud setup (APIs, the image repository, the record bucket and the runtime
+account) is [`ops/dashboard/setup_gcp.sh`](repo:ops/dashboard/setup_gcp.sh).
 
 ### Service settings
 
@@ -184,8 +167,21 @@ is [`ops/dashboard/setup_gcp.sh`](repo:ops/dashboard/setup_gcp.sh).
 | `MIDFREQ_LIVE_SESSIONS` | the record bucket | the bot's record (below) |
 | `MIDFREQ_RUNS` | a bucket for saved runs | the run store (below) |
 | `MIDFREQ_DASHBOARD_RUN_DELETE` | `off` | visitors cannot delete saved runs |
+| `MIDFREQ_AUTH` | `firebase` | sign-in (below) |
 | Instances | at most one, scaling to zero | jobs are held in one process's memory |
 | CPU | not throttled between requests | a background run continues after its request has returned |
+
+### Sign-in
+
+The hosted dashboard is private. Visitors sign in with Google, through Google Identity Platform
+(Firebase Authentication); no password is held anywhere in the system. The API checks the
+Firebase ID token on every `/api` route except the health check and the sign-in configuration,
+and admits only the accounts on an access list of email addresses and exact domains. A
+signed-in account that is not on the list sees *Awaiting approval*. The access list exists only
+in the service's settings, never in the repository. The web app's own files stay public, since
+they hold no data and the sign-in page must load. The one-time setup is
+[`ops/dashboard/setup_auth.sh`](repo:ops/dashboard/setup_auth.sh); the API's side is described
+under [HTTP API](../api/http/index.md#sign-in).
 
 ### Buckets and service accounts
 
@@ -198,40 +194,15 @@ flowchart TB
     rec -- "every 2 min, uploader account" --> bucket[("Record bucket<br/>private")]
     bucket -- "mirrored at most once a minute,<br/>runtime account, read only" --> svc["Cloud Run<br/>API and web app"]
     svc <--> runs[("Run store")]
-    browser["Browser"] --> svc
+    browser["Browser, signed in"] --> svc
 ```
 
 | Bucket | Holds | Written by | Read by |
 |---|---|---|---|
 | **Record bucket**: private, with public access prevented | the bot's record, `live_sessions/`: session logs, console logs, strategy state and broker snapshots | the VM, every 2 minutes, through a dedicated uploader service account that may only read and write objects in this bucket; nothing is ever deleted | the dashboard's runtime service account, which may only read this bucket |
-| **Run store** | the runs saved by the dashboard's jobs (see [Run store](api/index.md#run-store)), at `MIDFREQ_RUNS` | the dashboard | the dashboard |
+| **Run store** | the runs saved by the dashboard's jobs ([Saved runs](../concepts/saved_runs.md)), at `MIDFREQ_RUNS` | the dashboard | the dashboard |
 
 Each service account has one role: the VM's uploader has access to the record bucket only, and
 the dashboard's runtime account may read that bucket but not write to it. Until the
 [cutover](#migration-to-releases), the record bucket is filled from a laptop after the logs are
 copied from the VM.
-
-### Broker snapshots
-
-Only the VM reaches OpenD, so it reads the broker accounts and publishes them for both
-dashboards. Every 5 minutes, `python -m midfreq.data.snapshots` reads each account marked
-`publish: true` in the runtime's `config/connections.yaml` (the moomoo US and Hong Kong paper
-accounts) with one connection and four read-only queries (balance, positions, today's orders,
-order history), one account after another, and never touches a running session. Each account is
-written as `broker_<id>.json`: the account as the API serves it, with the orders of the last 14
-days, the time it was read (`as_of`) and its publisher, and no option or secret. The file is
-replaced atomically. An account that cannot be read keeps its previous file, so the dashboards
-show the last snapshot and its age, and the hosted dashboard warns once a snapshot is more than
-15 minutes old.
-
-## Documentation site
-
-This site is built from [`site_docs/`](repo:site_docs) and [`mkdocs.yml`](repo:mkdocs.yml) by
-[`.github/workflows/pages.yml`](repo:.github/workflows/pages.yml) on every push to `main` that
-changes its sources (`site_docs/`, `mkdocs.yml`, `docs/`, `apps/api/openapi.json` or a package
-README), or by *Run workflow*. The workflow installs the pinned toolchain from
-`site_docs/requirements.txt`, runs `mkdocs build --strict` (any broken link or anchor fails the
-build), and publishes the result with GitHub's Pages actions to the `github-pages` environment.
-
-GitHub Pages must be enabled once for the repository: Settings, Pages, *Source*: **GitHub
-Actions**.

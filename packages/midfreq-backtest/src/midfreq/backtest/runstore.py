@@ -32,6 +32,7 @@ Every time in a run is UTC; a time without a zone is read as UTC, as the backtes
 run.json is strict JSON: an infinite or undefined number is written as "inf", "-inf" or "nan".
 
 Usage:
+
     python -m midfreq.backtest.runstore list [--kind walk_forward] [--strategy NAME]
     python -m midfreq.backtest.runstore show <run_id>
     python -m midfreq.backtest.runstore promote <run_id>      # results/run_<id>.json and .csv

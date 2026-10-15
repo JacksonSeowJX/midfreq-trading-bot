@@ -1,15 +1,27 @@
-# The documentation site's toolchain (MkDocs with the Material theme), pinned in full.
-# Kept apart from the uv workspace: the Pages workflow (.github/workflows/pages.yml) installs it
-# with pip, and locally it runs in a throwaway environment:
+# The documentation site's toolchain (MkDocs with the Material theme, mkdocstrings for the
+# Python API reference), pinned in full. Kept apart from the uv workspace: the Pages workflow
+# (.github/workflows/pages.yml) installs it with pip, and locally it runs in a throwaway
+# environment:
 #
 #     uvx --with-requirements site_docs/requirements.txt mkdocs build --strict
 #
+# mkdocs-gen-files, mkdocs-literate-nav and mkdocs-section-index are held at the last releases
+# that depend on MkDocs alone (later ones also pull in the ProperDocs fork of MkDocs).
 mkdocs==1.6.1
 mkdocs-material==9.7.7
 mkdocs-material-extensions==1.3.1
 pymdown-extensions==12.3
 markdown==3.11.1
 pygments==2.21.0
+mkdocstrings[python]==1.0.7
+mkdocstrings-python==2.0.9
+griffelib==2.3.2
+mkdocs-autorefs==1.4.4
+mkdocs-gen-files==0.6.0
+mkdocs-literate-nav==0.6.2
+mkdocs-section-index==0.3.10
+# formats long signatures in the API reference (mkdocstrings-python calls it if present)
+ruff==0.17.1
 # their dependencies
 babel==2.18.0
 backrefs==8.1

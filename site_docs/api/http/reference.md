@@ -4,7 +4,7 @@ hide:
   - toc
 ---
 
-# API reference
+# HTTP API reference
 
 The reference below is rendered by [Redoc](https://github.com/Redocly/redoc) from
 [`openapi.json`](openapi.json){#openapi-spec}, the API's contract, which the site copies from
@@ -38,14 +38,19 @@ behind these routes. A running server also serves FastAPI's interactive document
       return;
     }
     Redoc.init(document.getElementById("openapi-spec").href, {
-      scrollYOffset: ".md-header",
+      // the header and the sticky navigation tabs stay above the reference
+      scrollYOffset: function () {
+        var header = document.querySelector(".md-header");
+        var tabs = document.querySelector(".md-tabs");
+        return (header ? header.offsetHeight : 0) + (tabs ? tabs.offsetHeight : 0);
+      },
       hideHostname: true,
       expandResponses: "200,202",
       theme: {
         typography: {
-          fontFamily: "Roboto, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif",
-          headings: { fontFamily: "Roboto, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif" },
-          code: { fontFamily: "'Roboto Mono', SFMono-Regular, Consolas, Menlo, monospace" }
+          fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif",
+          headings: { fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif" },
+          code: { fontFamily: "'JetBrains Mono', SFMono-Regular, Consolas, Menlo, monospace" }
         }
       }
     }, container);

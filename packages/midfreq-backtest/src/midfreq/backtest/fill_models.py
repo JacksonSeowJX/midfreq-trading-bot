@@ -104,15 +104,16 @@ class BarFillModel(FillModel):
                  prob_fill_on_touch: float = 1.0, max_volume_share: Optional[float] = None,
                  seed: int = 0):
         """
-        timing: 'close' fills a market order at the close of the bar it was decided on (as
-            midfreq.backtest.backtester does); 'next_open' at the instrument's next bar's open; 'reference' at
-            the order's reference price (the legacy adapter).
-        slippage_bps: kept for compatibility; the engine turns it into FixedBpsSlippage when no
-            slippage model is given.
-        prob_fill_on_touch: chance that a limit is filled when the bar only touches it (high or low
-            exactly at the limit) rather than trading through it. Queue position is unknown from
-            bars, so 1.0 (the default) is optimistic. Draws come from a generator seeded with `seed`.
-        max_volume_share: fill at most this share of a bar's volume per bar; the rest stays open.
+        Args:
+            timing: 'close' fills a market order at the close of the bar it was decided on (as
+                midfreq.backtest.backtester does); 'next_open' at the instrument's next bar's open; 'reference' at
+                the order's reference price (the legacy adapter).
+            slippage_bps: kept for compatibility; the engine turns it into FixedBpsSlippage when no
+                slippage model is given.
+            prob_fill_on_touch: chance that a limit is filled when the bar only touches it (high or low
+                exactly at the limit) rather than trading through it. Queue position is unknown from
+                bars, so 1.0 (the default) is optimistic. Draws come from a generator seeded with `seed`.
+            max_volume_share: fill at most this share of a bar's volume per bar; the rest stays open.
         """
         if timing not in (CLOSE, NEXT_OPEN, REFERENCE):
             raise ValueError(f"timing must be 'close', 'next_open' or 'reference', got {timing!r}")
