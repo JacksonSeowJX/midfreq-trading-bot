@@ -402,6 +402,7 @@ class Job(BaseModel):
     backtest: Optional[BacktestResult] = None
     compare: Optional[CompareResult] = None
     optimize: Optional[OptimizeResult] = None
+    run_id: Optional[str] = Field(None, description="the saved run, once the job is done (Run history)")
 
 
 class JobCapabilities(BaseModel):
@@ -411,3 +412,26 @@ class JobCapabilities(BaseModel):
     objectives: Dict[str, str] = Field(description="objective key -> label, for optimize")
     markets: Dict[str, Dict[str, Any]] = Field(description="per market: default commission_rate, "
                                                "currency, symbols with cached data, universes")
+
+
+# ── saved runs (the run store: midfreq.backtest.runstore) ───────────────────
+
+class RunSummary(BaseModel):
+    """One saved run, as the Run history lists it."""
+    run_id: str
+    created: datetime
+    kind: Literal["backtest", "compare", "grid_search", "walk_forward"]
+    source: str = Field("", description="who saved it: api (a dashboard job), script, cli")
+    strategy: Optional[str] = None
+    universe: Optional[str] = None
+    n_symbols: Optional[int] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    git_commit: Optional[str] = None
+    metrics: Dict[str, Any] = Field(default_factory=dict, description="headline numbers, as saved")
+
+
+class RunDetail(BaseModel):
+    summary: RunSummary
+    meta: Dict[str, Any] = Field(description="everything about how the run was made (run.json)")
+    tables: List[str] = Field(description="names of its tables: equity, trades, windows, grid, ...")

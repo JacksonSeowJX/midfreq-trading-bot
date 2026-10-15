@@ -248,6 +248,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runs
+         * @description Saved runs, newest first.
+         */
+        get: operations["runs_api_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run */
+        get: operations["run_api_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Run */
+        delete: operations["delete_run_api_runs__run_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/tables/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run Table */
+        get: operations["run_table_api_runs__run_id__tables__name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions": {
         parameters: {
             query?: never;
@@ -740,6 +795,11 @@ export interface components {
             progress: number;
             /** Request */
             request: Record<string, unknown>;
+            /**
+             * Run Id
+             * @description the saved run, once the job is done (Run history)
+             */
+            run_id?: string | null;
             /** Started */
             started?: string | null;
             /**
@@ -1092,6 +1152,61 @@ export interface components {
             take_profit_pct?: number | null;
             /** Trailing Stop Pct */
             trailing_stop_pct?: number | null;
+        };
+        /** RunDetail */
+        RunDetail: {
+            /**
+             * Meta
+             * @description everything about how the run was made (run.json)
+             */
+            meta: Record<string, unknown>;
+            summary: components["schemas"]["RunSummary"];
+            /**
+             * Tables
+             * @description names of its tables: equity, trades, windows, grid, ...
+             */
+            tables: string[];
+        };
+        /**
+         * RunSummary
+         * @description One saved run, as the Run history lists it.
+         */
+        RunSummary: {
+            /**
+             * Created
+             * Format: date-time
+             */
+            created: string;
+            /** End */
+            end?: string | null;
+            /** Git Commit */
+            git_commit?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "backtest" | "compare" | "grid_search" | "walk_forward";
+            /**
+             * Metrics
+             * @description headline numbers, as saved
+             */
+            metrics?: Record<string, unknown>;
+            /** N Symbols */
+            n_symbols?: number | null;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Source
+             * @description who saved it: api (a dashboard job), script, cli
+             * @default
+             */
+            source: string;
+            /** Start */
+            start?: string | null;
+            /** Strategy */
+            strategy?: string | null;
+            /** Universe */
+            universe?: string | null;
         };
         /** SearchCorrection */
         SearchCorrection: {
@@ -1782,6 +1897,162 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Overview"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    runs_api_runs_get: {
+        parameters: {
+            query?: {
+                kind?: string | null;
+                strategy?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_api_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description no such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_run_api_runs__run_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description deleting is not allowed here */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_table_api_runs__run_id__tables__name__get: {
+        parameters: {
+            query?: {
+                format?: "json" | "csv" | "parquet";
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON rows, or a CSV or Parquet file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description no such run or table */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

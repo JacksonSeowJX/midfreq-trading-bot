@@ -35,6 +35,7 @@ class Settings:
     snapshot_accounts_only: bool = False  # only accounts the VM publishes as snapshots (the hosted dashboard)
     job_kinds: Tuple[str, ...] = ("backtest", "compare", "optimize")   # runs this deployment allows
     max_concurrent_jobs: int = 1
+    runs_deletable: bool = True           # false on the hosted dashboard: visitors cannot delete runs
 
     @property
     def connections_file(self) -> Path:
@@ -57,7 +58,8 @@ def default_settings() -> Settings:
                     accounts_enabled=os.environ.get("MIDFREQ_DASHBOARD_ACCOUNTS", "on").lower() not in ("off", "0", "false"),
                     snapshot_accounts_only=os.environ.get("MIDFREQ_DASHBOARD_ACCOUNTS", "on").lower() == "snapshots",
                     job_kinds=tuple(k for k in os.environ.get("MIDFREQ_DASHBOARD_JOBS", "backtest,compare,optimize").split(",") if k),
-                    max_concurrent_jobs=int(os.environ.get("MIDFREQ_DASHBOARD_MAX_JOBS", "1")))
+                    max_concurrent_jobs=int(os.environ.get("MIDFREQ_DASHBOARD_MAX_JOBS", "1")),
+                    runs_deletable=os.environ.get("MIDFREQ_DASHBOARD_RUN_DELETE", "on").lower() not in ("off", "0", "false"))
 
 
 @lru_cache(maxsize=None)

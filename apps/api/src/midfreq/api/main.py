@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from midfreq.api import __version__
-from midfreq.api.routers import accounts, jobs, record, reference, research
+from midfreq.api.routers import accounts, jobs, record, reference, research, runs
 from midfreq.api.settings import Settings, default_settings, get_settings
 from midfreq.api.web import mount_web
 
@@ -33,10 +33,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     else:
         settings = default_settings()
 
-    for r in (reference, record, accounts, research, jobs):
+    for r in (reference, record, accounts, research, jobs, runs):
         app.include_router(r.router)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
-                       allow_methods=["GET", "POST"], allow_headers=["*"])
+                       allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
     if settings.web_dist is not None:
         mount_web(app, settings.web_dist)      # after the API routes, so /api always matches first
     return app
