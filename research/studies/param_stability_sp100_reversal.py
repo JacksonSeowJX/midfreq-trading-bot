@@ -605,6 +605,48 @@ def fig_slices(insample, earlier, out_path, early_label):
     plt.close(fig)
 
 
+def fig_slices_wide(insample, earlier, out_path, early_label):
+    """The three slices side by side at the report's full text width, in plain words."""
+    plt = _style()
+    ins, ear = cube(insample), cube(earlier)
+    lb0, n0, r0 = (ANCHOR[0] - LOOKBACKS[0], ANCHOR[1] - TOP_NS[0], ANCHOR[2] - REBALS[0])
+    slices = [('Lookback (hourly candles)', LOOKBACKS, ins[:, n0, r0], ear[:, n0, r0], 30, 30),
+              ('Rebalance every (cross-sections)', REBALS, ins[lb0, n0, :], ear[lb0, n0, :], 19, 19),
+              ('Basket size (stocks)', TOP_NS, ins[lb0, :, r0], ear[lb0, :, r0], 3, 4)]
+    fig, axes = plt.subplots(1, 3, figsize=(6.0, 2.05), dpi=300, sharey=True,
+                             gridspec_kw={'width_ratios': [1.25, 1.0, 0.6]})
+    thr = CLOSE_FRAC * ANCHOR_SHARPE
+    for ax, (xlabel, xs, a, b, anchor_x, grid_max) in zip(axes, slices):
+        ax.grid(axis='y', color=GRID, lw=0.6, zorder=1)
+        for side in ('top', 'right', 'left', 'bottom'):
+            ax.spines[side].set_visible(False)
+        ax.tick_params(length=0, pad=2)
+        ax.axhline(0, color=INK, lw=0.8, zorder=2)
+        if grid_max < xs[-1]:
+            ax.axvspan(grid_max + 0.5, xs[-1] + 0.5, color=GRID, alpha=0.45, lw=0, zorder=0)
+        ax.axhline(thr, color=MUTED, lw=0.8, ls=(0, (3, 2)), zorder=2)
+        ax.axvline(anchor_x, color=MUTED, lw=0.6, ls=':', zorder=2)
+        ms = 3.0 if len(xs) <= 8 else 0
+        ax.plot(xs, a, color=BLUE, lw=1.3, marker='o' if ms else None, ms=ms, zorder=4,
+                label='84-day selection window (6 Jul – 25 Sep 2026)')
+        ax.plot(xs, b, color=ORANGE, lw=1.3, marker='o' if ms else None, ms=ms, zorder=4,
+                label=f'Before it ({early_label})')
+        ax.set_xlim(xs[0] - 0.5, xs[-1] + 0.5)
+        ax.set_xlabel(xlabel, labelpad=2)
+    axes[0].set_ylabel('Sharpe ratio')
+    axes[2].set_xticks(TOP_NS)
+    axes[0].text(LOOKBACKS[0] + 0.5, thr, '80% of the live setting', ha='left', va='bottom', fontsize=6.2,
+                 color=MUTED)
+    axes[1].text(REBALS[-1] + 0.3, axes[1].get_ylim()[1], 'beyond the original grid', ha='right', va='top',
+                 fontsize=6.2, color=MUTED)
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc='upper center', ncol=2, frameon=False, bbox_to_anchor=(0.5, 1.0), fontsize=6.8,
+               handlelength=1.6, columnspacing=1.4)
+    fig.tight_layout(rect=(0, 0, 1, 0.9), w_pad=0.8)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
 def draw_figures(res, surfaces):
     CHARTS.mkdir(parents=True, exist_ok=True)
     ins, ear = surfaces['insample'], surfaces['earlier']
@@ -613,9 +655,11 @@ def draw_figures(res, surfaces):
     early_label = '25 Aug 2023 – 2 Jul 2026'
     paths_out = {'fig1': CHARTS / f'{PREFIX}_fig1_insample_heatmaps.png',
                  'fig2': CHARTS / f'{PREFIX}_fig2_slices.png',
-                 'fig3': CHARTS / f'{PREFIX}_fig3_earlier_heatmap.png'}
+                 'fig3': CHARTS / f'{PREFIX}_fig3_earlier_heatmap.png',
+                 'report': CHARTS / f'{PREFIX}_report_slices.png'}
     fig_heatmaps(ins, paths_out['fig1'], bs_in, 'in-sample (6 Jul – 25 Sep 2026)')
     fig_slices(ins, ear, paths_out['fig2'], early_label)
+    fig_slices_wide(ins, ear, paths_out['report'], early_label)
     fig_single_heatmap(ear, 3, paths_out['fig3'], bs_ear, early_label)
     return {k: str(v.relative_to(REPO)) for k, v in paths_out.items()}
 
