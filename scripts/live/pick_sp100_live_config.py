@@ -93,13 +93,17 @@ def main():
     cls = STRATEGY_REGISTRY[STRATEGY]['class']
     rows = []
     t0 = time.time()
+    # Through the close of the last day. `end` is the last bar's own timestamp (16:00), so the
+    # end-exclusive cut-off walk-forward uses for a train segment dropped that bar: the 26 Sep 2026
+    # search valued its open positions at the 15:30 closes (+54.21% instead of +54.35%, same trades,
+    # same winner). There is no test segment here to overlap; the next window is live.
     for i, params in enumerate(grid, 1):
         pf = Portfolio(initial_cash=100_000.0, commission_rate=US_COMMISSION)
         bt = Backtester(storage=storage, portfolio=pf, slippage_bps=US_SLIPPAGE_BPS)
         with contextlib.redirect_stdout(io.StringIO()):
             try:
                 m = bt.run(cls, symbols=symbols, timeframe=Timeframe.HOUR_1,
-                           start_date=start, end_date=end, end_inclusive=False, **params)
+                           start_date=start, end_date=end.date(), **params)
             except Exception:
                 m = {}
         obj = _get_objective_value(m, args.objective) if m else 0.0

@@ -65,24 +65,27 @@ def compare(cls, symbols, cash, rate, slip, start, end, end_inclusive=True, **pa
 
 
 def test_sp100_forward_test_configuration():
-    """The S&P 100 reversal configuration the forward test trades, on the training window it was
-    chosen on (end-exclusive, as walk-forward train segments are). Both engines must also reproduce
-    the in-sample figures stored in config/sp100_forward_test.json, digit for digit."""
+    """The S&P 100 reversal configuration the forward test trades, on its training window. Both
+    engines must reproduce the in-sample figures stored in config/sp100_forward_test.json digit for
+    digit: in_sample through the close of the window's last day, and in_sample_as_selected with the
+    end-exclusive cut-off the search used on 26 Sep 2026 (which left out the 16:00 bar)."""
     before = snapshot()
     cfg = json.loads((REPO / "config" / "sp100_forward_test.json").read_text())
     symbols = available(cfg["symbols"])
     assert len(symbols) > 50
     start = datetime.fromisoformat(cfg["train_window"]["start"])
     end = datetime.fromisoformat(cfg["train_window"]["end"])
-    legacy, t_old, t_new = compare(STRATEGY_REGISTRY[cfg["strategy"]]["class"], symbols, 100_000.0,
-                                   cfg["commission_per_side"], cfg["slippage_bps"], start, end,
-                                   end_inclusive=False, **cfg["params"])
-    print(f"\nS&P 100 {cfg['params']}: {len(symbols)} symbols, {legacy['total_events']} bars, "
-          f"{legacy['total_trades']} trades, return {legacy['return_pct']!r}% "
-          f"(stored {cfg['in_sample']['return_pct']!r}%); Backtester {t_old:.1f}s, engine {t_new:.1f}s")
-    assert legacy["return_pct"] == cfg["in_sample"]["return_pct"]
-    assert legacy["sharpe_ratio"] == cfg["in_sample"]["objective"]
-    assert legacy["total_trades"] == cfg["in_sample"]["trades"]
+    cls = STRATEGY_REGISTRY[cfg["strategy"]]["class"]
+    for stored, end_date, inclusive in ((cfg["in_sample"], end.date(), True),
+                                        (cfg["in_sample_as_selected"], end, False)):
+        legacy, t_old, t_new = compare(cls, symbols, 100_000.0, cfg["commission_per_side"], cfg["slippage_bps"],
+                                       start, end_date, end_inclusive=inclusive, **cfg["params"])
+        print(f"\nS&P 100 {cfg['params']} to {end_date}: {len(symbols)} symbols, {legacy['total_events']} bars, "
+              f"{legacy['total_trades']} trades, return {legacy['return_pct']!r}% "
+              f"(stored {stored['return_pct']!r}%); Backtester {t_old:.1f}s, engine {t_new:.1f}s")
+        assert legacy["return_pct"] == stored["return_pct"]
+        assert legacy["sharpe_ratio"] == stored["objective"]
+        assert legacy["total_trades"] == stored["trades"]
     assert snapshot() == before
 
 

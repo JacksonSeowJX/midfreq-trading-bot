@@ -20,8 +20,10 @@ its first orders filled on 5 October 2026.
 The settings were picked the way each walk-forward window picks them: a grid search of the
 strategy's 96 configurations, by Sharpe ratio, over the most recent training span, the 84 days
 to 25 September 2026, at the US fee of 0.005% per side and 5 basis points of slippage. Going live
-is the next window's test span. The search's in-sample figures (a return of 54.2% and a Sharpe
-ratio of 5.45 over those 84 days) are what it selected on, not a forecast; the validated
+is the next window's test span. The search's in-sample figures (a return of 54.3% and a Sharpe
+ratio of 5.49 over those 84 days, to the close on 25 September) are what it selected on, not a
+forecast. The search as first run left out the window's final hourly bar and scored 54.2% and
+5.45; the same configuration wins either way, and the configuration records both. The validated
 out-of-sample expectation at this fee is +5.73% per window under Config A and +0.63% under
 Config B. Two of the chosen values, the 30-candle lookback and the 19-candle rebalance interval,
 are at the edge of their grids, which the configuration records as a warning.

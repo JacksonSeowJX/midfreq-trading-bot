@@ -304,8 +304,9 @@ Evidence (`tests/integration/test_legacy_equivalence.py`, and with `MIDFREQ_SLOW
   the engine's own cash balance equals the original's to the last bit.
 - On the real cache: all 13 strategies on five Hong Kong and five US stocks over 2025; the full S&P 100
   history (528,692 bars, 2,828 trades); and the forward test's configuration on the window it was
-  chosen on, which reproduces the in-sample return (54.21160599596979%) and Sharpe ratio stored in
-  `config/sp100_forward_test.json` digit for digit. The new engine is about twice as fast.
+  chosen on, which reproduces both in-sample figures stored in `config/sp100_forward_test.json`
+  digit for digit: through the close of its last day (54.34602599596977%), and with the
+  end-exclusive cut-off the search first used (54.21160599596979%). The new engine is about twice as fast.
 
 Limitations of the adapter, by construction: a core strategy has one cash balance, so its symbols
 must settle in one currency; and it groups "the same timestamp" by local-time stamps, so mixing

@@ -28,9 +28,15 @@
     "rebalance_every": 19
   },
   "in_sample": {
+    "objective": 5.490139617253906,
+    "return_pct": 54.34602599596977,
+    "trades": 99
+  },
+  "in_sample_as_selected": {
     "objective": 5.452531488178883,
     "return_pct": 54.21160599596979,
-    "trades": 99
+    "trades": 99,
+    "note": "What the search scored on 26 Sep 2026. Its end-exclusive cut-off left out the window's last bar (25 Sep 16:00), so the three open positions were valued at the 15:30 closes. in_sample above is the full window, re-scored on 16 Oct 2026; the same 99 trades, and the same configuration wins (Sharpe 5.49 against 5.00 for the runner-up)."
   },
   "symbols": [
     "US.AAPL",
