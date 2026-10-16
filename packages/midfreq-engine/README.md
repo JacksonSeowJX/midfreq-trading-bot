@@ -85,14 +85,38 @@ most of the time (`tests/slow/test_native_real_data.py -s` prints these per stra
 merged once instead of once per parameter set, and the runs share it across cores with the GIL
 released.
 
+## Keeping C++ and Python in step
+
+The Python strategies are the definition; a C++ port is an accelerator that is used only while it
+still matches. Each port is recorded in `src/midfreq/engine/verified.json` with a fingerprint of
+the exact Python it was verified to reproduce: the strategy class, its bases, the classes whose
+methods it calls, and the code every port shares (the backtester loop, the portfolio, the risk
+manager and sizers, the candle). Docstrings, comments and formatting are not part of it.
+
+- **Edit a strategy in Python, and its port stops being used.** `midfreq.backtest.native` runs it
+  on Python and says why (`fallback_reason`, and a warning in the log), so results never depend
+  on whether someone remembered the C++; only the speed does. Its subclasses go with it
+  (Momentum builds on Reversal), and an edit to the shared code sends every strategy to Python.
+- **CI stays green and says so**: the equivalence tests skip a stale port (it has nothing to
+  compare), and `python -m midfreq.backtest.parity status --github` puts a warning on the PR.
+  A port whose fingerprint still matches must still be identical, so a C++ regression fails.
+- **To make it fast again**, port the change to `src/strategies/`, `uv sync`, then
+
+  ```bash
+  uv run python -m midfreq.backtest.parity verify      # --slow adds the real-data test
+  ```
+
+  which runs the equivalence tests on every port and records the new fingerprints only if they
+  all pass. Commit `verified.json` with the C++.
+
 ## The trade-offs
 
 - **A compiler in the build.** `uv sync` compiles the extension (scikit-build-core, CMake,
   pybind11), and wheels are per platform. The VM's release bundle leaves the engine out: the VM
   trades and never backtests, and anything that does fall back to Python there.
-- **Two implementations to keep in step.** A change to a strategy in Python must be made in C++
-  too. The equivalence suite fails the build if they drift, and a strategy without a port simply
-  runs on Python.
+- **Two implementations.** A ported strategy exists in Python and in C++. The Python stays the
+  definition and nothing forces the C++ to keep up: an edited strategy simply runs on Python
+  until its port is updated (below).
 - **New strategies are not fast for free.** Writing a strategy in Python still works everywhere;
   it is fast only once it is ported. The C++ interface (`Strategy`, `HistoryStrategy`) mirrors
   `BaseStrategy`, so a port reads line for line like the Python.

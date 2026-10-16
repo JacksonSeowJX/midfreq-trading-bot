@@ -17,9 +17,12 @@ reproduces Backtester exactly, trade for trade and bit for bit; this module is i
 Engines: "python" (Backtester, the reference), "native" (C++, an error if it cannot run the
 case), "auto" (C++ when it can, else Python). The default comes from MIDFREQ_ENGINE, else "auto".
 The C++ engine runs a case only when it is sure to match: one of the ported strategy classes
-exactly (not a subclass, which may override anything), a fresh plain Portfolio, a plain
-RiskManager with one of the four sizers, and UTC-indexed bars with no missing closes. Anything
-else (the HMM and ML strategies, live portfolios, ...) runs on Python under "auto".
+exactly (not a subclass, which may override anything), whose Python is still the Python its port
+was verified against (midfreq.backtest.parity), a fresh plain Portfolio, a plain RiskManager with
+one of the four sizers, and UTC-indexed bars with no missing closes. Anything else (the HMM and
+ML strategies, a strategy edited since its port, live portfolios, ...) runs on Python under
+"auto". So the Python strategies stay the definition: changing one never changes a result, it
+only runs on Python until its port is updated and re-verified.
 
 The C++ hands back each run's daily returns and the Sharpe ratio is finished here with Python's
 statistics module, which works in exact arithmetic; every other number is computed in C++ with
@@ -29,6 +32,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 import os
 import statistics
 from datetime import datetime
@@ -38,6 +42,7 @@ import numpy as np
 import pandas as pd
 
 from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.parity import port_reason
 from midfreq.core.candle import Timeframe
 from midfreq.core.portfolio import Portfolio
 from midfreq.core.risk_manager import (EqualDollarSizer, FixedFractionalSizer, FixedQuantitySizer,
@@ -46,6 +51,19 @@ from midfreq.data.storage import DataStorage
 from midfreq.strategies import candle_strategies as cs
 
 ENGINES = ("auto", "native", "python")
+
+log = logging.getLogger(__name__)
+_warned: set = set()
+
+
+def _stale(cls: type) -> Optional[str]:
+    """Why the C++ port of `cls` is not used (its Python changed since it was verified), or None.
+    Logged once per strategy and process, so a slow optimiser has a visible reason."""
+    reason = port_reason(cls)
+    if reason and cls not in _warned:
+        _warned.add(cls)
+        log.warning("%s runs on the Python backtester: %s", cls.__name__, reason)
+    return reason
 
 
 class NativeUnavailable(RuntimeError):
@@ -173,6 +191,9 @@ def _native_params(strategy) -> Tuple[Optional[str], Optional[dict], Optional[st
     entry = _NATIVE.get(type(strategy))
     if entry is None:
         return None, None, f"{type(strategy).__name__} has no native version"
+    reason = _stale(type(strategy))
+    if reason:
+        return None, None, reason
     name, extract, ints = entry
     params = extract(strategy)
     for key, value in params.items():
@@ -488,6 +509,9 @@ class BatchRunner:
             return "the native engine is not built"
         if self.strategy_class not in _NATIVE:
             return f"{self.strategy_class.__name__} has no native version"
+        reason = _stale(self.strategy_class)
+        if reason:
+            return reason
         if not self.initial_capital > 0:
             return "initial capital is not positive"
         self._risk, reason = _risk_config(self.risk_manager)

@@ -24,6 +24,7 @@ pytest.importorskip("midfreq.engine._core")
 from midfreq.backtest.backtester import Backtester  # noqa: E402
 from midfreq.backtest.native import NativeBacktester  # noqa: E402
 from midfreq.backtest.optimizer import grid_search  # noqa: E402
+from midfreq.backtest.parity import port_reason  # noqa: E402
 from midfreq.core.candle import Timeframe  # noqa: E402
 from midfreq.core.paths import data_dir, repo_root  # noqa: E402
 from midfreq.core.portfolio import Portfolio  # noqa: E402
@@ -48,7 +49,14 @@ def sp100():
     return [s for s in universe if (DATA / s.replace(".", "_") / "1h.parquet").is_file()]
 
 
+def require_current(cls):
+    reason = port_reason(cls)
+    if reason:
+        pytest.skip(f"stale C++ port, runs on Python: {reason}")
+
+
 def compare(cls, symbols, start, end, risk=None, rate=0.00005, slip=5.0, **params):
+    require_current(cls)
     out, times = [], []
     for native in (False, True):
         pf = Portfolio(initial_cash=100_000.0, commission_rate=rate)
@@ -106,6 +114,7 @@ def test_pairs_over_a_year():
 
 
 def test_the_grid_search_that_chose_the_live_parameters():
+    require_current(cs.CrossSectionalReversal)
     fwd = json.loads((REPO / "config" / "sp100_forward_test.json").read_text())
     symbols = [s for s in sp100() if s not in set(fwd["excluded_stale_symbols"])]
     kw = dict(symbols=symbols, timeframe=H1, start_date=datetime.fromisoformat(fwd["train_window"]["start"]),

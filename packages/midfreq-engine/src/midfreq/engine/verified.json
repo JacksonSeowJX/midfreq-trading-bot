@@ -1,0 +1,19 @@
+{
+  "about": "Fingerprints of the Python each C++ port was last verified to reproduce exactly (midfreq.backtest.parity). Written by `python -m midfreq.backtest.parity verify` after the equivalence tests pass; do not edit by hand.",
+  "verified_on": "2026-10-16",
+  "python": "3.12.7",
+  "shared": "c33ce77f7caa7ec2b2bba16011b669c61cecc2b97426c2d04ba8bf592d75048f",
+  "strategies": {
+    "MovingAverageCrossover": "01c8aed77d8e800edab46a7d0e29b8429e91d267b8d272b00d87b70ecffae993",
+    "RSIStrategy": "702eb4fa9980c22f3d54b48c112a44175bb17a13106f1bbba921f88c72cab0c4",
+    "MACDStrategy": "60c4484de5a2239c1c973e66e59c70887937afab838af6fad003bc2337701087",
+    "BollingerBandsStrategy": "bcb5d41f72289c06ae5cf8b7b64e56055bd6fc57c4011607eec8776fdd3bbf31",
+    "ZScoreMeanReversion": "c23844ba74577b885aa8564bc080f3d6ee9d1e64bbd5ad3e146d5d979e995f87",
+    "PairsTradingStrategy": "51e44c5113550570c89b674b3c8c82990585c0b3b7ce303e7e6207e060d77dbe",
+    "EnsembleStrategy": "f3405a1e42b7fd49f8a20a2c7cefc21661c4563fc80d64fdcb2b0cd2d4b43266",
+    "RegimeSwitchStrategy": "6e77bcc8f729ea0ae69ca68e17a6cc9ba29cd585e3fcf63fb9b6cf12555e9d93",
+    "CrossSectionalReversal": "33956c930450769ff81708f7fcc61c1541a65481ab284adb4fee5257fb6b4e38",
+    "CrossSectionalMomentum": "bc9ddaf37b621762937ef1d86b1e526739d756cab1cc4efa22ea54c9ffe48edd",
+    "BuyAndHoldRiskOverlay": "66268be79ade2c31b914b7779163b81f105b984cb2c96e36890741e495e48256"
+  }
+}

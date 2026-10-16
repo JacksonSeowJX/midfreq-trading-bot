@@ -3,7 +3,12 @@
 Every ported strategy runs on both engines over the same synthetic universe (random walks, one
 symbol starting late, shared timestamps), with and without each risk sizer, with and without
 slippage, and the results must be equal, not close. Then: date windows, the cases that must fall
-back to Python, and the optimiser giving the same table on both engines."""
+back to Python, and the optimiser giving the same table on both engines.
+
+A strategy whose Python changed since its C++ port was verified (midfreq.backtest.parity) is
+skipped here: it runs on Python, so there is nothing to compare. `python -m
+midfreq.backtest.parity verify` runs this file on every port (MIDFREQ_ENGINE_VERIFYING=1) before
+recording them."""
 import contextlib
 import io
 from datetime import datetime
@@ -18,12 +23,14 @@ from midfreq.backtest.backtester import Backtester  # noqa: E402
 from midfreq.backtest.native import (BatchRunner, NativeBacktester, NativeUnavailable,  # noqa: E402
                                      make_backtester, native_strategy_classes)
 from midfreq.backtest.optimizer import grid_search, walk_forward  # noqa: E402
+from midfreq.backtest.parity import port_reason  # noqa: E402
 from midfreq.core.candle import Timeframe  # noqa: E402
 from midfreq.core.portfolio import Portfolio  # noqa: E402
 from midfreq.core.risk_manager import (EqualDollarSizer, FixedFractionalSizer, FixedQuantitySizer,  # noqa: E402
                                        KellyCriterionSizer, RiskManager)
 from midfreq.data.storage import DataStorage  # noqa: E402
 from midfreq.strategies import candle_strategies as cs  # noqa: E402
+from midfreq.strategies.candle_strategies import STRATEGY_REGISTRY  # noqa: E402
 
 SYMBOLS = [f"US.S{i:02d}" for i in range(8)]
 H1 = Timeframe.HOUR_1
@@ -83,7 +90,14 @@ def risk(kind):
     }[kind]() if kind else None
 
 
+def require_current(cls):
+    reason = port_reason(cls)
+    if reason:
+        pytest.skip(f"stale C++ port, runs on Python: {reason}")
+
+
 def both(storage, cls, params, risk_kind=None, slippage=0.0, rate=0.0016, symbols=SYMBOLS, **dates):
+    require_current(cls)
     out = []
     for native in (False, True):
         pf = Portfolio(initial_cash=100_000.0, commission_rate=rate)
@@ -210,6 +224,7 @@ def test_make_backtester_picks_by_name_and_environment(storage, monkeypatch):
 
 
 def test_the_batch_runner_chooses_its_engine(storage):
+    require_current(cs.CrossSectionalReversal)
     assert BatchRunner("auto", cs.CrossSectionalReversal, SYMBOLS, H1, storage, 1e5, 0.0).engine == "native"
     hmm = BatchRunner("auto", cs.HMMRegimeSwitchStrategy, SYMBOLS, H1, storage, 1e5, 0.0)
     assert hmm.engine == "python" and "no native version" in hmm.fallback_reason
@@ -219,6 +234,7 @@ def test_the_batch_runner_chooses_its_engine(storage):
 
 @pytest.mark.parametrize("strategy", ["Cross-Sectional Reversal", "RSI", "Bollinger Bands"])
 def test_grid_search_is_the_same_table_on_both_engines(storage, strategy):
+    require_current(STRATEGY_REGISTRY[strategy]["class"])
     kw = dict(symbols=SYMBOLS, timeframe=H1, start_date=datetime(2025, 1, 2), end_date=datetime(2025, 1, 31),
               storage=storage, slippage_bps=5.0, commission_rate=0.00005, max_combinations=60)
     calls = {"python": [], "native": []}
@@ -234,6 +250,7 @@ def test_walk_forward_is_the_same_on_both_engines(long_storage):
               storage=long_storage, n_splits=2, train_pct=0.7, slippage_bps=5.0, commission_rate=0.00005)
     rm = lambda: RiskManager(stop_loss_pct=0.04, position_sizer=EqualDollarSizer(2))  # noqa: E731
     for strategy, risk_manager in (("Cross-Sectional Reversal", None), ("Z-Score Mean Reversion", rm())):
+        require_current(STRATEGY_REGISTRY[strategy]["class"])
         py = walk_forward(strategy, engine="python", risk_manager=risk_manager, **kw)
         nat = walk_forward(strategy, engine="native", risk_manager=risk_manager, **kw)
         assert py["windows"] and [w.__dict__ for w in nat["windows"]] == [w.__dict__ for w in py["windows"]]

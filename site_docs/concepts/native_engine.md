@@ -44,6 +44,8 @@ flowchart TB
 
 <!-- include: packages/midfreq-engine/README.md#speed -->
 
+<!-- include: packages/midfreq-engine/README.md#keeping-c-and-python-in-step -->
+
 <!-- include: packages/midfreq-engine/README.md#the-trade-offs -->
 
 <!-- include: packages/midfreq-engine/README.md#building-and-testing -->
