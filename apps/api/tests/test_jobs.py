@@ -151,6 +151,9 @@ def test_backtest_runs_in_a_worker_and_returns_metrics_equity_trades_and_the_cha
     assert chart["symbol"] == "US.AAA" and len(chart["candles"]) == len(_candles(1))
     assert [(i["name"], i["pane"]) for i in chart["indicators"]] == [
         ("RSI", "lower"), ("Overbought (70)", "lower"), ("Oversold (30)", "lower")]
+    held = bt["benchmark"]                             # buy and hold of the stock, as the metrics measure it
+    assert held["symbols"] == ["US.AAA"] and len(held["equity"]) == len(bt["equity"])
+    assert held["equity"][-1]["v"] == pytest.approx(100_000.0 * (1 + bt["metrics"]["benchmark_return_pct"] / 100))
     rsi = chart["indicators"][0]["points"]
     close = _candles(1)["close"]
     delta = close.diff()
@@ -191,7 +194,7 @@ def test_a_backtest_through_the_api_equals_a_direct_backtester_run(use, process_
                                      sizer=create_position_sizer(SizingMethod.FIXED_FRACTIONAL, risk_pct=0.05))
     else:
         params = {"lookback": 10, "top_n": 2, "rebalance_every": 6}
-        payload = body(strategy="Cross-Sectional Reversal", params=params, commission_rate=0.001)
+        payload = body(strategy="Cross-Sectional Reversal", params=params, commission_rate=0.001, symbol=None)
         metrics, portfolio = _direct(market, "Cross-Sectional Reversal", params, SYMBOLS, START, END, commission=0.001,
                                      sizer=create_position_sizer(SizingMethod.EQUAL_DOLLAR, n_positions=2))
     job = wait(client, submit(client, "backtest", payload)["id"])
@@ -210,18 +213,71 @@ def test_a_backtest_through_the_api_equals_a_direct_backtester_run(use, process_
 def test_compare_runs_each_strategy_and_ranks_them_by_return(use, process_runner, market):
     client = use(process_runner)
     job = submit(client, "compare", body(strategies=[{"strategy": "RSI"}, {"strategy": "RSI", "params": {"rsi_period": 7}},
-                                                     {"strategy": "Cross-Sectional Reversal"}]))
+                                                     {"strategy": "MACD"}]))
     job = wait(client, job["id"])
     assert job["status"] == "done", job["error"]
     rows = job["compare"]["rows"]
-    assert sorted(r["strategy"] for r in rows) == ["Cross-Sectional Reversal", "RSI #1", "RSI #2"]
+    assert sorted(r["strategy"] for r in rows) == ["MACD", "RSI #1", "RSI #2"]
     returns = [r["metrics"]["return_pct"] for r in rows]
     assert returns == sorted(returns, reverse=True)
     by_label = {r["strategy"]: r for r in rows}
     assert by_label["RSI #2"]["params"]["rsi_period"] == 7 and by_label["RSI #1"]["params"]["rsi_period"] == 14
-    assert list(job["compare"]["equity"]) == ["RSI #1", "RSI #2", "Cross-Sectional Reversal"]     # run order
+    assert list(job["compare"]["equity"]) == ["RSI #1", "RSI #2", "MACD"]     # run order
     assert all(len(curve) == len(_candles(1)) for curve in job["compare"]["equity"].values())
     assert job["message"] == "Compared 3 strategies"
+    # the yardstick: holding the stock they all traded, which every row's alpha is measured against
+    held = job["compare"]["benchmark"]
+    assert held["symbols"] == ["US.AAA"] and len(held["equity"]) == len(_candles(1))
+    for row in rows:
+        assert held["equity"][-1]["v"] == pytest.approx(100_000.0 * (1 + row["metrics"]["benchmark_return_pct"] / 100))
+
+
+def test_a_basket_runs_on_its_universe_against_holding_the_universe_in_equal_amounts(use, process_runner, market):
+    """No one stock's price chart: the equity is compared with the equal-weight universe, which
+    is the backtester's own benchmark (its last value gives benchmark_return_pct)."""
+    client = use(process_runner)
+    job = wait(client, submit(client, "backtest", body(strategy="Cross-Sectional Reversal", symbol=None))["id"])
+    assert job["status"] == "done", job["error"]
+    bt = job["backtest"]
+    assert bt["symbols"] == SYMBOLS and bt["chart"] is None
+    held = bt["benchmark"]
+    assert held["symbols"] == SYMBOLS
+    assert [p["t"] for p in held["equity"]] == [p["t"] for p in bt["equity"]]                # every candle
+    assert held["equity"][0]["v"] == pytest.approx(100_000.0)
+    assert held["equity"][-1]["v"] == pytest.approx(100_000.0 * (1 + bt["metrics"]["benchmark_return_pct"] / 100))
+    closes = pd.DataFrame({sym: _candles(i + 1)["close"] for i, sym in enumerate(SYMBOLS)})
+    expected = (closes / closes.iloc[0] * 100_000.0 / 3).sum(axis=1)
+    assert [p["v"] for p in held["equity"]] == pytest.approx(expected.tolist())
+    assert job["request"]["symbol"] is None and job["request"]["universe"] == "sp100"
+
+    job = wait(client, submit(client, "compare", body(symbol=None, strategies=[
+        {"strategy": "Cross-Sectional Reversal"}, {"strategy": "Cross-Sectional Momentum"}]))["id"])
+    assert job["status"] == "done", job["error"]
+    compared = job["compare"]
+    assert sorted(r["strategy"] for r in compared["rows"]) == ["Cross-Sectional Momentum", "Cross-Sectional Reversal"]
+    assert compared["benchmark"] == held                                                     # the same universe
+
+
+def test_the_benchmark_holds_a_symbol_from_its_first_candle_in_the_dates(settings):
+    """Two symbols, the second starting an hour later: until then its half of the capital is
+    cash. A candle after the end date is left out, as the backtester leaves it out."""
+    idx = pd.date_range("2026-03-02 14:30", periods=3, freq="h", tz="UTC", name="timestamp")
+    for symbol, t, closes in (("US.XXX", list(idx) + [pd.Timestamp("2026-03-03 14:30", tz="UTC")], [10, 20, 15, 99]),
+                              ("US.YYY", idx[1:], [50, 40])):
+        folder = settings.data_dir / symbol.replace(".", "_")
+        folder.mkdir()
+        c = np.array(closes, dtype=float)
+        pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1.0},
+                     index=pd.DatetimeIndex(t, name="timestamp")).to_parquet(folder / "1h.parquet")
+    plan = runs.Plan(kind="backtest", data_dir=str(settings.data_dir), market="US", symbol=None, timeframe="1h",
+                     start=pd.Timestamp("2026-03-02").date(), end=pd.Timestamp("2026-03-02").date(),
+                     initial_capital=1_000.0, commission_rate=0.0, slippage_bps=0.0, risk={}, runs=())
+    held = runs.benchmark(plan, DataStorage(str(settings.data_dir)), ["US.XXX", "US.YYY", "US.ZZZ"])
+    assert held.symbols == ["US.XXX", "US.YYY"]                    # US.ZZZ has no candles
+    # 50 shares of XXX at 10 and, from the second candle, 10 of YYY at 50
+    assert [(p.t, p.v) for p in held.equity] == [(idx[0], 500 + 500), (idx[1], 1_000 + 500), (idx[2], 750 + 400)]
+    assert runs.benchmark(replace(plan, start=pd.Timestamp("2027-01-01").date(), end=pd.Timestamp("2027-02-01").date()),
+                          DataStorage(str(settings.data_dir)), ["US.XXX"]) is None
 
 
 def test_grid_search_returns_the_combinations_best_first(use, process_runner, market):
@@ -353,6 +409,22 @@ def test_an_unknown_job_is_404(use, thread_runner):
     ("backtest", body(strategy="Cross-Sectional Reversal", universe=None), "needs one"),
     ("backtest", body(strategy="Cross-Sectional Reversal", universe="nowhere"), "no universe"),
     ("backtest", body(strategy="Cross-Sectional Reversal", universe="hk_live"), "HK universe"),
+    ("backtest", body(strategy="RSI", symbol=None), "symbol: RSI trades one stock, so it needs a symbol"),
+    ("backtest", body(strategy="Cross-Sectional Reversal"),
+     "symbol: Cross-Sectional Reversal ranks the whole sp100 universe, so it takes no symbol"),
+    ("backtest", body(strategy="Cross-Sectional Reversal", symbol=None, universe="tiny"),
+     "universe: Cross-Sectional Reversal holds 2 of the stocks it ranks, so it needs more than 2 to rank; tiny has 1 "
+     "with cached 1h candles"),
+    ("backtest", body(strategy="Cross-Sectional Momentum", symbol=None, params={"top_n": 3}),
+     "needs more than 3 to rank; sp100 has 3"),
+    ("optimize", body(strategy="Cross-Sectional Reversal", symbol=None),
+     "universe: the search tries Cross-Sectional Reversal with baskets of up to 4, so it needs more than 4"),
+    ("compare", body(strategies=[{"strategy": "RSI"}, {"strategy": "Cross-Sectional Reversal"}]),
+     "strategies: cross-sectional strategies (Cross-Sectional Reversal) rank a universe of stocks against each other, "
+     "so they are compared only with each other, not with single-stock strategies (RSI)"),
+    ("compare", body(symbol=None, universe="tiny", strategies=[{"strategy": "Cross-Sectional Reversal"},
+                                                               {"strategy": "Cross-Sectional Momentum"}]),
+     "needs more than 2 to rank; tiny has 1"),
     ("backtest", body(strategy="Pairs Trading"), "needs a second symbol"),
     ("backtest", body(strategy="RSI", start="2026-04-30", end="2026-01-05"), "after end"),
     ("backtest", body(strategy="RSI", risk={"stop_loss_pct": 3}), "risk.stop_loss_pct"),

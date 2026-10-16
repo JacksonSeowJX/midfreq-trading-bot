@@ -569,7 +569,7 @@ const LEADING_FIELD = /^(initial_capital|commission_rate|slippage_bps|risk\.[a-z
  */
 export function detailFieldErrors(
   detail: string,
-  sent: { strategies: string[]; compare: boolean; symbol?: string; pairSymbol?: string | null },
+  sent: { strategies: string[]; compare: boolean; symbol?: string | null; pairSymbol?: string | null },
 ): FieldErrors {
   const text = detail.trim()
   const prefixed = /^([a-z_]+): (.+)$/.exec(text)

@@ -276,22 +276,23 @@ def test_a_backtest_job_is_saved_with_its_settings_metrics_equity_and_trades(job
 
 def test_a_compare_job_is_saved_with_each_strategy_and_its_equity(jobs, run_store):
     job = jobs("compare", strategies=[{"strategy": "RSI"}, {"strategy": "RSI", "params": {"rsi_period": 7}},
-                                      {"strategy": "Cross-Sectional Reversal"}])
+                                      {"strategy": "Pairs Trading"}], pair_symbol="US.BBB")
     assert job["status"] == "done", job["error"]
     saved = run_store.runs[job["run_id"]]
     rows = job["compare"]["rows"]
     assert saved.kind == "compare"
-    assert saved.meta["strategy"] == "RSI, Cross-Sectional Reversal"
-    assert saved.meta["universe"] == "US.AAA, sp100" and saved.meta["n_symbols"] == 3
+    assert saved.meta["strategy"] == "RSI, Pairs Trading"
+    assert saved.meta["universe"] == "US.AAA, US.AAA / US.BBB" and saved.meta["n_symbols"] == 2
+    assert saved.meta["pair_symbol"] == "US.BBB"
     assert saved.meta["strategies"] == [r["strategy"] for r in rows]                       # the labels, best first
-    assert [r["label"] for r in saved.meta["runs"]] == ["RSI #1", "RSI #2", "Cross-Sectional Reversal"]
+    assert [r["label"] for r in saved.meta["runs"]] == ["RSI #1", "RSI #2", "Pairs Trading"]
     assert saved.meta["params"] == {r["strategy"]: r["params"] for r in rows}
     table = saved.tables["strategies"]
     assert list(table["label"]) == [r["strategy"] for r in rows]
-    assert sorted(set(table["strategy"])) == ["Cross-Sectional Reversal", "RSI"]
+    assert sorted(set(table["strategy"])) == ["Pairs Trading", "RSI"]
     assert [json.loads(p) for p in table["params"]] == [r["params"] for r in rows]
     assert list(table["return_pct"]) == [r["metrics"]["return_pct"] for r in rows]
-    assert dict(zip(table["label"], table["n_symbols"]))["Cross-Sectional Reversal"] == 3
+    assert dict(zip(table["label"], table["n_symbols"])) == {"RSI #1": 1, "RSI #2": 1, "Pairs Trading": 2}
     assert saved.metrics["best_strategy"] == rows[0]["strategy"] and saved.metrics["n_strategies"] == 3
     assert saved.metrics["return_pct"] == rows[0]["metrics"]["return_pct"]
     equity = saved.tables["equity"]

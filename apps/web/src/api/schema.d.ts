@@ -558,8 +558,11 @@ export interface components {
             start: string;
             /** Strategy */
             strategy: string;
-            /** Symbol */
-            symbol: string;
+            /**
+             * Symbol
+             * @description the stock a single-stock strategy trades; null for a cross-sectional strategy
+             */
+            symbol?: string | null;
             /**
              * Timeframe
              * @default 1h
@@ -571,6 +574,9 @@ export interface components {
         };
         /** BacktestResult */
         BacktestResult: {
+            /** @description buy and hold of the symbols traded */
+            benchmark?: components["schemas"]["Benchmark"] | null;
+            /** @description the traded stock's price; null for a cross-sectional strategy, which trades a whole universe */
             chart?: components["schemas"]["PriceChart"] | null;
             /** Equity */
             equity: components["schemas"]["SeriesPoint"][];
@@ -587,6 +593,17 @@ export interface components {
             symbols: string[];
             /** Trades */
             trades: components["schemas"]["TradeOut"][];
+        };
+        /**
+         * Benchmark
+         * @description Buy and hold, the yardstick of benchmark_return_pct and alpha: the starting capital split
+         *     equally across `symbols` at their first close in the run's dates and held to the end.
+         */
+        Benchmark: {
+            /** Equity */
+            equity: components["schemas"]["SeriesPoint"][];
+            /** Symbols */
+            symbols: string[];
         };
         /** Candle */
         Candle: {
@@ -655,8 +672,11 @@ export interface components {
             start: string;
             /** Strategies */
             strategies: components["schemas"]["StrategyChoice"][];
-            /** Symbol */
-            symbol: string;
+            /**
+             * Symbol
+             * @description the stock a single-stock strategy trades; null for a cross-sectional strategy
+             */
+            symbol?: string | null;
             /**
              * Timeframe
              * @default 1h
@@ -668,6 +688,8 @@ export interface components {
         };
         /** CompareResult */
         CompareResult: {
+            /** @description buy and hold of what was compared on: the stock, or every stock of the universe in equal amounts */
+            benchmark?: components["schemas"]["Benchmark"] | null;
             /**
              * Equity
              * @description strategy name -> equity curve
@@ -987,8 +1009,11 @@ export interface components {
             start: string;
             /** Strategy */
             strategy: string;
-            /** Symbol */
-            symbol: string;
+            /**
+             * Symbol
+             * @description the stock a single-stock strategy trades; null for a cross-sectional strategy
+             */
+            symbol?: string | null;
             /**
              * Timeframe
              * @default 1h
