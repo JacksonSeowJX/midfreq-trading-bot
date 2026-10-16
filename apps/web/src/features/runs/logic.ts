@@ -4,6 +4,7 @@
  * the walk-forward summary. The API leaves these as Dict[str, Any], so every read is defensive.
  */
 import type {
+  Benchmark,
   CompareResult,
   GridRow,
   Job,
@@ -184,6 +185,14 @@ export function compareLines(result: CompareResult): CompareLine[] {
     params: r.params,
     figures: headline(r.metrics, result.equity[r.strategy] ?? []),
   }))
+}
+
+/** A benchmark's name: holding the one stock, or every stock of a universe in equal amounts. */
+export function benchmarkLabel(benchmark: Pick<Benchmark, 'symbols'>): string {
+  const [only] = benchmark.symbols
+  return benchmark.symbols.length === 1 && only
+    ? `Buy and hold ${only}`
+    : `Buy and hold, ${fmtNum(benchmark.symbols.length)} stocks in equal amounts`
 }
 
 /** The strategy names a run asked for, in the order asked (Compare's request.strategies). */

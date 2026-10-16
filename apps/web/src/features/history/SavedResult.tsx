@@ -61,7 +61,7 @@ export function SavedResult({ detail }: { detail: SavedRunDetail }) {
         <BacktestResultView
           result={backtestFromTables(detail, t1, t2)}
           summary={savedRunSummary(detail)}
-          noChart="The price chart is not saved with a run; run it again on the Backtest page to see one."
+          noChart="The price and buy-and-hold charts are not saved with a run; run it again on the Backtest page to see them."
         />
       )
     case 'compare':
