@@ -154,6 +154,23 @@ plugins:
         - site_docs/hooks/gen_api_pages.py
   - literate-nav:
       nav_file: SUMMARY.md
+  # The first version of the site (until 16 Oct 2026) had other page addresses; each one now
+  # redirects to the page its content moved to, so links to them still land.
+  - redirects:
+      redirect_maps:
+        architecture/index.md: concepts/architecture.md
+        architecture/engine.md: concepts/architecture.md
+        packages/index.md: api/python/index.md
+        packages/midfreq-core.md: api/python/midfreq/core/index.md
+        packages/midfreq-data.md: api/python/midfreq/data/index.md
+        packages/midfreq-strategies.md: api/python/midfreq/strategies/index.md
+        packages/midfreq-backtest.md: api/python/midfreq/backtest/index.md
+        packages/midfreq-live.md: api/python/midfreq/live/index.md
+        packages/midfreq-research.md: api/python/midfreq/research/index.md
+        api/reference.md: api/http/reference.md
+        dashboard.md: concepts/dashboard.md
+        deployment.md: developer_guide/releases_and_deployment.md
+        development.md: developer_guide/index.md
   - section-index
   - mkdocstrings:
       default_handler: python

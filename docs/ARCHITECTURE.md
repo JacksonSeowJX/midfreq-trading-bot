@@ -71,7 +71,7 @@ Two deliberate differences from Nautilus:
 
 ## Time
 
-Every timestamp inside `mft` is an integer of nanoseconds since the epoch in UTC, and a bar's
+Every timestamp in the venue-based engine is an integer of nanoseconds since the epoch in UTC, and a bar's
 `ts_event` is the time it **closed**. That is Nautilus's convention and also what Moomoo's `time_key`
 means (a Hong Kong bar stamped 10:30 covers 09:30 to 10:30), so a strategy acting on a bar can never
 see a price from after `ts_event`.
@@ -161,12 +161,12 @@ unsupported intervals and venues, and rate-limit retry.
 
 ```bash
 uv run python -m midfreq.data fetch --venue XHKG --symbols 00700 00005 --bar 1-HOUR --start 2024-01-01 --client moomoo
-python -m mft.data fetch --venue XNAS --symbols AAPL MSFT --bar 1-DAY --start 2020-01-01 --client yfinance
-python -m mft.data fetch --venue BINANCE --symbols BTCUSDT ETHUSDT --bar 1-HOUR --start 2024-01-01
-python -m mft.data fetch --venue KRAKEN --symbols BTC-USD --bar 1-HOUR --start 2024-06-01 --end 2024-06-30
-python -m mft.data fetch --venue XHKG --symbols 700 --bar 1-DAY --start 2024-01-01 --dry-run
-python -m mft.data migrate --legacy-dir data --catalog catalog --timeframes 1h --dry-run
-python -m mft.data catalog
+python -m midfreq.data fetch --venue XNAS --symbols AAPL MSFT --bar 1-DAY --start 2020-01-01 --client yfinance
+python -m midfreq.data fetch --venue BINANCE --symbols BTCUSDT ETHUSDT --bar 1-HOUR --start 2024-01-01
+python -m midfreq.data fetch --venue KRAKEN --symbols BTC-USD --bar 1-HOUR --start 2024-06-01 --end 2024-06-30
+python -m midfreq.data fetch --venue XHKG --symbols 700 --bar 1-DAY --start 2024-01-01 --dry-run
+python -m midfreq.data migrate --legacy-dir data --catalog catalog --timeframes 1h --dry-run
+python -m midfreq.data catalog
 ```
 
 Without `--client`/`--connector` the venue's default connector is used. A bare `--end` date means the
@@ -275,8 +275,10 @@ before, so existing results do not change; a fill model built with `slippage_bps
 
 ```python
 from midfreq.backtest.legacy_adapter import run_legacy_backtest
+from midfreq.core.config import ConfigLoader
 from midfreq.strategies.candle_strategies import CrossSectionalReversal
 
+sp100_symbols = ConfigLoader().get_universe("sp100", with_data_only=True)
 run = run_legacy_backtest(CrossSectionalReversal, sp100_symbols, "1h", "data",
                           initial_cash=100_000, commission_rate=0.00005, slippage_bps=5,
                           lookback=30, top_n=3, rebalance_every=19)

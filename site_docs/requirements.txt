@@ -5,8 +5,8 @@
 #
 #     uvx --with-requirements site_docs/requirements.txt mkdocs build --strict
 #
-# mkdocs-gen-files, mkdocs-literate-nav and mkdocs-section-index are held at the last releases
-# that depend on MkDocs alone (later ones also pull in the ProperDocs fork of MkDocs).
+# mkdocs-gen-files, mkdocs-literate-nav, mkdocs-section-index and mkdocs-redirects are held at the
+# last releases that depend on MkDocs alone (later ones also pull in the ProperDocs fork of MkDocs).
 mkdocs==1.6.1
 mkdocs-material==9.7.7
 mkdocs-material-extensions==1.3.1
@@ -20,6 +20,8 @@ mkdocs-autorefs==1.4.4
 mkdocs-gen-files==0.6.0
 mkdocs-literate-nav==0.6.2
 mkdocs-section-index==0.3.10
+# old page addresses -> where their content lives now (mkdocs.yml: redirects)
+mkdocs-redirects==1.2.2
 # formats long signatures in the API reference (mkdocstrings-python calls it if present)
 ruff==0.17.1
 # their dependencies
