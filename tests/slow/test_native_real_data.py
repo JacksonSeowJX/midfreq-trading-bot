@@ -21,7 +21,7 @@ import pytest
 
 pytest.importorskip("midfreq.engine._core")
 
-from midfreq.backtest.backtester import Backtester  # noqa: E402
+from midfreq.backtest.backtester import PythonBacktester  # noqa: E402
 from midfreq.backtest.native import NativeBacktester  # noqa: E402
 from midfreq.backtest.optimizer import grid_search  # noqa: E402
 from midfreq.backtest.parity import port_reason  # noqa: E402
@@ -61,7 +61,7 @@ def compare(cls, symbols, start, end, risk=None, rate=0.00005, slip=5.0, **param
     for native in (False, True):
         pf = Portfolio(initial_cash=100_000.0, commission_rate=rate)
         bt = (NativeBacktester(DataStorage(str(DATA)), pf, risk, slip, fallback=False) if native
-              else Backtester(DataStorage(str(DATA)), pf, risk, slip))
+              else PythonBacktester(DataStorage(str(DATA)), pf, risk, slip))
         t = time.perf_counter()
         with contextlib.redirect_stdout(io.StringIO()):
             m = bt.run(cls, symbols, H1, start_date=start, end_date=end, **params)

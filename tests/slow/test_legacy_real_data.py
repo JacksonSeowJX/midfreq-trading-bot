@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.backtester import PythonBacktester as Backtester  # the pure-Python reference
 from midfreq.core.candle import Timeframe
 from midfreq.core.paths import data_dir, repo_root
 from midfreq.core.portfolio import Portfolio

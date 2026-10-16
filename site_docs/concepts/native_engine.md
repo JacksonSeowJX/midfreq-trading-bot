@@ -1,19 +1,22 @@
 # The C++ engine
 
-The candle backtester's core also exists in C++17, in `packages/midfreq-engine`: the merged event
+The candle backtester's core runs in C++17, in `packages/midfreq-engine`: the merged event
 stream, the event loop, portfolio accounting, the risk rules, the metrics and eleven of the
-thirteen candle strategies, behind a pybind11 module. It gives the same results as
-[the candle backtester](backtesting.md#the-candle-backtester), trade for trade and bit for bit:
+thirteen candle strategies, exposed to Python with pybind11. `Backtester` keeps its Python
+interface and hands each run to it; the pure-Python implementation stays as `PythonBacktester`,
+the reference the C++ is tested against and falls back to. The results are the same as
+[the candle backtester's](backtesting.md#the-candle-backtester), trade for trade and bit for bit:
 a 3-year S&P 100 backtest about 50 times faster, a small one 15 to 20 times, and a grid search or
 walk-forward several hundred to over a thousand times.
 
 ```python
-from midfreq.backtest.native import NativeBacktester, make_backtester
+from midfreq.backtest.backtester import Backtester, PythonBacktester
 
-# a drop-in for Backtester: same arguments, same metrics, same portfolio afterwards
-bt = NativeBacktester(storage, portfolio, risk_manager, slippage_bps=5.0)
+# the same class and arguments as always; the loop now runs in C++
+bt = Backtester(storage, portfolio, risk_manager, slippage_bps=5.0)
 metrics = bt.run(CrossSectionalReversal, symbols, Timeframe.HOUR_1, lookback=30, top_n=3)
 bt.engine_used, bt.fallback_reason          # "native", None (or "python" and why)
+Backtester(storage, portfolio, engine="python")   # force the pure-Python implementation
 
 # grid_search and walk_forward take engine="auto" (the default), "native" or "python"
 grid_search("Cross-Sectional Reversal", symbols, Timeframe.HOUR_1, start, end, storage, engine="auto")
@@ -25,10 +28,10 @@ uses (0, the default, uses them all).
 ```mermaid
 flowchart TB
     opt["optimizer: grid_search, walk_forward"] --> br["native.BatchRunner"]
-    api["dashboard API: one backtest"] --> nb["native.NativeBacktester"]
+    api["Backtester.run: scripts, studies, the dashboard API"] --> nb["native.NativeBacktester"]
     br -->|"eligible"| core
     nb -->|"eligible"| core
-    br -->|"otherwise"| py["Backtester (Python)"]
+    br -->|"otherwise"| py["PythonBacktester"]
     nb -->|"otherwise"| py
     subgraph core["midfreq.engine._core (C++17)"]
         md["MarketData: bars merged once"] --> loop["run_backtest / run_batch (threads)"]

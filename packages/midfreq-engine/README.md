@@ -1,18 +1,21 @@
 # midfreq-engine
 
-The backtester's hot path in C++17, behind a pybind11 module: the merged event stream, the event
-loop, portfolio accounting, the risk rules, the metrics and eleven of the thirteen candle
-strategies. It reproduces `midfreq.backtest.backtester.Backtester` exactly: the same trades, the
-same equity curve and the same metrics, bit for bit, only faster: about 50 times for a 3-year
+The backtester's core in C++17, exposed to Python with pybind11: the merged event stream, the
+event loop, portfolio accounting, the risk rules, the metrics and eleven of the thirteen candle
+strategies. `midfreq.backtest.backtester.Backtester` runs on it: the Python interface is unchanged,
+and the C++ reproduces the pure-Python implementation (`PythonBacktester`, kept as the reference)
+exactly: the same trades, the same equity curve and the same metrics, bit for bit, only faster: about 50 times for a 3-year
 S&P 100 backtest, 15 to 20 times for a small one (where loading the data dominates), and several
 hundred to over a thousand times for a grid search or a walk-forward.
 
 ```
-Python   midfreq.backtest.optimizer      grid_search, walk_forward      (unchanged API, engine=)
+Python   midfreq.backtest.backtester  Backtester        (the API every script uses: run() goes to C++)
+           │                          PythonBacktester  (the pure-Python reference it falls back to)
+         midfreq.backtest.optimizer   grid_search, walk_forward (unchanged API, engine=)
            │
-         midfreq.backtest.native         NativeBacktester  (drop-in for Backtester)
-           │                             BatchRunner       (many parameter sets, one dataset)
-           │                             eligibility checks, fallback to Python, results → Python shapes
+         midfreq.backtest.native      NativeBacktester  (what Backtester.run hands a backtest to)
+           │                          BatchRunner       (many parameter sets, one dataset)
+           │                          eligibility checks, fallback to Python, results → Python shapes
 ───────────┼───────────────────────────────────────────────────────── pybind11 (midfreq.engine._core)
 C++        │  MarketData       every symbol's bars merged once (stable sort), columnar, read-only
            │  run_backtest     the event loop: latest prices → strategy → one equity point per timestamp
@@ -59,7 +62,7 @@ repeats this on the real S&P 100 cache, including the grid search that chose the
 
 It also needs a fresh plain `Portfolio`, a plain `RiskManager` with one of the four sizers, and
 UTC-indexed bars with no missing closes. Under `engine="auto"` (the default) anything else runs on
-the Python backtester, and `NativeBacktester.fallback_reason` says why; `engine="native"` raises
+`PythonBacktester`, and `Backtester.engine_used` / `fallback_reason` say so and why; `engine="native"` raises
 `NativeUnavailable` instead. `MIDFREQ_ENGINE=python` turns the C++ engine off everywhere.
 
 ## Speed

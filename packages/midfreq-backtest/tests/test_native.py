@@ -19,7 +19,7 @@ import pytest
 
 pytest.importorskip("midfreq.engine._core")
 
-from midfreq.backtest.backtester import Backtester  # noqa: E402
+from midfreq.backtest.backtester import Backtester, PythonBacktester  # noqa: E402
 from midfreq.backtest.native import (BatchRunner, NativeBacktester, NativeUnavailable,  # noqa: E402
                                      make_backtester, native_strategy_classes)
 from midfreq.backtest.optimizer import grid_search, walk_forward  # noqa: E402
@@ -102,7 +102,7 @@ def both(storage, cls, params, risk_kind=None, slippage=0.0, rate=0.0016, symbol
     for native in (False, True):
         pf = Portfolio(initial_cash=100_000.0, commission_rate=rate)
         bt = (NativeBacktester(storage, pf, risk(risk_kind), slippage, fallback=False) if native
-              else Backtester(storage, pf, risk(risk_kind), slippage))
+              else PythonBacktester(storage, pf, risk(risk_kind), slippage))
         with contextlib.redirect_stdout(io.StringIO()):
             m = bt.run(cls, symbols, H1, **dates, **params)
         if native:
@@ -160,7 +160,7 @@ def test_a_symbol_without_data_is_skipped_by_both(storage):
 
 def test_bad_parameters_raise_as_in_python(storage):
     for native in (False, True):
-        bt = (NativeBacktester(storage, Portfolio(), fallback=False) if native else Backtester(storage, Portfolio()))
+        bt = (NativeBacktester(storage, Portfolio(), fallback=False) if native else PythonBacktester(storage, Portfolio()))
         with pytest.raises(TypeError), contextlib.redirect_stdout(io.StringIO()):
             bt.run(cs.MovingAverageCrossover, SYMBOLS, H1, nonsense=1)
 
@@ -190,7 +190,7 @@ def test_cases_it_cannot_match_run_on_python(storage, why, kwargs):
     make = kwargs.get("portfolio", Portfolio)
     pf_py, pf_auto = make(), make()
     with contextlib.redirect_stdout(io.StringIO()):
-        expected = Backtester(storage, pf_py, kwargs.get("risk")).run(cls, SYMBOLS[:3], H1, **params)
+        expected = PythonBacktester(storage, pf_py, kwargs.get("risk")).run(cls, SYMBOLS[:3], H1, **params)
         auto = NativeBacktester(storage, pf_auto, kwargs.get("risk"))
         got = auto.run(cls, SYMBOLS[:3], H1, **params)
     assert auto.engine_used == "python" and why in auto.fallback_reason
@@ -213,12 +213,12 @@ def test_missing_closes_run_on_python(tmp_path):
 
 
 def test_make_backtester_picks_by_name_and_environment(storage, monkeypatch):
-    assert type(make_backtester(storage, Portfolio(), engine="python")) is Backtester
-    assert make_backtester(storage, Portfolio(), engine="native").fallback is False
+    assert type(make_backtester(storage, Portfolio(), engine="python")) is PythonBacktester
+    assert make_backtester(storage, Portfolio(), engine="native").engine == "native"
     monkeypatch.setenv("MIDFREQ_ENGINE", "python")
-    assert type(make_backtester(storage, Portfolio())) is Backtester
+    assert type(make_backtester(storage, Portfolio())) is PythonBacktester
     monkeypatch.setenv("MIDFREQ_ENGINE", "auto")
-    assert make_backtester(storage, Portfolio()).fallback is True
+    assert type(make_backtester(storage, Portfolio())) is Backtester
     with pytest.raises(ValueError):
         make_backtester(storage, Portfolio(), engine="fortran")
 
@@ -255,3 +255,49 @@ def test_walk_forward_is_the_same_on_both_engines(long_storage):
         nat = walk_forward(strategy, engine="native", risk_manager=risk_manager, **kw)
         assert py["windows"] and [w.__dict__ for w in nat["windows"]] == [w.__dict__ for w in py["windows"]]
         assert nat["summary"] == py["summary"]
+
+
+# ─── Backtester itself: the C++ engine underneath, PythonBacktester's results ──────────────────
+
+@pytest.mark.parametrize("cls,params", [CASES[10], CASES[0]], ids=["reversal", "sma"])
+def test_the_backtester_runs_on_cpp_with_pythons_results(storage, cls, params):
+    require_current(cls)
+    pf_py, pf = Portfolio(), Portfolio()
+    with contextlib.redirect_stdout(io.StringIO()):
+        expected = PythonBacktester(storage, pf_py, slippage_bps=5.0).run(cls, SYMBOLS, H1, **params)
+        bt = Backtester(storage, pf, slippage_bps=5.0)
+        got = bt.run(cls, SYMBOLS, H1, **params)
+    assert (bt.engine_used, bt.fallback_reason) == ("native", None)
+    assert got == expected
+    assert pf.trade_history == pf_py.trade_history and pf.equity_curve_detailed == pf_py.equity_curve_detailed
+
+
+def test_the_backtester_says_when_and_why_it_ran_python(storage):
+    hmm = {"refit_every": 200}
+    with contextlib.redirect_stdout(io.StringIO()):
+        bt = Backtester(storage, Portfolio())
+        bt.run(cs.HMMRegimeSwitchStrategy, SYMBOLS[:2], H1, **hmm)
+        assert bt.engine_used == "python" and "no native version" in bt.fallback_reason
+        forced = Backtester(storage, Portfolio(), engine="python")
+        forced.run(cs.MovingAverageCrossover, SYMBOLS[:2], H1)
+        assert (forced.engine_used, forced.fallback_reason) == ("python", "engine=python")
+        with pytest.raises(NativeUnavailable):
+            Backtester(storage, Portfolio(), engine="native").run(cs.HMMRegimeSwitchStrategy, SYMBOLS[:2], H1, **hmm)
+
+
+def test_a_second_run_on_the_same_portfolio_matches_python(storage):
+    """The second run continues a portfolio that has traded, so it runs on Python; the slippage
+    wrapper is still installed once, as building a PythonBacktester always did."""
+    require_current(cs.MovingAverageCrossover)
+    params = {"fast_period": 5, "slow_period": 20}
+    pf_py, pf = Portfolio(), Portfolio()
+    reference, bt = PythonBacktester(storage, pf_py, slippage_bps=10.0), Backtester(storage, pf, slippage_bps=10.0)
+    with contextlib.redirect_stdout(io.StringIO()):
+        for b in (reference, bt):
+            b.run(cs.MovingAverageCrossover, SYMBOLS[:3], H1, end_date=datetime(2025, 1, 15), **params)
+        assert bt.engine_used == "native"
+        for b in (reference, bt):
+            b.run(cs.MovingAverageCrossover, SYMBOLS[:3], H1, start_date=datetime(2025, 1, 16), **params)
+    assert bt.engine_used == "python" and "already traded" in bt.fallback_reason
+    assert pf.trade_history and pf.trade_history == pf_py.trade_history
+    assert pf.cash == pf_py.cash

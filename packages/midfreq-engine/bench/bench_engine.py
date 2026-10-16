@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.backtester import PythonBacktester
 from midfreq.backtest.native import NativeBacktester
 from midfreq.backtest.optimizer import grid_search, walk_forward
 from midfreq.core.candle import Timeframe
@@ -61,7 +61,7 @@ def timed(fn, threads=None):
 
 def backtest(engine, storage, cls, symbols, start, end, **params):
     pf = Portfolio(initial_cash=100_000.0, commission_rate=RATE)
-    bt = (Backtester(storage, pf, slippage_bps=SLIPPAGE_BPS) if engine == "python"
+    bt = (PythonBacktester(storage, pf, slippage_bps=SLIPPAGE_BPS) if engine == "python"
           else NativeBacktester(storage, pf, slippage_bps=SLIPPAGE_BPS, fallback=False))
     m = bt.run(cls, symbols, H1, start_date=start, end_date=end, **params)
     return m, pf

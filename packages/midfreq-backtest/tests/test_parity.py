@@ -19,7 +19,7 @@ import pytest
 pytest.importorskip("midfreq.engine._core")
 
 from midfreq.backtest import native, parity  # noqa: E402
-from midfreq.backtest.backtester import Backtester  # noqa: E402
+from midfreq.backtest.backtester import PythonBacktester  # noqa: E402
 from midfreq.backtest.native import BatchRunner, NativeBacktester, NativeUnavailable  # noqa: E402
 from midfreq.backtest.optimizer import grid_search  # noqa: E402
 from midfreq.core.candle import Timeframe  # noqa: E402
@@ -85,7 +85,7 @@ def test_a_fingerprint_covers_the_bases_and_the_classes_a_strategy_calls():
                                                          cs.BaseStrategy]
     assert {cs.RSIStrategy, cs.MACDStrategy, cs.BollingerBandsStrategy, cs.BaseStrategy} <= set(
         parity.sources(cs.EnsembleStrategy))
-    assert {Backtester, Portfolio} <= set(parity.SHARED)
+    assert {PythonBacktester, Portfolio} <= set(parity.SHARED)
     assert parity.fingerprint(cs.CrossSectionalMomentum) != parity.fingerprint(cs.CrossSectionalReversal)
 
 
@@ -107,7 +107,7 @@ def run_both(storage, engine_cls, **kw):
 @pytest.mark.parametrize("shared", [False, True], ids=["strategy changed", "shared code changed"])
 def test_a_stale_port_runs_on_python_with_the_reason(storage, monkeypatch, caplog, shared):
     monkeypatch.setattr(parity, "verified", lambda: stale_record(shared=shared))
-    _, expected, pf_py = run_both(storage, Backtester)
+    _, expected, pf_py = run_both(storage, PythonBacktester)
     with caplog.at_level(logging.WARNING, logger="midfreq.backtest.native"):
         bt, got, pf = run_both(storage, NativeBacktester)
     assert bt.engine_used == "python"

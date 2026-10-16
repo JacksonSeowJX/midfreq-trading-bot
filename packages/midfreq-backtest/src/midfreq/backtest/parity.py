@@ -38,7 +38,7 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.backtester import PythonBacktester
 from midfreq.core.candle import Candle
 from midfreq.core.portfolio import Portfolio
 from midfreq.core.risk_manager import (EqualDollarSizer, FixedFractionalSizer, FixedQuantitySizer,
@@ -48,7 +48,7 @@ from midfreq.strategies import candle_strategies as cs
 VERIFYING = "MIDFREQ_ENGINE_VERIFYING"
 
 # what every port depends on: a change here makes every port stale
-SHARED = (Backtester, Portfolio, RiskManager, FixedQuantitySizer, FixedFractionalSizer,
+SHARED = (PythonBacktester, Portfolio, RiskManager, FixedQuantitySizer, FixedFractionalSizer,
           KellyCriterionSizer, EqualDollarSizer, Candle)
 
 # classes a strategy calls into beyond its own bases
@@ -222,8 +222,8 @@ def cmd_verify(slow: bool, record_to: Optional[Path] = None) -> int:
     new = current_record()
     changed = [n for n, h in new["strategies"].items() if (old.get("strategies") or {}).get(n) != h]
     path.write_text(json.dumps(new, indent=2) + "\n")
-    shared = " and the shared code" if old.get("shared") != new["shared"] else ""
-    print(f"recorded {path}: " + (", ".join(changed) + shared if changed or shared else "no change"))
+    parts = changed + (["the shared code"] if old.get("shared") != new["shared"] else [])
+    print(f"recorded {path}: " + (", ".join(parts) if parts else "no change"))
     return 0
 
 

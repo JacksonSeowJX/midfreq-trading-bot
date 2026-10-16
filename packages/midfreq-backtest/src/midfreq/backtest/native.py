@@ -2,19 +2,20 @@
 The native (C++) engine behind the Backtester interface, and the engine choice.
 
 midfreq.engine (packages/midfreq-engine) is a C++17 core: the merged event stream, the event loop,
-portfolio accounting, the risk rules, the metrics and eleven of the thirteen candle strategies. It
-reproduces Backtester exactly, trade for trade and bit for bit; this module is its adapter:
+portfolio accounting, the risk rules, the metrics and eleven of the thirteen candle strategies,
+exposed to Python with pybind11. It reproduces PythonBacktester exactly, trade for trade and bit
+for bit; this module is its adapter, and backtester.Backtester runs on it:
 
     NativeBacktester(storage, portfolio, risk_manager, slippage_bps).run(...)
-        a drop-in for Backtester: same arguments, same metrics, and the portfolio is left holding
-        the same trades, positions and equity curves
+        what Backtester.run hands a backtest to: PythonBacktester's arguments and metrics, and the
+        portfolio left holding the same trades, positions and equity curves
     BatchRunner(engine, strategy_class, symbols, timeframe, storage, ...)
         many parameter sets over one universe: what grid_search and walk_forward run on. Natively,
         the data is loaded and merged once and the runs share it on all cores
     make_backtester(storage, portfolio, ..., engine=None)
-        Backtester or NativeBacktester by engine name
+        PythonBacktester for "python", else Backtester
 
-Engines: "python" (Backtester, the reference), "native" (C++, an error if it cannot run the
+Engines: "python" (PythonBacktester, the reference), "native" (C++, an error if it cannot run the
 case), "auto" (C++ when it can, else Python). The default comes from MIDFREQ_ENGINE, else "auto".
 The C++ engine runs a case only when it is sure to match: one of the ported strategy classes
 exactly (not a subclass, which may override anything), whose Python is still the Python its port
@@ -41,7 +42,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type
 import numpy as np
 import pandas as pd
 
-from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.backtester import Backtester, PythonBacktester
 from midfreq.backtest.parity import port_reason
 from midfreq.core.candle import Timeframe
 from midfreq.core.portfolio import Portfolio
@@ -370,13 +371,17 @@ def _later(so_far, ts_ns: Optional[int]):
 class NativeBacktester:
     """Backtester.run on the C++ engine, with the same arguments and results.
 
-    fallback=True ("auto"): a case the C++ engine cannot run goes to Backtester instead.
+    fallback=True ("auto"): a case the C++ engine cannot run goes to PythonBacktester instead.
     After run(), `engine_used` is "native" or "python" and `fallback_reason` says why Python.
     `data` may be a MarketData already loaded for the same storage, symbols and timeframe.
     """
 
     def __init__(self, storage: DataStorage, portfolio: Portfolio, risk_manager: RiskManager = None,
-                 slippage_bps: float = 0.0, fallback: bool = True, data: Optional[MarketData] = None):
+                 slippage_bps: float = 0.0, fallback: bool = True, data: Optional[MarketData] = None,
+                 python: Optional[Callable[[], PythonBacktester]] = None):
+        # `python`: the PythonBacktester to fall back to (Backtester passes its own, made once, so
+        # the slippage wrapper is installed once however many runs fall back)
+        self._python_factory = python
         self.storage = storage
         self.portfolio = portfolio
         self.risk_manager = risk_manager
@@ -390,8 +395,9 @@ class NativeBacktester:
         if not self.fallback:
             raise NativeUnavailable(reason)
         self.engine_used, self.fallback_reason = "python", reason
-        bt = Backtester(storage=self.storage, portfolio=self.portfolio, risk_manager=self.risk_manager,
-                        slippage_bps=self.slippage_bps)
+        bt = self._python_factory() if self._python_factory else PythonBacktester(
+            storage=self.storage, portfolio=self.portfolio, risk_manager=self.risk_manager,
+            slippage_bps=self.slippage_bps)
         return bt.run(strategy_class, symbols, timeframe, **kwargs)
 
     def run(self, strategy_class: Type[cs.BaseStrategy], symbols: list, timeframe: Timeframe,
@@ -459,12 +465,12 @@ class NativeBacktester:
 
 def make_backtester(storage: DataStorage, portfolio: Portfolio, risk_manager: RiskManager = None,
                     slippage_bps: float = 0.0, engine: Optional[str] = None):
-    """Backtester for "python"; NativeBacktester for "native" and "auto" (which falls back)."""
+    """PythonBacktester for "python"; Backtester (C++ underneath) for "native" and "auto"."""
     name = resolve_engine(engine)
     if name == "python":
-        return Backtester(storage=storage, portfolio=portfolio, risk_manager=risk_manager, slippage_bps=slippage_bps)
-    return NativeBacktester(storage, portfolio, risk_manager=risk_manager, slippage_bps=slippage_bps,
-                            fallback=(name == "auto"))
+        return PythonBacktester(storage=storage, portfolio=portfolio, risk_manager=risk_manager,
+                                slippage_bps=slippage_bps)
+    return Backtester(storage, portfolio, risk_manager=risk_manager, slippage_bps=slippage_bps, engine=name)
 
 
 # ─── Many parameter sets: the optimiser's runner ───────────────────────────────────────────
@@ -476,7 +482,7 @@ class BatchRunner:
 
     metrics is what Backtester.run returns ({} for a run that raised or had no data); last_bar is
     the run's last candle (for the saved run's data cut-off). On Python every run is a
-    Backtester.run with its output silenced, exactly as the optimiser always ran them.
+    PythonBacktester.run with its output silenced, exactly as the optimiser always ran them.
     """
 
     def __init__(self, engine: Optional[str], strategy_class: Type[cs.BaseStrategy], symbols: List[str],
@@ -529,8 +535,8 @@ class BatchRunner:
     def _run_python(self, params, start_date, end_date, end_inclusive):
         from midfreq.backtest.runstore import latest_candle
         portfolio = Portfolio(initial_cash=self.initial_capital, commission_rate=self.commission_rate)
-        bt = Backtester(storage=self.storage, portfolio=portfolio, risk_manager=self.risk_manager,
-                        slippage_bps=self.slippage_bps)
+        bt = PythonBacktester(storage=self.storage, portfolio=portfolio, risk_manager=self.risk_manager,
+                              slippage_bps=self.slippage_bps)
         with contextlib.redirect_stdout(io.StringIO()):
             try:
                 metrics = bt.run(self.strategy_class, symbols=self.symbols, timeframe=self.timeframe,
