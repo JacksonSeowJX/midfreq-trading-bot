@@ -494,13 +494,20 @@ def _marks(ax, top_n, best_smoothed=None):
         ax.plot(best_smoothed[0], best_smoothed[2], marker='D', ms=4.5, mfc='none', mec=INK, mew=1.0, zorder=7)
 
 
-def _legend_handles(best_label):
+def _legend_handles(best_label, show_best=True):
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
-    h = [Line2D([], [], marker='o', ls='none', ms=6, mfc='none', mec=INK, mew=1.2, label='30/3/19 (live)'),
-         Line2D([], [], marker='D', ls='none', ms=4.5, mfc='none', mec=INK, mew=1.0, label=best_label),
-         Patch(fc='none', ec=INK, lw=0.9, ls=(0, (3, 2)), label='original 96-setting grid')]
+    h = [Line2D([], [], marker='o', ls='none', ms=6, mfc='none', mec=INK, mew=1.2, label='30/3/19 (live)')]
+    if show_best:
+        h.append(Line2D([], [], marker='D', ls='none', ms=4.5, mfc='none', mec=INK, mew=1.0, label=best_label))
+    h.append(Patch(fc='none', ec=INK, lw=0.9, ls=(0, (3, 2)), label='original 96-setting grid'))
     return h
+
+
+def _not_shown_note(fig, best_smoothed, label, y):
+    lb, n, r = best_smoothed
+    fig.text(0.5, y, f'{label} {lb}/{n}/{r} is at top_n = {n}, not shown', ha='center', va='top',
+             fontsize=6.3, color=MUTED)
 
 
 def fig_heatmaps(insample, out_path, best_smoothed, period_label):
@@ -520,9 +527,12 @@ def fig_heatmaps(insample, out_path, best_smoothed, period_label):
         ax.text(0.985, 0.955, f'top_n = {n}', transform=ax.transAxes, ha='right', va='top', fontsize=7.5,
                 fontweight='semibold', bbox=dict(fc=SURFACE, ec='none', pad=1.5, alpha=0.85))
     axes[-1].set_xlabel('Lookback (hourly bars)')
-    fig.legend(handles=_legend_handles('best smoothed setting'), loc='upper center', ncol=3, frameon=False,
-               bbox_to_anchor=(0.5, 1.0), handletextpad=0.4, columnspacing=1.0, fontsize=6.6)
-    fig.tight_layout(rect=(0, 0.1, 1, 0.975), h_pad=0.6)
+    shown = best_smoothed[1] in panels
+    fig.legend(handles=_legend_handles('best smoothed setting', shown), loc='upper center', ncol=3,
+               frameon=False, bbox_to_anchor=(0.5, 1.0), handletextpad=0.4, columnspacing=1.0, fontsize=6.6)
+    if not shown:
+        _not_shown_note(fig, best_smoothed, 'Best smoothed setting', 0.968)
+    fig.tight_layout(rect=(0, 0.1, 1, 0.975 if shown else 0.955), h_pad=0.6)
     cax = fig.add_axes([0.18, 0.058, 0.72, 0.013])
     cb = fig.colorbar(m, cax=cax, orientation='horizontal')
     cb.outline.set_visible(False)
@@ -545,13 +555,16 @@ def fig_single_heatmap(df, top_n, out_path, best_smoothed, period_label):
     ax.set_xlabel('Lookback (hourly bars)')
     ax.text(0.985, 0.955, f'top_n = {top_n}', transform=ax.transAxes, ha='right', va='top', fontsize=7.5,
             fontweight='semibold', bbox=dict(fc=SURFACE, ec='none', pad=1.5, alpha=0.85))
-    fig.legend(handles=_legend_handles('best smoothed (this period)'), loc='upper center', ncol=3,
+    shown = best_smoothed[1] == top_n
+    fig.legend(handles=_legend_handles('best smoothed (this period)', shown), loc='upper center', ncol=3,
                frameon=False, bbox_to_anchor=(0.5, 1.0), handletextpad=0.4, columnspacing=0.9, fontsize=6.4)
+    if not shown:
+        _not_shown_note(fig, best_smoothed, 'Best smoothed setting in this period:', 0.935)
     cb = fig.colorbar(m, ax=ax, fraction=0.045, pad=0.02)
     cb.outline.set_visible(False)
     cb.ax.tick_params(length=2, color=MUTED, labelsize=6.8, pad=1.5)
     cb.set_label(f'Sharpe ratio, {period_label}', fontsize=7, labelpad=3)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.tight_layout(rect=(0, 0, 1, 0.93 if shown else 0.89))
     fig.savefig(out_path)
     plt.close(fig)
 
@@ -582,7 +595,7 @@ def fig_slices(insample, earlier, out_path, early_label):
         ax.set_xlabel(xlabel, labelpad=2)
         ax.set_ylabel('Sharpe ratio')
     axes[0].text(LOOKBACKS[-1] + 0.3, thr, '80% of 30/3/19', ha='right', va='bottom', fontsize=6.4, color=MUTED)
-    axes[0].text(30.5 + 0.6, axes[0].get_ylim()[0], 'beyond the original grid', ha='left', va='bottom',
+    axes[0].text(LOOKBACKS[-1] + 0.3, axes[0].get_ylim()[1], 'beyond the original grid', ha='right', va='top',
                  fontsize=6.4, color=MUTED)
     h, l = axes[0].get_legend_handles_labels()
     fig.legend(h, l, loc='upper center', ncol=1, frameon=False, bbox_to_anchor=(0.5, 1.0), fontsize=6.8,
