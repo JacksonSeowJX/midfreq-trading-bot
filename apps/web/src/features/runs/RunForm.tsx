@@ -19,6 +19,8 @@ import {
   COMPARE_MAX,
   COMPARE_MIN,
   commissionPctText,
+  compareSelection,
+  fitsCompare,
   gridSize,
   isBasket,
   isIntegerParam,
@@ -27,11 +29,12 @@ import {
   loadForm,
   paramTexts,
   resolveChoice,
-  resolveCompare,
+  resolveCompareOn,
   resolveStrategy,
   saveForm,
   TIMEFRAMES,
   type Checked,
+  type CompareOn,
   type FieldErrors,
   type FormContext,
   type MarketChoice,
@@ -95,11 +98,15 @@ const KIND_SUBMIT: Record<JobKind, string> = {
 }
 
 /** The error keys this form shows beside an input; anything else goes in the summary. */
-function shownKeys(kind: JobKind, form: RunFormState, strategy: StrategyInfo | undefined, compare: StrategyInfo[], risk: RiskForm) {
+function shownKeys(
+  kind: JobKind,
+  form: RunFormState,
+  strategy: StrategyInfo | undefined,
+  compare: StrategyInfo[],
+  risk: RiskForm,
+  data: { symbol: boolean; pair: boolean; universe: boolean },
+) {
   const keys = new Set([
-    'symbol',
-    'pair_symbol',
-    'universe',
     'start',
     'end',
     'initial_capital',
@@ -111,6 +118,9 @@ function shownKeys(kind: JobKind, form: RunFormState, strategy: StrategyInfo | u
     'risk.max_drawdown_pct',
     'risk.sizing',
   ])
+  if (data.symbol) keys.add('symbol')
+  if (data.pair) keys.add('pair_symbol')
+  if (data.universe) keys.add('universe')
   if (risk.sizing === 'fixed_quantity') keys.add('risk.qty')
   if (risk.sizing === 'percent_risk') keys.add('risk.risk_pct')
   if (risk.sizing === 'kelly') ['risk.fraction', 'risk.max_pct'].forEach((k) => keys.add(k))
@@ -150,6 +160,10 @@ export interface RunFormProps {
  * commission, slippage) and, folded away, risk and sizing. Remembered per view; a preset
  * (a guide example) replaces the remembered inputs when the form mounts, and says so until
  * the first edit or run.
+ *
+ * A cross-sectional strategy ranks a universe, so it asks for the universe and no symbol. A
+ * comparison runs on one stock or on one universe, chosen first; the list of strategies is
+ * then those that run there.
  */
 export function RunForm({
   kind,
@@ -176,13 +190,14 @@ export function RunForm({
   const caps = useMemo(() => forTimeframe(allCaps, form.timeframe), [allCaps, form.timeframe])
 
   const strategy = resolveStrategy(form.strategy, strategies)
-  const compareNames = resolveCompare(form.compare, strategies)
+  const compareOn = resolveCompareOn(form, strategies)
+  const compareNames = compareSelection(form, strategies)
   const compareInfos = strategies.filter((s) => compareNames.includes(s.name))
   const choice = resolveChoice(form.markets[market], market, caps)
   const selected = kind === 'compare' ? compareInfos : strategy ? [strategy] : []
-  const needsPair = selected.some((s) => isPairs(s.name))
-  const needsUniverse = selected.some((s) => isBasket(s.name))
-  const basketOnly = selected.length > 0 && selected.every((s) => isBasket(s.name))
+  // a basket run takes a universe and no symbol; a comparison is one or the other, never both
+  const basket = kind === 'compare' ? compareOn === 'universe' : !!strategy && isBasket(strategy.name)
+  const needsPair = !basket && selected.some((s) => isPairs(s.name))
 
   const ctx: FormContext = useMemo(() => ({ market, caps, strategies, objectives }), [market, caps, strategies, objectives])
   const check = useMemo((): Checked<StartJob> => {
@@ -200,7 +215,7 @@ export function RunForm({
 
   const errors: FieldErrors = { ...(submitted && !check.ok ? check.errors : {}), ...serverErrors }
   const hasRiskError = Object.keys(errors).some((k) => k.startsWith('risk.'))
-  const shown = shownKeys(kind, form, strategy, compareInfos, form.risk)
+  const shown = shownKeys(kind, form, strategy, compareInfos, form.risk, { symbol: !basket, pair: needsPair, universe: basket })
   const unplaced = Object.entries(errors).filter(([k]) => !shown.has(k))
 
   // after a failed submit, focus the first input with an error (it may have just been revealed)
@@ -240,9 +255,7 @@ export function RunForm({
   }
 
   const id = (key: string) => fieldId(formId, key)
-  const symbolHint = basketOnly
-    ? 'Charted for reference: the strategy trades the whole universe.'
-    : `${fmtNum(caps.symbols.length)} symbols with cached ${form.timeframe} data`
+  const symbolHint = `${fmtNum(caps.symbols.length)} symbols with cached ${form.timeframe} data`
   const universe = caps.universes.find((u) => u.name === choice.universe)
   const defaultCommission = commissionPctText(caps.commissionRate)
   const submitLabel =
@@ -253,13 +266,17 @@ export function RunForm({
       {presetNote ? <PresetNote title={presetNote} submitLabel={submitLabel} /> : null}
       {kind === 'compare' ? (
         <FormSection title="Strategies" aside={`${compareNames.length} picked, ${COMPARE_MIN}–${COMPARE_MAX}`}>
+          {strategies.some((s) => isBasket(s.name)) ? (
+            <CompareOnToggle formId={formId} value={compareOn} onChange={(v) => edit({ compareOn: v })} />
+          ) : null}
           <CompareChecklist
             formId={formId}
-            strategies={strategies}
+            strategies={strategies.filter((s) => fitsCompare(s.name, compareOn))}
             selected={compareNames}
-            onToggle={(name, on) =>
-              edit({ compare: on ? [...compareNames, name] : compareNames.filter((n) => n !== name) })
-            }
+            onToggle={(name, on) => {
+              const names = on ? [...compareNames, name] : compareNames.filter((n) => n !== name)
+              edit(compareOn === 'universe' ? { compareBaskets: names } : { compare: names })
+            }}
             form={form}
             onParam={editParam}
             errors={errors}
@@ -299,22 +316,24 @@ export function RunForm({
         <p className="text-[11px] leading-snug text-muted-foreground">
           {MARKET_LABEL[market]}. Switch the market in the top bar.
         </p>
-        <Field
-          id={id('symbol')}
-          label={basketOnly ? 'Chart symbol' : 'Symbol'}
-          hint={caps.symbols.length ? symbolHint : undefined}
-          error={errors.symbol ?? (caps.symbols.length ? undefined : `No ${market} symbols have cached ${form.timeframe} data`)}
-        >
-          <Combobox
+        {!basket ? (
+          <Field
             id={id('symbol')}
-            value={choice.symbol}
-            options={caps.symbols}
-            onChange={(v) => editChoice({ symbol: v })}
-            placeholder="Search symbols"
-            invalid={!!errors.symbol}
-            describedBy={describedBy(id('symbol'), errors.symbol, symbolHint)}
-          />
-        </Field>
+            label="Symbol"
+            hint={caps.symbols.length ? symbolHint : undefined}
+            error={errors.symbol ?? (caps.symbols.length ? undefined : `No ${market} symbols have cached ${form.timeframe} data`)}
+          >
+            <Combobox
+              id={id('symbol')}
+              value={choice.symbol}
+              options={caps.symbols}
+              onChange={(v) => editChoice({ symbol: v })}
+              placeholder="Search symbols"
+              invalid={!!errors.symbol}
+              describedBy={describedBy(id('symbol'), errors.symbol, symbolHint)}
+            />
+          </Field>
+        ) : null}
         {needsPair ? (
           <Field id={id('pair_symbol')} label="Pair symbol" hint="The second stock of the pair." error={errors.pair_symbol}>
             <Combobox
@@ -328,7 +347,7 @@ export function RunForm({
             />
           </Field>
         ) : null}
-        {needsUniverse ? (
+        {basket ? (
           <Field
             id={id('universe')}
             label="Universe"
@@ -352,13 +371,12 @@ export function RunForm({
             </NativeSelect>
           </Field>
         ) : null}
-        {needsUniverse ? (
+        {basket ? (
           <BasketNote
             kind={kind}
             universe={universe?.label ?? choice.universe}
             size={universe?.withData ?? universe?.symbols ?? null}
             withData={universe?.withData !== null && universe?.withData !== undefined}
-            symbol={choice.symbol}
           />
         ) : null}
         <div className="space-y-1">
@@ -545,7 +563,7 @@ export function RunForm({
         errors={errors}
         open={riskOpen || hasRiskError}
         onOpenChange={setRiskOpen}
-        basket={basketOnly}
+        basket={basket}
       />
 
       <div className="space-y-2 border-t p-4">
@@ -607,30 +625,52 @@ function GridNote({ strategy }: { strategy: StrategyInfo }) {
   )
 }
 
-function BasketNote({
-  kind,
-  universe,
-  size,
-  withData,
-  symbol,
-}: {
-  kind: JobKind
-  universe: string
-  size: number | null
-  withData: boolean
-  symbol: string
-}) {
+function BasketNote({ kind, universe, size, withData }: { kind: JobKind; universe: string; size: number | null; withData: boolean }) {
   const count = size !== null ? ` (${fmtNum(size)} symbols${withData ? ' with data' : ''})` : ''
+  const runs = kind === 'compare' ? 'they run' : 'this runs'
   return (
     <p className="flex gap-1.5 rounded-md border-l-2 border-brand bg-muted/60 px-2.5 py-2 text-[11px] leading-snug text-muted-foreground">
       <InfoIcon aria-hidden className="mt-px size-3 shrink-0 text-brand" />
       <span>
-        {kind === 'compare'
-          ? `Cross-sectional strategies rank stocks against each other, so they run on the whole ${universe} universe${count}, not ${symbol || 'one stock'} alone, and are not like-for-like with the single-stock rows.`
-          : `Cross-sectional strategies rank stocks against each other, so this runs on the whole ${universe} universe${count}, not ${symbol || 'one stock'} alone. Positions are sized equally by value across the basket.`}
-        {kind === 'optimize' ? ' On the S&P 100 or Hang Seng a walk-forward takes roughly 10–15 minutes; the smaller universes 1–2.' : ''}
+        {`Cross-sectional strategies rank stocks against each other, so ${runs} on the whole ${universe} universe${count}, not on one stock. Positions are sized equally by value across the basket.`}
+        {kind === 'optimize'
+          ? ' On the S&P 100 or Hang Seng a walk-forward takes roughly 10–15 minutes; the smaller universes 1–2.'
+          : ' The result charts the equity against holding every stock of the universe in equal amounts.'}
       </span>
     </p>
+  )
+}
+
+/** What a comparison runs on: a stock or a universe. The list of strategies below follows it. */
+function CompareOnToggle({ formId, value, onChange }: { formId: string; value: CompareOn; onChange: (v: CompareOn) => void }) {
+  const labelId = fieldId(formId, 'compare_on')
+  return (
+    <div className="space-y-1">
+      <span id={labelId} className="block text-xs font-medium">
+        Compare on
+      </span>
+      <ToggleGroup
+        type="single"
+        aria-labelledby={labelId}
+        aria-describedby={`${labelId}-hint`}
+        value={value}
+        onValueChange={(v) => {
+          if (v === 'stock' || v === 'universe') onChange(v)
+        }}
+      >
+        <ToggleGroupItem value="stock" className="px-2.5">
+          One stock
+        </ToggleGroupItem>
+        <ToggleGroupItem value="universe" className="px-2.5">
+          A universe
+        </ToggleGroupItem>
+      </ToggleGroup>
+      <p id={`${labelId}-hint`} className="text-[11px] leading-snug text-muted-foreground">
+        {value === 'universe'
+          ? 'The cross-sectional strategies, which rank the stocks of a universe against each other, compared with each other.'
+          : 'The strategies that trade one stock (Pairs Trading, a pair). The cross-sectional ones run on a universe.'}
+      </p>
+    </div>
   )
 }
 
@@ -665,7 +705,7 @@ function CompareChecklist({
           const boxId = fieldId(formId, `compare.${s.name}`)
           const paramError = s.params.some((p) => errors[`strategies.${s.name}.${p.name}`])
           const open = on && (expanded === s.name || paramError)
-          const note = isPairs(s.name) ? 'needs a pair' : isBasket(s.name) ? 'runs on the universe' : ''
+          const note = isPairs(s.name) ? 'needs a pair' : ''
           return (
             <li key={s.name} className="px-2.5 py-1.5">
               <div className="flex items-center gap-2">

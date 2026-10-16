@@ -8,9 +8,9 @@ import { capabilities, strategies, universes } from '@/test/fixtures'
 import { renderWithProviders } from '@/test/render'
 import { formKey } from './form'
 import { marketCaps } from './logic'
-import { RunForm } from './RunForm'
+import { RunForm, type RunFormProps } from './RunForm'
 
-function setup(kind: JobKind = 'backtest', market: Market = 'US') {
+function setup(kind: JobKind = 'backtest', market: Market = 'US', props: Partial<RunFormProps> = {}) {
   const onSubmit = vi.fn<(req: StartJob) => void>()
   const utils = renderWithProviders(
     <RunForm
@@ -20,6 +20,7 @@ function setup(kind: JobKind = 'backtest', market: Market = 'US') {
       objectives={capabilities.objectives}
       onSubmit={onSubmit}
       submitting={false}
+      {...props}
     />,
     { market },
   )
@@ -125,7 +126,7 @@ describe('RunForm: data', () => {
     expect(submitted(onSubmit)?.body.pair_symbol).toBe('US.JPM')
   })
 
-  it('runs a basket strategy on a universe and explains why', async () => {
+  it('runs a basket strategy on a universe, with no symbol, and explains why', async () => {
     const { user, onSubmit } = setup()
     expect(screen.queryByLabelText('Universe')).not.toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText('Strategy'), 'Cross-Sectional Reversal')
@@ -135,10 +136,43 @@ describe('RunForm: data', () => {
       'US — S&P 100 (100)',
     ])
     await user.selectOptions(universe, 'sp100')
-    expect(screen.getByText(/runs on the whole US — S&P 100 \(100\) universe \(98 symbols with data\), not US\.AAPL alone/)).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Chart symbol' })).toBeInTheDocument()
+    expect(screen.getByText(/runs on the whole US — S&P 100 \(100\) universe \(98 symbols with data\), not on one stock/)).toBeInTheDocument()
+    expect(screen.getByText(/charts the equity against holding every stock of the universe in equal amounts/)).toBeInTheDocument()
+    // the strategy ranks the whole universe: there is no one stock to pick
+    expect(screen.queryByRole('combobox', { name: /symbol/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Risk & sizing/ })).toHaveTextContent('equal value across the basket')
     await user.click(screen.getByRole('button', { name: 'Run backtest' }))
-    expect(submitted(onSubmit)?.body.universe).toBe('sp100')
+    expect(submitted(onSubmit)?.body).toMatchObject({ universe: 'sp100', symbol: null, pair_symbol: null })
+
+    // back to a single-stock strategy: the symbol returns as it was, and the universe goes
+    await user.selectOptions(screen.getByLabelText('Strategy'), 'SMA Crossover')
+    expect(screen.getByRole('combobox', { name: 'Symbol' })).toHaveValue('US.AAPL')
+    expect(screen.queryByLabelText('Universe')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Run backtest' }))
+    expect(submitted(onSubmit)?.body).toMatchObject({ symbol: 'US.AAPL', universe: null })
+  })
+
+  it('optimize: a basket strategy takes a universe and no symbol too', async () => {
+    const { user, onSubmit } = setup('optimize')
+    await user.selectOptions(screen.getByLabelText('Strategy'), 'Cross-Sectional Momentum')
+    expect(screen.queryByRole('combobox', { name: /symbol/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/runs on the whole US — 15 large caps \(15\) universe/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Run walk-forward' }))
+    expect(submitted(onSubmit)?.body).toMatchObject({ strategy: 'Cross-Sectional Momentum', universe: 'us_15', symbol: null })
+  })
+
+  it('puts an API error about the symbol beside it, or in the summary when a basket hides the field', () => {
+    const symbolError = { symbol: 'Cross-Sectional Reversal ranks the whole sp100 universe, so it takes no symbol' }
+    const first = setup('backtest', 'US', { serverErrors: symbolError })
+    expect(screen.getByRole('combobox', { name: 'Symbol' })).toHaveAccessibleDescription(/takes no symbol/)
+    expect(screen.queryByText('The API rejected these settings')).not.toBeInTheDocument()
+    first.unmount()
+
+    window.localStorage.setItem(formKey('backtest'), JSON.stringify({ strategy: 'Cross-Sectional Reversal' }))
+    setup('backtest', 'US', { serverErrors: symbolError })
+    const summary = screen.getByRole('alert')
+    expect(summary).toHaveTextContent('The API rejected these settings')
+    expect(summary).toHaveTextContent(`symbol: ${symbolError.symbol}`)
   })
 
   it('takes the commission default from the capabilities, per market, shown in percent', async () => {
@@ -252,19 +286,53 @@ describe('RunForm: per view', () => {
     expect(spy).toHaveBeenCalled()
   })
 
-  it('compare: picks two to eight strategies, each with its parameters', async () => {
+  it('compare: picks two to eight strategies on one stock, each with its parameters', async () => {
     const { user, onSubmit } = setup('compare')
+    expect(screen.getByRole('radio', { name: 'One stock' })).toHaveAttribute('data-state', 'on')
     const list = screen.getByRole('list', { name: 'Strategies to compare' })
+    const offered = () => within(list).getAllByRole('checkbox').map((c) => c.closest('li')?.querySelector('label')?.textContent)
+    // the cross-sectional strategies are not offered beside the single-stock ones
+    expect(offered()).toEqual(['SMA Crossover', 'Bollinger Bands', 'Z-Score Mean Reversion', 'Pairs Tradingneeds a pair'])
     expect(within(list).getByLabelText('SMA Crossover')).toBeChecked()
-    expect(within(list).getByLabelText(/Cross-Sectional Reversal/)).not.toBeChecked()
     await user.click(within(list).getByLabelText('SMA Crossover'))
     await user.click(within(list).getByLabelText('Bollinger Bands'))
     await user.click(screen.getByRole('button', { name: 'Compare strategies' }))
     expect(onSubmit).not.toHaveBeenCalled()
     expect(screen.getByText('Pick 2 to 8 strategies (1 picked)')).toBeInTheDocument()
 
-    await user.click(within(list).getByLabelText(/Cross-Sectional Reversal/))
-    expect(screen.getByLabelText('Universe')).toBeInTheDocument()
+    await user.click(within(list).getByLabelText(/Pairs Trading/))
+    expect(screen.getByRole('combobox', { name: 'Pair symbol' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Pairs Trading parameters' }))
+    const lookback = within(list).getByLabelText('Lookback Window')
+    await user.clear(lookback)
+    await user.type(lookback, '40')
+    await user.click(screen.getByRole('button', { name: 'Compare strategies' }))
+    const req = submitted(onSubmit)
+    expect(req?.kind === 'compare' && req.body.strategies).toEqual([
+      { strategy: 'Z-Score Mean Reversion', params: { lookback: 20, entry_z: 2, exit_z: 0.5 } },
+      { strategy: 'Pairs Trading', params: { lookback: 40, entry_z: 2, exit_z: 0.5 } },
+    ])
+    expect(req?.body).toMatchObject({ symbol: 'US.AAPL', pair_symbol: 'US.JPM', universe: null })
+  })
+
+  it('compare: on a universe, the cross-sectional strategies with each other and no symbol', async () => {
+    const { user, onSubmit } = setup('compare')
+    expect(screen.getByRole('combobox', { name: 'Symbol' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Universe')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'A universe' }))
+    const list = screen.getByRole('list', { name: 'Strategies to compare' })
+    const boxes = within(list).getAllByRole('checkbox')
+    expect(boxes.map((c) => c.closest('li')?.querySelector('label')?.textContent)).toEqual([
+      'Cross-Sectional Reversal',
+      'Cross-Sectional Momentum',
+    ])
+    expect(boxes.every((c) => (c as HTMLInputElement).checked)).toBe(true) // both, by default
+    expect(screen.getByText('2 picked, 2–8')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /symbol/i })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Universe')).toHaveValue('us_15')
+    expect(screen.getByText(/they run on the whole US — 15 large caps \(15\) universe/)).toBeInTheDocument()
+
     await user.click(screen.getByRole('button', { name: 'Cross-Sectional Reversal parameters' }))
     const topN = screen.getByLabelText('Basket Size (# laggards held)')
     await user.clear(topN)
@@ -272,10 +340,17 @@ describe('RunForm: per view', () => {
     await user.click(screen.getByRole('button', { name: 'Compare strategies' }))
     const req = submitted(onSubmit)
     expect(req?.kind === 'compare' && req.body.strategies).toEqual([
-      { strategy: 'Z-Score Mean Reversion', params: { lookback: 20, entry_z: 2, exit_z: 0.5 } },
       { strategy: 'Cross-Sectional Reversal', params: { lookback: 10, top_n: 3, rebalance_every: 6 } },
+      { strategy: 'Cross-Sectional Momentum', params: { lookback: 10, top_n: 2, rebalance_every: 6 } },
     ])
-    expect(req?.body.universe).toBe('us_15')
+    expect(req?.body).toMatchObject({ symbol: null, pair_symbol: null, universe: 'us_15' })
+
+    // each side keeps its own ticks
+    await user.click(within(list).getByLabelText('Cross-Sectional Momentum'))
+    await user.click(screen.getByRole('radio', { name: 'One stock' }))
+    expect(screen.getByText('3 picked, 2–8')).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: 'A universe' }))
+    expect(screen.getByText('1 picked, 2–8')).toBeInTheDocument()
   })
 
   it('optimize: method, objective and the method’s own settings', async () => {

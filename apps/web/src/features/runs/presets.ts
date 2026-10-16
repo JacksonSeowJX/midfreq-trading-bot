@@ -26,7 +26,7 @@ const PERIOD = { start: '2025-09-25', end: '2026-09-25' }
 const LIVE = 'Cross-Sectional Reversal'
 const LIVE_PARAMS = { lookback: '30', top_n: '3', rebalance_every: '19' }
 
-/** A US choice: the chart symbol, a universe for basket strategies, the commission in percent. */
+/** A US choice: the symbol for single-stock strategies, a universe for basket ones, the commission in percent. */
 function us(patch: Partial<MarketChoice>): Partial<Record<Market, MarketChoice>> {
   return { US: { symbol: 'US.AAPL', pairSymbol: '', universe: '', commissionPct: '0.005', ...patch } }
 }

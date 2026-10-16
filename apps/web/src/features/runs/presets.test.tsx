@@ -97,7 +97,7 @@ describe('opening a preset link', () => {
     expect(screen.getByLabelText('Basket Size (# laggards held)')).toHaveValue(3)
     expect(screen.getByLabelText('Rebalance Every N Candles')).toHaveValue(19)
     expect(screen.getByLabelText('Universe')).toHaveValue('sp100')
-    expect(screen.getByRole('combobox', { name: 'Chart symbol' })).toHaveValue('US.AAPL')
+    expect(screen.queryByRole('combobox', { name: /symbol/i })).not.toBeInTheDocument() // it ranks the universe
     expect(screen.getByLabelText('Start')).toHaveValue('2025-09-25')
     expect(screen.getByLabelText('End')).toHaveValue('2026-09-25')
     expect(screen.getByLabelText('Starting capital (USD)')).toHaveValue(100000)
@@ -119,7 +119,7 @@ describe('opening a preset link', () => {
       strategy: 'Cross-Sectional Reversal',
       params: { lookback: 30, top_n: 3, rebalance_every: 19 },
       universe: 'sp100',
-      symbol: 'US.AAPL',
+      symbol: null,
       timeframe: '1h',
       start: '2025-09-25',
       end: '2026-09-25',
@@ -160,6 +160,7 @@ describe('opening a preset link', () => {
       .filter((c) => (c as HTMLInputElement).checked)
       .map((c) => c.closest('li')?.querySelector('label')?.textContent)
     expect(ticked.sort()).toEqual(['Bollinger Bands', 'MACD', 'RSI'])
+    expect(screen.getByRole('radio', { name: 'One stock' })).toHaveAttribute('data-state', 'on')
     expect(screen.getByRole('combobox', { name: 'Symbol' })).toHaveValue('US.AAPL')
     expect(screen.getByText('3 picked, 2–8')).toBeInTheDocument()
 
@@ -193,7 +194,7 @@ describe('opening a preset link', () => {
     await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted[0]).toMatchObject({
       kind: 'optimize',
-      body: { strategy: 'Cross-Sectional Reversal', universe: 'us_15', method: 'walk_forward', objective: 'sharpe_ratio', n_splits: 3, train_pct: 0.6, start: '2025-09-25', end: '2026-09-25' },
+      body: { strategy: 'Cross-Sectional Reversal', universe: 'us_15', symbol: null, method: 'walk_forward', objective: 'sharpe_ratio', n_splits: 3, train_pct: 0.6, start: '2025-09-25', end: '2026-09-25' },
     })
   })
 })
