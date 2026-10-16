@@ -215,7 +215,7 @@ files the runtime lacks. Copy those in on the VM (`-n` never overwrites, so
 
 ```bash
 cp -n ~/midfreq/current/defaults/config/* ~/midfreq/runtime/config/
-grep -c 'publish: true' ~/midfreq/runtime/config/connections.yaml     # 2: the broker snapshots
+grep -c '^ *publish: true' ~/midfreq/runtime/config/connections.yaml   # 2: the broker snapshots (comments not counted)
 ```
 
 `connections.yaml` is newer than the old clone, so it is normally among the files copied. If the
@@ -270,7 +270,8 @@ DRY_RUN=1 FAKE_ET=2026-10-19T09:35:01 MIDFREQ_ROOT=$HOME/midfreq/runtime \
 ~/midfreq/current/ops/vm/maintain.sh && tail -1 ~/midfreq/logs/health.log
 ```
 
-The dry run must print `midfreq.live.run_live importable with .../midfreq/releases/0.1.1/.venv/bin/python`
+The dry run must print `midfreq.live.run_live importable with .../midfreq/current/.venv/bin/python`
+(`current` -> `releases/0.1.1`)
 and duration 386; the health line must say `opend=up release=0.1.1`. Also run the Deploy
 workflow's `status`. After Monday's session (`./ops/fetch_live_logs.sh`): 7 new candles per
 symbol, the rebalance clock advanced by 7, bot positions equal to the broker's.
