@@ -45,6 +45,13 @@ class OrderCanceled(OrderEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class OrderCancelRejected(OrderEvent):
+    """The venue refused a cancel (the order had already filled or ended, or is being matched).
+    The order's state does not change: it is whatever the venue says next, or reports when asked."""
+    reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class OrderFilled(OrderEvent):
     trade_id: TradeId = None
     side: OrderSide = OrderSide.BUY

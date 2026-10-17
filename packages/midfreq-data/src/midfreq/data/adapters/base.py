@@ -219,8 +219,11 @@ class DataClient(ABC):
         raise NotImplementedError(f"{self.connector.name} has no live quote stream")
 
     def subscription_limit(self) -> Optional[int]:
-        """How many instruments this account may stream at once (Moomoo: its quote quota), or
-        None if the venue sets no limit the connector knows of."""
+        """How many subscriptions this account may hold at once, or None if the venue sets no
+        limit the connector knows of. A subscription is one instrument and one data type (its bars
+        of one interval, or its quotes), as Moomoo charges its quote quota: 98 instruments' hourly
+        bars are 98 subscriptions, and their quotes 98 more. A connector whose venue counts
+        differently converts to this unit. The MarketDataService counts in the same unit."""
         return None
 
     def set_stream_status_handler(self, handler: Callable[["StreamStatus"], None]) -> None:
@@ -273,11 +276,27 @@ class ExecutionClient(ABC):
       its own order id the client records it in `order.tags["venue_order_id"]`.
     - Everything the venue says afterwards reaches the handler given to `set_event_handler`, as
       midfreq.core.model.events: OrderAccepted; OrderRejected(reason); one OrderFilled per
-      execution (partial fills included; `trade_id` the venue's execution id, `commission` when
-      the venue reports it, `tags["venue_order_id"]`); OrderCanceled(reason). The venue's own
-      status words and messages go in `reason`. A repeated push is not repeated as an event
-      (at most one OrderFilled per venue trade id).
+      execution (partial fills included; `tags["venue_order_id"]`); OrderCanceled(reason);
+      OrderCancelRejected(reason) when the venue refuses a cancel (the order had filled or
+      ended, or is being matched; whatever the venue then says about the order follows as its
+      own events). The venue's own status words and messages go in `reason`.
+    - OrderFilled: `trade_id` is the venue's execution id. A fill is identified by (venue, the
+      venue's order id, or the client order id where the venue gives none, trade id): venues
+      number executions per instrument or per order, not per account (OKX trade ids are unique
+      per instrument only), so a trade id alone is not a key. A repeated push is not repeated as
+      an event (at most one OrderFilled per such key).
+    - OrderFilled.commission is the venue's fee for that execution and `currency` the currency
+      the fee was charged in (the instrument's quote currency on equity venues; OKX charges a
+      spot buy's fee in the base asset). A venue that reports no fee sets commission 0 and
+      `tags["commission_unknown"] = True`; the PositionKeeper then books its fee model's
+      estimate. A reported 0 (no tag) is a real zero fee and is booked as 0. A fee charged in
+      another currency than the quote currency is converted by the PositionKeeper at the fill
+      price; the event always carries the venue's own amount and currency.
     - The handler may be called on the client's own threads; the OMS queues what it receives.
+    - `set_status_handler` (optional, a no-op unless a client reports it) receives a
+      StreamStatus when the client's connection to the venue drops ('disconnected') or returns
+      ('reconnected', after the client has caught up on what it missed); the node then
+      reconciles the OMS with the venue.
     - `open_orders()` and `fills(since)` let the OMS reconcile its journal with the venue at
       start-up and after a reconnect.
     - `environment` is "paper", "live" or "sim" and comes from configuration; a client must
@@ -288,6 +307,7 @@ class ExecutionClient(ABC):
         self.connector = connector
         self.options: Dict[str, Any] = dict(options or {})
         self._handler: Optional[Callable[[OrderEvent], None]] = None
+        self._status_handler: Optional[Callable[["StreamStatus"], None]] = None
 
     @property
     def client_id(self) -> ClientId:
@@ -299,6 +319,16 @@ class ExecutionClient(ABC):
     def _emit(self, event: OrderEvent) -> None:
         if self._handler is not None:
             self._handler(event)
+
+    def set_status_handler(self, handler: Optional[Callable[["StreamStatus"], None]]) -> None:
+        """Receive the client's connection changes as StreamStatus ('disconnected',
+        'reconnected', 'error'). Optional: a client that never reports them is still valid."""
+        self._status_handler = handler
+
+    def _status(self, state: str, detail: str = "", ts: Optional[int] = None) -> None:
+        handler = getattr(self, "_status_handler", None)
+        if handler is not None:
+            handler(StreamStatus(state, detail, int(ts) if ts is not None else time.time_ns()))
 
     @property
     @abstractmethod
@@ -325,7 +355,8 @@ class ExecutionClient(ABC):
     @abstractmethod
     def cancel_order(self, order: Order) -> None:
         """Ask the venue to cancel what is left of `order`; the outcome arrives as an event
-        (OrderCanceled, or OrderFilled if the fill won the race)."""
+        (OrderCanceled; OrderFilled if the fill won the race; OrderCancelRejected if the venue
+        refused the cancel). Returns at once; raises only if the request could not be made."""
 
     def modify_order(self, order: Order, quantity: Optional[float] = None, price: Optional[float] = None) -> None:
         raise NotImplementedError(f"{self.connector.name} cannot modify orders")
@@ -393,8 +424,8 @@ class FillReport:
     quantity: float
     price: float
     ts: pd.Timestamp                      # UTC
-    commission: Optional[float] = None
-    currency: str = ""
+    commission: Optional[float] = None    # None: the venue reports no fee (see ExecutionClient)
+    currency: str = ""                    # the fee's currency
     client_order_id: Optional[str] = None
     instrument_id: Optional[str] = None
 
