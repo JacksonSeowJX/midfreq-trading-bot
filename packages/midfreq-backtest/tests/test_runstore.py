@@ -6,6 +6,7 @@ import contextlib
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from importlib.metadata import version
 from pathlib import Path
 
 import numpy as np
@@ -103,7 +104,7 @@ def test_a_saved_backtest_reads_back_whole(storage, store):
     # the last candle replayed: the run ends on 20 Aug, inclusive
     assert manifest["data_cutoff"] == "2026-08-20T00:00:00+00:00"
     assert {"git_commit", "package_version", "host"} <= set(manifest)
-    assert manifest["package_version"] == "0.1.0"
+    assert manifest["package_version"] == version("midfreq-backtest")    # whichever release is installed
 
     back = store.load(run_id)
     assert (back.kind, back.run_id, back.created) == ("backtest", run_id, record.created)
