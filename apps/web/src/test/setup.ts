@@ -49,14 +49,14 @@ vi.mock('@/components/charts/PriceChart', () => ({
     createElement('div', { role: 'img', 'aria-label': label, 'data-markers': trades.length }),
 }))
 vi.mock('@/components/charts/MultiLineChart', () => ({
-  MultiLineChart: ({ label, lines }: { label: string; lines: { name: string; color: string }[] }) =>
+  MultiLineChart: ({ label, lines }: { label: string; lines: { name: string; color: string; dashed?: boolean }[] }) =>
     createElement(
       'div',
       { role: 'img', 'aria-label': label },
       createElement(
         'ul',
         { 'aria-label': 'Legend' },
-        lines.map((l) => createElement('li', { key: l.name, 'data-color': l.color }, l.name)),
+        lines.map((l) => createElement('li', { key: l.name, 'data-color': l.color, 'data-dashed': l.dashed || undefined }, l.name)),
       ),
     ),
 }))

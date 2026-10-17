@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import type { OptimizeResult } from '@/api/types'
+import type { BacktestResult, OptimizeResult } from '@/api/types'
 import { backtestJob, backtestResult, capabilities, compareJob, compareResult, gridResult, walkForwardResult } from '@/test/fixtures'
 import { renderWithProviders } from '@/test/render'
 import { runSummary } from '../logic'
@@ -53,11 +53,53 @@ describe('BacktestResultView', () => {
     expect(screen.getByText('The strategy placed no trades in this period')).toBeInTheDocument()
   })
 
-  it('notes that a basket run charts one symbol for reference', () => {
+  it('names both stocks of a pair, and which one the price chart shows', () => {
     renderWithProviders(
-      <BacktestResultView result={{ ...backtestResult, symbols: ['US.AAPL', 'US.MSFT', 'US.NVDA'] }} summary={runSummary(backtestJob)} />,
+      <BacktestResultView
+        result={{ ...backtestResult, strategy: 'Pairs Trading', symbols: ['US.AAPL', 'US.JPM'] }}
+        summary={runSummary(backtestJob)}
+      />,
     )
-    expect(screen.getByText(/Traded 3 symbols; the chart shows US\.AAPL for reference only/)).toBeInTheDocument()
+    expect(screen.getByText('Traded US.AAPL and US.JPM; the price chart shows US.AAPL.')).toBeInTheDocument()
+  })
+
+  const basket: BacktestResult = {
+    ...backtestResult,
+    strategy: 'Cross-Sectional Reversal',
+    symbols: ['US.AAPL', 'US.MSFT', 'US.NVDA'],
+    params: { lookback: 30, top_n: 2, rebalance_every: 19 },
+    benchmark: {
+      symbols: ['US.AAPL', 'US.MSFT', 'US.NVDA'],
+      equity: [
+        { t: '2025-10-16T14:30:00Z', v: 100000 },
+        { t: '2026-10-15T19:30:00Z', v: 108100 },
+      ],
+    },
+  }
+
+  it('charts a basket’s equity against holding its universe, not one stock’s price', () => {
+    renderWithProviders(<BacktestResultView result={basket} summary={runSummary(backtestJob)} />)
+    expect(screen.getByText(/Ranked the 3 stocks of the universe against each other and traded the basket/)).toBeInTheDocument()
+    const chart = screen.getByRole('img', { name: 'Equity of Cross-Sectional Reversal against holding the 3 stocks in equal amounts' })
+    const legend = within(chart).getAllByRole('listitem')
+    expect(legend.map((l) => [l.textContent, l.dataset.dashed])).toEqual([
+      ['Cross-Sectional Reversal', undefined],
+      ['Buy and hold, 3 stocks in equal amounts', 'true'],
+    ])
+    expect(screen.getByText(/Dashed: Buy and hold, 3 stocks in equal amounts/)).toBeInTheDocument()
+    // even a result that still carries a chart (an older API) shows no single stock's price
+    expect(screen.queryByRole('img', { name: /candles/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/price, indicators and trades/)).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Buy and hold' })).toHaveTextContent('+8.10%')
+  })
+
+  it('a saved basket run, which keeps no benchmark curve, shows its equity and says why', () => {
+    renderWithProviders(
+      <BacktestResultView result={{ ...basket, benchmark: null, chart: null }} summary={runSummary(backtestJob)} noChart="Not saved." />,
+    )
+    expect(screen.getByRole('img', { name: 'Equity curve of the backtest' })).toBeInTheDocument()
+    expect(screen.getByText('Not saved.')).toBeInTheDocument()
+    expect(screen.queryByText('No price chart for this run')).not.toBeInTheDocument()
   })
 })
 
@@ -98,9 +140,34 @@ describe('CompareResultView', () => {
     expect(colours()).toEqual(before)
   })
 
-  it('notes that cross-sectional rows are not like-for-like, only when there is one', () => {
-    renderWithProviders(<CompareResultView result={compareResult} summary={runSummary(compareJob)} />)
+  it('dashes buy and hold of the stock beside the strategies', () => {
+    const held = { symbols: ['US.AAPL'], equity: [{ t: '2025-10-16T14:30:00Z', v: 100000 }, { t: '2026-10-15T19:30:00Z', v: 134780 }] }
+    renderWithProviders(<CompareResultView result={{ ...compareResult, benchmark: held }} summary={runSummary(compareJob)} />)
+    const chart = screen.getByRole('img', { name: 'Equity curves of 3 strategies, and buy and hold' })
+    const legend = within(chart).getAllByRole('listitem')
+    expect(legend.map((l) => l.textContent)).toEqual(['SMA Crossover', 'Z-Score Mean Reversion', 'Bollinger Bands', 'Buy and hold US.AAPL'])
+    expect(legend.filter((l) => l.dataset.dashed).map((l) => l.textContent)).toEqual(['Buy and hold US.AAPL'])
+    expect(screen.getByText('Dashed: Buy and hold US.AAPL, the same capital invested at the first candle and held.')).toBeInTheDocument()
+    // the benchmark is a yardstick, not a row of the table
+    expect(rowsOf(screen.getByRole('table', { name: 'Strategy comparison' }))).toHaveLength(3)
+  })
+
+  it('notes that rows are not like-for-like only when an older comparison mixed baskets and single stocks', () => {
+    const row = (strategy: string, ret: number) => ({ strategy, params: {}, metrics: { return_pct: ret } })
+    const curve = [{ t: '2025-10-16T14:30:00Z', v: 100000 }]
+    const baskets = {
+      rows: [row('Cross-Sectional Reversal', 4), row('Cross-Sectional Momentum', -1)],
+      equity: { 'Cross-Sectional Reversal': curve, 'Cross-Sectional Momentum': curve },
+    }
+    const first = renderWithProviders(<CompareResultView result={compareResult} summary={runSummary(compareJob)} />)
     expect(screen.queryByText(/not like-for-like/)).not.toBeInTheDocument()
+    first.unmount()
+    const second = renderWithProviders(<CompareResultView result={baskets} summary={runSummary(compareJob)} />)
+    expect(screen.queryByText(/not like-for-like/)).not.toBeInTheDocument()
+    second.unmount()
+    const mixed = { rows: [...compareResult.rows, row('Cross-Sectional Reversal', 4)], equity: compareResult.equity }
+    renderWithProviders(<CompareResultView result={mixed} summary={runSummary(compareJob)} />)
+    expect(screen.getByText(/not like-for-like with single-stock rows/)).toBeInTheDocument()
   })
 
   it('sorts by any column', async () => {

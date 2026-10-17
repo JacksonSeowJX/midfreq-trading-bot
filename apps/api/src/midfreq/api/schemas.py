@@ -301,9 +301,11 @@ class RiskSettings(BaseModel):
 
 class RunSettings(BaseModel):
     """What every run needs. Single-stock strategies trade `symbol` (and `pair_symbol` for pairs);
-    basket strategies (cross-sectional) trade the whole `universe`."""
+    basket strategies (cross-sectional) rank and trade the whole `universe`, which must hold more
+    stocks than their basket, and take no symbol. A comparison is of one kind or the other."""
     market: Literal["US", "HK"] = "US"
-    symbol: str
+    symbol: Optional[str] = Field(default=None, description="the stock a single-stock strategy trades; "
+                                  "null for a cross-sectional strategy")
     pair_symbol: Optional[str] = None
     universe: Optional[str] = None
     timeframe: Literal["1h", "1d"] = "1h"
@@ -366,6 +368,13 @@ class PriceChart(BaseModel):
     indicators: List[Indicator]
 
 
+class Benchmark(BaseModel):
+    """Buy and hold, the yardstick of benchmark_return_pct and alpha: the starting capital split
+    equally across `symbols` at their first close in the run's dates and held to the end."""
+    symbols: List[str]
+    equity: List[SeriesPoint]
+
+
 class BacktestResult(BaseModel):
     strategy: str
     symbols: List[str]
@@ -374,7 +383,9 @@ class BacktestResult(BaseModel):
                                                 "max_drawdown_pct, win_rate, total_trades, ...")
     equity: List[SeriesPoint]
     trades: List[TradeOut]
-    chart: Optional[PriceChart] = None
+    chart: Optional[PriceChart] = Field(default=None, description="the traded stock's price; null for a "
+                                        "cross-sectional strategy, which trades a whole universe")
+    benchmark: Optional[Benchmark] = Field(default=None, description="buy and hold of the symbols traded")
 
 
 class CompareRow(BaseModel):
@@ -386,6 +397,8 @@ class CompareRow(BaseModel):
 class CompareResult(BaseModel):
     rows: List[CompareRow]
     equity: Dict[str, List[SeriesPoint]] = Field(description="strategy name -> equity curve")
+    benchmark: Optional[Benchmark] = Field(default=None, description="buy and hold of what was compared on: "
+                                           "the stock, or every stock of the universe in equal amounts")
 
 
 class GridRow(BaseModel):
