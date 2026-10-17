@@ -380,7 +380,20 @@ R=~/midfreq/releases/0.1.2/defaults/config; C=~/midfreq/runtime/config
 cp -n $R/node_*.yaml $R/corporate_actions.json $C/           # -n: never overwrite the runtime's own files
 diff $C/venues.json $R/venues.json                           # expected: only the holiday and early-close fields
 cp $C/venues.json ~/midfreq/backups/venues.json.20261018 && cp $R/venues.json $C/venues.json   # 0.1.1 reads it too
-~/midfreq/releases/0.1.2/ops/vm/node_startup_check.sh 10 --release 0.1.2 --market US   # must print PASS
+~/midfreq/releases/0.1.2/ops/vm/node_startup_check.sh 10 --release 0.1.2 --market US --no-account   # must print PASS
+```
+
+Shadow mode executes orders in a simulator, and the node refuses to reconcile a simulated executor
+against the real paper account, so the shadow check runs with `--no-account`. The broker side is
+checked by running Monday's real configuration (paper) for five minutes on a copy of the runtime
+while the market is closed: no candle arrives and the next rebalance is 11 candles away, so it
+cannot trade.
+
+```bash
+T=~/midfreq/checks/node_paper_$(date +%Y%m%d_%H%M%S); mkdir -p $T
+cp -a ~/midfreq/runtime/config ~/midfreq/runtime/data ~/midfreq/runtime/live_sessions $T/
+MIDFREQ_ROOT=$T NODE_CONFIG=config/node_sp100.yaml NODE_MODE=paper ~/midfreq/releases/0.1.2/ops/run_node.sh 5 > $T.log 2>&1
+grep -E "execution client connected \(paper\)|reconciliation|restored positions|98 of 98|orders sent 0" $T.log   # all present; no ERROR in $T/live_sessions/ops_*.jsonl
 ```
 
 PASS means: paper account connected, state restored (clock 84, AMAT 74, MU 35, cash 33,310.91, nothing
@@ -396,7 +409,10 @@ crontab -l > ~/midfreq/backups/crontab.20261019.txt          # the session runne
 # laptop: Actions -> Deploy -> action "switch", version 0.1.2; approve  (current -> releases/0.1.2)
 # VM: the release's schedule (the node runs the US session) and its deploy gate
 crontab ~/midfreq/current/ops/vm/crontab.txt && crontab -l | grep -n 'run_node\|ROLLBACK'
-cp ~/midfreq/bin/deploy_gate.sh ~/midfreq/backups/deploy_gate.sh.20261019 && cp ~/midfreq/current/ops/vm/deploy_gate.sh ~/midfreq/bin/deploy_gate.sh
+cp ~/midfreq/bin/deploy_gate.sh ~/midfreq/backups/deploy_gate.sh.20261019
+# the gate is not in the release bundle: copy it from the repository (laptop), then check the diff
+#   gcloud compute scp --zone asia-southeast1-b ops/vm/deploy_gate.sh trading-bot:midfreq/bin/deploy_gate.sh.new
+cd ~/midfreq/bin && diff deploy_gate.sh deploy_gate.sh.new; chmod 755 deploy_gate.sh.new && mv deploy_gate.sh.new deploy_gate.sh; cd
 DRY_RUN=1 FAKE_ET=2026-10-19T09:35 MIDFREQ_ROOT=$HOME/midfreq/runtime NODE_CONFIG=config/node_sp100.yaml NODE_MODE=paper \
     ~/midfreq/current/ops/run_node.sh --scheduled             # gate open, paper, duration 386, configuration valid
 ~/midfreq/current/ops/vm/maintain.sh && tail -1 ~/midfreq/logs/health.log   # release=0.1.2 opend=up
