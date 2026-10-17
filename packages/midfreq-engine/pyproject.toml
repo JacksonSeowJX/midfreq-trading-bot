@@ -1,0 +1,29 @@
+[project]
+name = "midfreq-engine"
+version = "0.1.0"
+description = "The native backtest core in C++17: the event loop, portfolio accounting, risk rules, metrics and the ported candle strategies, exposed to Python with pybind11."
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26"]
+
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.build-type = "Release"
+# midfreq is a PEP 420 namespace shared with the other packages: ship only this portion
+wheel.packages = ["src/midfreq"]
+wheel.exclude = ["**/*.cpp", "**/*.hpp"]
+build-dir = "build/{wheel_tag}"
+
+[tool.uv]
+# rebuild the extension when the C++ changes, not only when this file does
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "include/**/*.hpp" },
+    { file = "src/**/*.cpp" },
+    { file = "src/**/*.hpp" },
+    { file = "bindings/**/*.cpp" },
+]

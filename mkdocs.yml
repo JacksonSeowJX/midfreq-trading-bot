@@ -54,6 +54,7 @@ nav:
       - Instruments and venues: concepts/instruments_and_venues.md
       - Strategies: concepts/strategies.md
       - Backtesting: concepts/backtesting.md
+      - The C++ engine: concepts/native_engine.md
       - Optimization and validation: concepts/optimization_and_validation.md
       - Live trading: concepts/live_trading.md
       - Saved runs: concepts/saved_runs.md
