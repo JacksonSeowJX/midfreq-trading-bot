@@ -704,12 +704,12 @@ def test_reconcile_repairs_our_side_and_reports_the_rest(tmp_path):
     assert resting.status is OrderStatus.ACCEPTED            # listed open at the venue
     assert node.oms.open_orders() == [resting]
     assert len(report.adjustments) == 4
-    assert len(report.unexplained) == 2
-    assert any("not in the journal" in u for u in report.unexplained)
-    assert any("is not one of ours" in u for u in report.unexplained)
+    assert report.unexplained == () and len(report.foreign) == 2          # not ours: foreign (M6)
+    assert any("not in the journal" in u for u in report.foreign)
+    assert any("is not one of ours" in u for u in report.foreign)
     # a second pass finds everything in order
     again = node.oms.reconcile()
-    assert again.adjustments == () and again.matched == 2 and len(again.unexplained) == 2
+    assert again.adjustments == () and again.matched == 2 and len(again.foreign) == 2
 
 
 def test_reconcile_leaves_orders_just_sent_alone(node):
@@ -897,3 +897,15 @@ def test_m1_reconciliation_waits_out_the_clients_window_for_an_unconfirmed_order
     node.advance(30)
     node.oms.reconcile()
     assert order.status is OrderStatus.CANCELED              # now the venue's silence counts
+
+
+def test_m6_other_sessions_orders_and_fills_are_foreign_not_unexplained(node):
+    """M6: the account is shared (another session, a manual trade): what is not ours is reported
+    as foreign, apart from what reconciliation could not explain about our own orders."""
+    other = Order(ClientOrderId("someone-else-1"), StrategyId("other"), AAPL, OrderSide.BUY, OrderType.LIMIT, 5.0, 150.0)
+    other.tags["venue_order_id"] = "V-OTHER"
+    node.venue.book["V-OTHER"] = {"order": other, "status": "SUBMITTED", "filled": 0.0, "px": None}
+    node.venue.trades.append(FillReport("D-OTHER", "V-OTHER", "US.AAPL", "BUY", 1.0, 150.0,
+                                        pd.Timestamp(T0, unit="ns", tz="UTC"), 0.0, "USD", None))
+    report = node.oms.reconcile()
+    assert len(report.foreign) == 2 and report.unexplained == ()

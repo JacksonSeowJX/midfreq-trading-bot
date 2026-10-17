@@ -1380,12 +1380,25 @@ class TradingNode:
             log.error("order reconciliation failed (%s): %s", reason, exc)
 
     def _log_report(self, report: Any, reason: str) -> None:
+        """Adjustments are logged each time; an unexplained difference is an ERROR the first time
+        it is seen and quiet after (it would otherwise repeat every 5 minutes); what belongs to
+        others on the shared account is INFO, once."""
         if not isinstance(report, ReconcileReport):
             return
+        seen = self.__dict__.setdefault("_reported", set())
         for adj in report.adjustments:
             log.warning("reconcile %s (%s): %s", report.source, reason, adj)
         for u in report.unexplained:
+            if ("u", u) in seen:
+                log.debug("reconcile %s (%s): still unexplained: %s", report.source, reason, u)
+                continue
+            seen.add(("u", u))
             log.error("reconcile %s (%s): unexplained: %s", report.source, reason, u)
+        for f in getattr(report, "foreign", ()):
+            if ("f", f) not in seen:
+                seen.add(("f", f))
+                log.info("reconcile %s (%s): not ours (another session or a manual trade): %s",
+                         report.source, reason, f)
 
     def _heartbeat(self, now: int) -> None:
         try:

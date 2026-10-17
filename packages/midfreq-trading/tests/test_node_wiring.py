@@ -707,3 +707,19 @@ def test_s3_an_empty_position_list_with_holdings_in_the_account_is_a_failed_read
     assert node.broker_positions("acct") == (None, None)
     assert node.host.legacy[0].portfolio.get_position_qty("US.AAPL") == 10
     node.stop()
+
+
+def test_m6_reconciliation_does_not_repeat_its_errors_every_cycle(tmp_path, caplog):
+    import logging
+    from midfreq.trading.interfaces import ReconcileReport
+    node, _ = make(tmp_path)
+    node.start()
+    report = ReconcileReport("orders", START, 0, (), ("x-1: the venue reports 5 filled",), ("V-OTHER is not ours",))
+    with caplog.at_level(logging.INFO, logger="midfreq"):
+        for _ in range(3):
+            node._log_report(report, "periodic")
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR and "x-1" in r.getMessage()]
+    foreign = [r for r in caplog.records if "V-OTHER" in r.getMessage()]
+    assert len(errors) == 1
+    assert foreign and all(r.levelno == logging.INFO for r in foreign) and len(foreign) == 1
+    node.stop()

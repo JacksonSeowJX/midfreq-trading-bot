@@ -92,12 +92,15 @@ class Heartbeat:
 @dataclass(frozen=True)
 class ReconcileReport:
     """What a reconciliation found and did. `adjustments` are the changes made to our side
-    (shrink-only for positions); `unexplained` are differences left for a person to look at."""
+    (shrink-only for positions); `unexplained` are differences about our own orders left for a
+    person to look at; `foreign` what the shared account holds that is not ours (another
+    session's orders and fills, manual trades): information, not an error."""
     source: str                                     # 'orders' | 'positions'
     ts_event: int
     matched: int
     adjustments: Tuple[str, ...] = ()
     unexplained: Tuple[str, ...] = ()
+    foreign: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

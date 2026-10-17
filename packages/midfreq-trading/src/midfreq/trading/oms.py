@@ -1081,6 +1081,7 @@ class OrderManagementSystem:
         matched = 0
         adjustments: List[str] = []
         unexplained: List[str] = []
+        foreign: List[str] = []
         for venue, client in self._clients.items():
             mine = [o for o in self._open.values() if o.venue == venue]
             earliest = min([o.ts_init for o in mine] + [now - self._reconcile_lookback_ns])
@@ -1095,8 +1096,8 @@ class OrderManagementSystem:
             for r in reports or []:
                 order = self._order_for_report(venue, r.client_order_id, r.order_id)
                 if order is None:
-                    unexplained.append(f"{venue}: fill {r.trade_id} on venue order {r.order_id} ({r.side} "
-                                       f"{r.quantity:g} {r.symbol} @ {r.price:g}) is not one of ours")
+                    foreign.append(f"{venue}: fill {r.trade_id} on venue order {r.order_id} ({r.side} "
+                                   f"{r.quantity:g} {r.symbol} @ {r.price:g}) is not one of ours")
                     continue
                 by_order.setdefault(order.client_order_id, []).append(r)
             for cid, mine in by_order.items():
@@ -1116,8 +1117,8 @@ class OrderManagementSystem:
             for r in venue_open:
                 order = self._order_for_report(venue, r.client_order_id, r.order_id)
                 if order is None:
-                    unexplained.append(f"{venue}: open order {r.order_id} ({r.side} {r.quantity:g} {r.symbol} "
-                                       f"@ {r.price}) is not in the journal")
+                    foreign.append(f"{venue}: open order {r.order_id} ({r.side} {r.quantity:g} {r.symbol} "
+                                   f"@ {r.price}) is not in the journal")
                     continue
                 listed.add(order.client_order_id)
                 self._learn_venue_id(order, r.order_id, "the venue's open orders")
@@ -1139,16 +1140,14 @@ class OrderManagementSystem:
                 if order.client_order_id in listed or now - order.ts_init < self._reconcile_grace_ns:
                     continue
                 self._settle_unlisted(order, client, now, adjustments, unexplained)
-        report = ReconcileReport("orders", now, matched, tuple(adjustments), tuple(unexplained))
+        report = ReconcileReport("orders", now, matched, tuple(adjustments), tuple(unexplained), tuple(foreign))
         level = logging.WARNING if (adjustments or unexplained) else logging.INFO
-        log.log(level, "order reconciliation: %d matched, %d repaired, %d unexplained", matched,
-                len(adjustments), len(unexplained))
+        log.log(level, "order reconciliation: %d matched, %d repaired, %d unexplained, %d not ours", matched,
+                len(adjustments), len(unexplained), len(foreign))
         for line in adjustments:
             log.warning("order reconciliation: %s", line)
-        for line in unexplained:
-            log.warning("order reconciliation: %s", line)
         self._journal_safe("reconcile", now, None, matched=matched, adjustments=list(adjustments),
-                           unexplained=list(unexplained))
+                           unexplained=list(unexplained), foreign=list(foreign))
         return report
 
     def _settle_unlisted(self, order: Order, client: ExecutionClient, now: int,
