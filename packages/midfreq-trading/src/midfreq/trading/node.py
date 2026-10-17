@@ -124,10 +124,11 @@ DEFAULT_COMPONENTS: Dict[str, str] = {
 # What each component must offer (midfreq.trading.interfaces), checked when the node is built.
 REQUIRED_METHODS: Dict[str, Tuple[str, ...]] = {
     "oms": ("submit", "cancel", "handle_event", "order", "family", "family_done", "next_order_id", "open_orders",
-            "on_timer", "reconcile"),
+            "on_timer", "reconcile", "pause_policy", "resume_policy"),
     "marketdata": ("dispatch", "subscribe_bars", "subscribe_quotes", "resubscribe", "warm_up", "start", "stop",
                    "on_timer"),
     "risk": ("check", "halt", "resume"),
+    # (and the OMS's pause_policy/resume_policy, checked below)
     "positions": ("on_fill", "position", "positions", "cash", "restore", "snapshot", "reconcile"),
     "refdata": ("instrument", "instruments", "calendar"),
 }
@@ -493,8 +494,14 @@ class TradingNode:
         self.state = "stopping"
         log.info("stopping (%s)", reason)
         host = self.host
+        def trading_off():
+            # Nothing may send an order from here on, the OMS's re-pricing included.
+            host.trading_off()
+            self.risk.halt(f"session ending ({reason}): trading off", planned=True)
+            self.oms.pause_policy("trading off")
+
         steps: List[Tuple[str, Callable[[], None]]] = [
-            ("trading_off", lambda: host.trading_off()),
+            ("trading_off", trading_off),
             ("drain", self._drain_data),
             ("cancel_open_orders", self._cancel_open_orders),
             ("finalise", self._finalise),
@@ -548,6 +555,24 @@ class TradingNode:
                               file_stem=f"ops_{self.session_stamp}_{n.name}",
                               time_source=lambda: self.clock.timestamp_ns() / NANOS,
                               stream=self._ops_stream).install()
+
+    def halt(self, reason: str) -> None:
+        """The kill switch: every new order denied (risk), no re-pricing (OMS), and every working
+        order cancelled. Trading stays off until resume()."""
+        log.critical("HALT: %s", reason)
+        self.risk.halt(reason)
+        self.oms.pause_policy(f"halted: {reason}")
+        for order in list(self.oms.open_orders()):
+            try:
+                self.oms.cancel(order.client_order_id)
+            except Exception as exc:
+                log.error("cancel of %s at the halt failed: %s", order.client_order_id, exc)
+        self.alert("trading halted", reason)
+
+    def resume(self) -> None:
+        self.risk.resume()
+        self.oms.resume_policy()
+        log.warning("trading resumed")
 
     def alert(self, subject: str, body: str = "") -> None:
         log.error("ALERT %s: %s", subject, body)

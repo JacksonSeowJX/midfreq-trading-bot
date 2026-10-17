@@ -117,10 +117,15 @@ class PreTradeRiskEngine:
 
     # ── kill switch ───────────────────────────────────────────────────────────────────────────
 
-    def halt(self, reason: str) -> None:
+    def halt(self, reason: str, planned: bool = False) -> None:
+        """Deny every new order until resume(). `planned` (the end of a session) logs a
+        warning; anything else is the kill switch and logs CRITICAL."""
         self._halted = True
         self._halt_reason = reason or "halted"
-        log.critical("KILL SWITCH: trading halted (%s); every new order will be denied", self._halt_reason)
+        if planned:
+            log.warning("trading halted (%s); every new order will be denied", self._halt_reason)
+        else:
+            log.critical("KILL SWITCH: trading halted (%s); every new order will be denied", self._halt_reason)
         self._msgbus.publish(TOPIC_RISK, RiskEvent("halted", self._halt_reason, self._clock.timestamp_ns()))
 
     def resume(self) -> None:

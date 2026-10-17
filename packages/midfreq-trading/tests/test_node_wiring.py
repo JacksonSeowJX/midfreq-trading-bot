@@ -61,8 +61,8 @@ def deliver_on_timer(node, venue):
     node.oms.on_timer = on_timer
 
 
-def make(tmp_path, venue=None, **sections):
-    d = tiny_config_dict(symbols=SYMS, confirm_timeout_s=150)
+def make(tmp_path, venue=None, strategy=None, **sections):
+    d = tiny_config_dict(symbols=SYMS, confirm_timeout_s=150, **(strategy or {}))
     d.update(sections)
     cfg = config_from_dict(d)
     venue = venue or ChildFillingVenue()
@@ -422,3 +422,71 @@ def test_h3_the_mode_defaults_to_shadow():
     d = tiny_config_dict(symbols=SYMS, confirm_timeout_s=150)
     d["node"].pop("mode")
     assert config_from_dict(d).mode == "shadow"
+
+
+# ── H5: no order while trading is off or the market shut ──────────────────────────────────────
+
+class SlowCancelVenue(ScriptedVenue):
+    """Accepts orders, never fills them; confirms a cancel only when the test says so."""
+
+    def cancel_order(self, order):
+        self.cancels.append(order)
+
+
+def test_h5_a_reprice_does_not_send_an_order_once_trading_is_off(tmp_path):
+    """H5: an order is being re-priced (its cancel sent) when the node stops; the cancel's
+    confirmation arrives during shutdown. The OMS must not send the child: trading is off."""
+    node, venue = make(tmp_path, venue=SlowCancelVenue(), strategy={"confirm_fills": False},
+                       oms={"unfilled_order": {"wait_s": 30, "max_reprices": 2}})
+    node.start()
+    push_prices(node, (100.0, 200.0, 300.0, 400.0))
+    a = node.host.legacy[0]
+    a.portfolio.execute_trade("US.AAPL", True, 10, 100.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    node.advance_to(node.now_ns() + 31 * SEC)                  # the re-price's cancel goes out
+    (parent,) = venue.submitted
+    assert venue.cancels == [parent]
+    venue.cancel(parent, "CANCELLED_ALL")                       # confirmed just as the node stops
+    node.stop()
+    assert venue.submitted == [parent], "no child order after trading was switched off"
+    assert node.risk.halted
+
+
+def test_h5_a_reprice_falling_in_the_lunch_break_is_not_sent(tmp_path):
+    """H5: Hong Kong closes 12:00-13:00; a re-price falling due at 12:00:10 is refused by the
+    calendar check, so no order reaches a shut market."""
+    hk_start = pd.Timestamp("2026-10-14 11:59:30", tz="Asia/Hong_Kong").tz_convert("UTC").value
+    d = tiny_config_dict(symbols=HK_SYMS, confirm_timeout_s=150, confirm_fills=False)
+    d["oms"] = {"unfilled_order": {"wait_s": 30, "max_reprices": 2}}
+    venue = ScriptedVenue()
+    node = TradingNode(config_from_dict(d), mode="sim", clock=TestClock(hk_start), records_dir=tmp_path / "rec",
+                       store_dir=tmp_path / "data", records_tz="Asia/Hong_Kong",
+                       components={"execution_client:acct": venue, "data_client": FakeDataClient()})
+    node.start()
+    for sym, c in zip(HK_SYMS, (400.0, 60.0, 300.0, 70.0)):
+        bt = BarType(instrument_for_symbol(sym), SPEC)
+        node.queue.put(BarUpdate(Bar(bt, c, c, c, c, 1.0, hk_start + 1800 * SEC, hk_start), False, hk_start))
+    node.advance_to(hk_start)
+    a = node.host.legacy[0]
+    a.portfolio.execute_trade("HK.00700", True, 100, 400.0, pd.Timestamp("2026-10-14 11:30", tz="UTC"))
+    assert len(venue.submitted) == 1
+    node.advance_to(hk_start + 41 * SEC)                        # 12:00:11: re-price, its cancel confirmed
+    assert len(venue.submitted) == 1, "no order sent into the lunch break"
+    family = node.oms.family(venue.submitted[0].client_order_id)
+    assert [o.status.value for o in family][-1] in ("DENIED", "CANCELED")
+    node.stop()
+
+
+def test_m2_halt_cancels_working_orders_and_denies_new_ones(tmp_path):
+    """M2: the node's kill switch halts risk, pauses re-pricing and cancels what is working."""
+    node, venue = make(tmp_path, venue=ScriptedVenue(), strategy={"confirm_fills": False})
+    node.start()
+    push_prices(node, (100.0, 200.0, 300.0, 400.0))
+    a = node.host.legacy[0]
+    a.portfolio.execute_trade("US.AAPL", True, 10, 100.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    (working,) = venue.submitted
+    node.halt("operator")
+    node.process_pending()
+    assert venue.cancels == [working] and working.status.value == "CANCELED"
+    a.portfolio.execute_trade("US.MSFT", True, 5, 200.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    assert len(venue.submitted) == 1 and node.risk.halted
+    node.stop()

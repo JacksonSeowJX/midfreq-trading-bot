@@ -51,7 +51,7 @@ class StandInRisk:
             return "halted"
         return self.deny.get(str(order.instrument_id))
 
-    def halt(self, reason: str) -> None:
+    def halt(self, reason: str, planned: bool = False) -> None:
         self._halted = True
 
     def resume(self) -> None:
@@ -181,6 +181,12 @@ class StandInOMS:
     def family(self, client_order_id) -> List[Order]:
         o = self.orders.get(client_order_id)
         return [o] if o is not None else []
+
+    def pause_policy(self, reason) -> None:
+        self.paused = reason
+
+    def resume_policy(self) -> None:
+        self.paused = None
 
     def family_done(self, client_order_id) -> bool:
         o = self.orders.get(client_order_id)

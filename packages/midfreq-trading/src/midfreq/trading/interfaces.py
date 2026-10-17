@@ -147,6 +147,11 @@ class OrderManager(Protocol):
     def on_timer(self, now_ns: int) -> None:
         """Time-based policies: re-price or cancel orders left unfilled, expire day orders."""
 
+    def pause_policy(self, reason: str) -> None:
+        """Trading is off: the unfilled-order policy sends no new (re-priced) order."""
+
+    def resume_policy(self) -> None: ...
+
     def reconcile(self) -> ReconcileReport:
         """Compare the journal's open orders and recent fills with the venues' and repair our side."""
 
@@ -155,8 +160,8 @@ class PreTradeRisk(Protocol):
     def check(self, order: Order) -> Optional[str]:
         """None if the order may go to the venue; otherwise why not (becomes OrderDenied)."""
 
-    def halt(self, reason: str) -> None:
-        """Kill switch: deny every new order until resume()."""
+    def halt(self, reason: str, planned: bool = False) -> None:
+        """Kill switch: deny every new order until resume(); `planned` for a session's end."""
 
     def resume(self) -> None: ...
 

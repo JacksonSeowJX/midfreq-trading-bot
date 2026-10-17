@@ -372,6 +372,7 @@ class OrderManagementSystem:
         self._cancel_reason: Dict[ClientOrderId, str] = {}
         self._local_reject: Set[ClientOrderId] = set()
         self._venue_filled: Dict[ClientOrderId, float] = {}   # what a venue query said had filled
+        self._policy_paused: Optional[str] = None             # why no re-price may send an order now
 
         bind = getattr(risk, "bind_open_orders", None)
         if callable(bind):
@@ -663,6 +664,17 @@ class OrderManagementSystem:
 
     # ── the unfilled-order policy ─────────────────────────────────────────────────────────────
 
+    def pause_policy(self, reason: str) -> None:
+        """Trading is off (shutdown, a halt): the unfilled-order policy sends no new order. An
+        order unfilled after wait_s is cancelled instead of re-priced, and a re-price whose cancel
+        is confirmed later ends there; cancels already sent are still followed up."""
+        if self._policy_paused is None:
+            log.warning("unfilled-order policy paused (%s): no re-priced order will be sent", reason)
+        self._policy_paused = reason
+
+    def resume_policy(self) -> None:
+        self._policy_paused = None
+
     def on_timer(self, now_ns: int) -> None:
         wait_ns = int(self.policy.wait_s * _NS)
         cancel_ns = int(self.policy.cancel_timeout_s * _NS)
@@ -686,7 +698,8 @@ class OrderManagementSystem:
 
     def _escalate(self, fam: _Family, order: Order, now_ns: int) -> None:
         waited = (now_ns - fam.since_ns) / _NS
-        if order.order_type is OrderType.LIMIT and fam.attempts <= self.policy.max_reprices:
+        if (order.order_type is OrderType.LIMIT and fam.attempts <= self.policy.max_reprices
+                and self._policy_paused is None):
             if self._reprice_price(order) is None:
                 fam.state = "cancelling"
                 reason = (f"{_unfilled_after(fam.attempts)} (no quote or last price to re-price "
@@ -758,7 +771,9 @@ class OrderManagementSystem:
 
     def _after_close(self, fam: _Family, order: Order) -> None:
         """The family's working order has closed (cancelled, rejected or denied)."""
-        if fam.state == "repricing" and order.status is OrderStatus.CANCELED:
+        if fam.state == "repricing" and order.status is OrderStatus.CANCELED and self._policy_paused is not None:
+            self._finish(fam, f"re-price not sent: {self._policy_paused}")
+        elif fam.state == "repricing" and order.status is OrderStatus.CANCELED:
             self._spawn_child(fam, order)
         elif fam.state == "cancelling":
             filled = self._family_filled(fam)
