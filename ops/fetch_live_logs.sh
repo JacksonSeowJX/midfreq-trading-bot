@@ -19,7 +19,8 @@
 set -euo pipefail
 VM=${VM:-trading-bot}
 ZONE=${ZONE:-asia-southeast1-b}
-REMOTE='~/midfreq-trading-bot'
+# the runtime of the release layout (ops/README.md); the old clone's copy is no longer written
+REMOTE='~/midfreq/runtime'
 cd "$(dirname "$0")/.."
 DEST=live_sessions
 TMP=$(mktemp -d)
@@ -56,4 +57,4 @@ stamp=\$(ls -t live_sessions/console_*.log 2>/dev/null | head -1 | grep -oE '[0-
 crashed=\$(grep -l 'Traceback\|CRITICAL' live_sessions/console_*_\"\$stamp\".log 2>/dev/null || true)
 [ -n \"\$crashed\" ] && echo \"  WARNING:  latest session logged a crash: \$crashed\" || echo \"  crashes:  none in the latest session (\$stamp)\"
 echo \"  disk:     \$(df -h / | awk 'NR==2 {print \$5 \" used, \" \$4 \" free\"}')\"
-echo \"  launcher: \$(tail -1 ~/cron_sp100.log 2>/dev/null)\"" || { grep -v '^Warning' "$TMP/ssh_err" >&2; exit 1; }
+echo \"  launcher: \$(tail -1 ~/midfreq/logs/cron_sp100.log 2>/dev/null)\"" || { grep -v '^Warning' "$TMP/ssh_err" >&2; exit 1; }

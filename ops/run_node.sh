@@ -1,6 +1,7 @@
 #!/bin/bash
 # Launcher for the trading node (midfreq.trading, docs/LIVE_ARCHITECTURE.md), the counterpart of
-# ops/run_sp100_forward_test.sh for the original engine. Not in any crontab.
+# ops/run_sp100_forward_test.sh for the session runner. Scheduled by ops/vm/crontab.txt for the
+# US session.
 #
 # Usage: ./ops/run_node.sh [--scheduled] [duration_minutes]
 #   NODE_CONFIG  the node configuration (default config/node_sp100.yaml)
@@ -126,6 +127,12 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
     || { echo "[dry run] configuration check failed"; exit 1; }
   echo "[dry run] would run: $PY -u -m $NODE run --config $CFG ${MODE_ARGS[*]-} --duration $DURATION"
   exit 0
+fi
+
+# never two trading sessions at once: both would trade the same account and state file
+if pgrep -f '[r]un_live|[m]idfreq\.trading\.cli run|[m]idfreq-node run' >/dev/null; then
+  echo "a trading session is already running; not starting another" >&2
+  exit 1
 fi
 
 mkdir -p "$LOG_DIR"

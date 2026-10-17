@@ -3,10 +3,10 @@
 How the trading node (`midfreq.trading`, docs/LIVE_ARCHITECTURE.md) goes from a release to the VM
 in two steps:
 
-- **A. The first end-to-end paper test**: the Hong Kong paper account, during Hong Kong hours,
-  on six stocks, while the S&P 100 forward test keeps trading on the original engine.
-- **B. The switch of the US strategy** from the original engine to the node, after the forward
-  test ends (about 13 November 2026).
+- **A. A Hong Kong paper test** (optional): the Hong Kong paper account, during Hong Kong hours, on
+  six stocks; it exercises the order path on a separate account before the US rebalance.
+- **B. The US forward test on the node** from Monday 19 October 2026: release 0.1.2, the checks, the
+  switch, what to watch, and rollback to the session runner.
 
 Both are done by hand on the VM (`gcloud compute ssh trading-bot --zone asia-southeast1-b`).
 Times are SGT, the VM's clock; Hong Kong time is the same. The release model, the Deploy workflow
@@ -20,7 +20,7 @@ The pieces:
 | `config/node_sp100.yaml` | The forward test's strategy on the node (`mode: shadow` in the file; the schedule passes `NODE_MODE=paper` after the switch) |
 | `ops/run_node.sh` | The node's launcher (`NODE_CONFIG`, `NODE_MODE`, `DRY_RUN=1`, `--scheduled`); the console goes to `live_sessions/console_node_<stamp>.log` |
 | `ops/vm/node_startup_check.sh` | The node's counterpart of `startup_check.sh`: the node from a release, in shadow mode, for a few minutes on a copy of a runtime; PASS or FAIL |
-| `ops/node_release.patch` | Makes releases carry the node (seven wheels, the launcher, the checks, the node in the installer's smoke test). Applied once, on main, after the integration is merged |
+| `ops/vm/crontab.txt` | Runs the node for the US session (`run_node.sh`, `NODE_MODE=paper`); the session runner's line is kept as `#ROLLBACK ` |
 
 ## What `node_startup_check.sh` checks
 
@@ -100,10 +100,8 @@ in `config/venues.json`'s XHKG holidays, and never in the evening.
 
 ### A1. Prerequisites (days before)
 
-1. **Merged and green.** `feature/live-trading` merged to `main` with the full suite passing, and
-   `ops/node_release.patch` applied in the same or the next commit
-   (`git apply ops/node_release.patch && git rm ops/node_release.patch`). CI's `research` and `vm`
-   jobs green (`vm` builds the bundle and runs the installer's smoke test on Python 3.10 with
+1. **Merged and green.** `feature/live-trading` and `feature/node-deploy` merged to `main` with
+   the full suite passing. CI's `research` and `vm` jobs green (`vm` builds the bundle and runs the installer's smoke test on Python 3.10 with
    `requirements-vm.txt`, which now checks both node configurations).
 2. **Release** (laptop), e.g. 0.1.2:
 
@@ -354,198 +352,93 @@ Record the result: on the laptop,
 
 ---
 
-## B. Switching the US strategy to the node (after the forward test)
+## B. The US forward test on the node: Sunday 18 to Wednesday 21 October 2026
 
-After the forward test ends (about 13 November 2026) and its final numbers are taken. The
-strategy keeps trading the same paper account, the same configuration
-(`config/sp100_forward_test.json`) and the same state file: the node reads and writes
-`live_sessions/state_crosssectionalreversal.json` and `session_*.jsonl` in the original engine's
-formats, so the switch continues the rebalance clock and positions, and a rollback hands them
-back. Modelled on ops/README.md's cutover; the switch is made when no session runs (weekend, or
-05:30-21:00 SGT on a weekday).
+The node runs the US session from Monday 19 October (paper account, `config/node_sp100.yaml`,
+`state_name: crosssectionalreversal`, records in `~/midfreq/runtime/live_sessions/`). Monday's
+session places no orders (the rebalance clock goes 84 -> 91); the first orders on the node are at
+the next rebalance, clock 95 = Tuesday 13:30 ET = **Wednesday 01:30 SGT**. Nothing in this part may
+run while a session is running (21:35-04:05 SGT on weekdays).
 
-### B0. Before the switch release
-
-1. **Part A passed**, and what it found is fixed.
-2. **Open issues decided** (LIVE_ARCHITECTURE.md, Known open issues): the cent of rounding that
-   can deny a cash-constrained buy (size against the rounded limit, or
-   `risk.strategies.sp100-xsr.check_cash: false`); corporate actions not applied (as with the
-   original engine; dividends reach the account, not the strategy's cash); alerts (off by default:
-   `node.email_alerts` and the `MIDFREQ_ALERT_*` variables on the VM, if wanted).
-3. **Code for the switch release** (on main, tested):
-   - `ops/vm/crontab.txt`: the forward test's line replaced by the node's, the original kept
-     commented for one release:
-
-     ```
-     # S&P 100 strategy on the trading node (paper). Fires at 21:35 and 22:35 because the US open
-     # moves with daylight saving; the launcher proceeds only within 30 minutes after the open.
-     35 21,22 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime NODE_CONFIG=config/node_sp100.yaml NODE_MODE=paper $HOME/midfreq/current/ops/run_node.sh --scheduled >> $HOME/midfreq/logs/cron_sp100.log 2>&1
-     # The original engine, for rollback during this release: remove "#ORIGINAL " and comment out the line above.
-     #ORIGINAL 35 21,22 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime $HOME/midfreq/current/ops/run_sp100_forward_test.sh --scheduled >> $HOME/midfreq/logs/cron_sp100.log 2>&1
-     ```
-
-     and `tests/e2e/test_vm_schedule.py::test_the_session_fires_at_both_us_open_times_on_weekdays`
-     looking for `run_node.sh`, with `NODE_MODE=paper` and `NODE_CONFIG=config/node_sp100.yaml`.
-     `config/node_sp100.yaml` keeps `mode: shadow`, so a run by hand never trades; only the
-     schedule says paper. The cron log stays `cron_sp100.log`, which maintain.sh archives.
-   - **Session detection.** `ops/deploy.sh`, `ops/vm/deploy_gate.sh`, `ops/vm/tidy_home.sh`,
-     `ops/fetch_live_logs.sh` and `ops/vm/startup_check.sh` find a session with
-     `pgrep -f '[r]un_live'`, which does not match the node (`python -m midfreq.trading.cli run`):
-     deploys would no longer wait for a session to end. Use
-     `'[r]un_live|[m]idfreq\.trading\.cli run'`, as `node_startup_check.sh` does. `deploy_gate.sh`
-     is installed by hand: after the release, copy it to `~/midfreq/bin/deploy_gate.sh` again
-     (ops/README.md, Deploy workflow).
-
-### B1. Release and deploy
+### B0. Sunday: release and stage (laptop, approval in GitHub)
 
 ```bash
-# laptop
-./ops/set_version.sh X.Y.Z && git commit -am "Release X.Y.Z" && git push origin main
-# Actions -> Release -> Run workflow, X.Y.Z; wait for it to pass
-./ops/fetch_live_logs.sh                       # the record up to the switch
+# on main, after the node's pull request is merged
+./ops/set_version.sh 0.1.2
+git add pyproject.toml packages/*/pyproject.toml uv.lock && git commit -m "Release 0.1.2" && git push origin main
+# Actions -> Release -> Run workflow, version 0.1.2; wait for it to pass
+# Actions -> Deploy -> action "stage", version 0.1.2; approve. It installs 0.1.2 next to 0.1.1 and runs
+# its smoke test; `current` stays 0.1.1, so nothing that runs changes.
 ```
 
-Deploy (Actions -> Deploy -> `deploy`, `X.Y.Z`, approve; or `./ops/deploy.sh vX.Y.Z`) when no
-session runs. `current` then points to X.Y.Z, but the crontab on the VM is still the old one, so
-the next session would still run the original engine (from X.Y.Z): nothing trades on the node
-until B3. The installer must report `smoke test passed` and
-`127.0.0.1:11111, trading environment SIMULATE`.
-
-The node's configuration files in the runtime. The cutover's `cp -n` never overwrites, so a
-runtime keeps whatever copy it first received: `venues.json` is there from before the node (no
-holidays), and `node_sp100.yaml` and `corporate_actions.json` are missing. Look at what the
-release would change, then take the release's three:
+### B1. Sunday: configuration and checks on the VM (market closed)
 
 ```bash
-cd ~/midfreq/runtime/config
-for f in node_sp100.yaml venues.json corporate_actions.json; do
-    [ -e $f ] && { echo "== $f: runtime -> X.Y.Z"; diff $f ~/midfreq/current/defaults/config/$f; }
-done
-# expected: only the release's own changes (venues.json's holidays and early closes). Anything
-# else was edited on the VM: carry it into the new copy after the cp below.
-mkdir -p ~/midfreq/backups/config_before_node && cp -a venues.json ~/midfreq/backups/config_before_node/
-cp ~/midfreq/current/defaults/config/{node_sp100.yaml,venues.json,corporate_actions.json} .
+gcloud compute ssh trading-bot --zone asia-southeast1-b
+ls ~/midfreq/releases; readlink ~/midfreq/current          # 0.1.1 0.1.2; current -> releases/0.1.1
+R=~/midfreq/releases/0.1.2/defaults/config; C=~/midfreq/runtime/config
+cp -n $R/node_*.yaml $R/corporate_actions.json $C/           # -n: never overwrite the runtime's own files
+diff $C/venues.json $R/venues.json                           # expected: only the holiday and early-close fields
+cp $C/venues.json ~/midfreq/backups/venues.json.20261018 && cp $R/venues.json $C/venues.json   # 0.1.1 reads it too
+~/midfreq/releases/0.1.2/ops/vm/node_startup_check.sh 10 --release 0.1.2 --market US   # must print PASS
 ```
 
-(`venues.json`'s new holiday fields are additive: the original engine reads the file as before.
-`sp100_forward_test.json` and `connections.yaml` are the VM's own and stay.)
+PASS means: paper account connected, state restored (clock 84, AMAT 74, MU 35, cash 33,310.91, nothing
+shrunk), warm-up 98 of 98, 98 instruments subscribed, a clean stop, zero orders, zero ERROR records,
+and the real runtime unchanged. Anything else: stop here, the forward test stays on 0.1.1.
 
-### B2. Checks, market closed
-
-On the VM, outside 09:00-16:30 New York time (a weekend, or 05:30-20:30 SGT on a weekday):
+### B2. Monday 17:10-20:30 SGT: switch
 
 ```bash
-~/midfreq/current/ops/vm/startup_check.sh 5          # the original engine from X.Y.Z: PASS (the rollback path)
-~/midfreq/current/ops/vm/node_startup_check.sh 10    # the node, shadow, on a copy of the runtime: PASS
+# VM: backups
+cp -p ~/midfreq/runtime/live_sessions/state_crosssectionalreversal.json ~/midfreq/backups/state_crosssectionalreversal.20261019.json
+crontab -l > ~/midfreq/backups/crontab.20261019.txt          # the session runner's schedule
+# laptop: Actions -> Deploy -> action "switch", version 0.1.2; approve  (current -> releases/0.1.2)
+# VM: the release's schedule (the node runs the US session) and its deploy gate
+crontab ~/midfreq/current/ops/vm/crontab.txt && crontab -l | grep -n 'run_node\|ROLLBACK'
+cp ~/midfreq/bin/deploy_gate.sh ~/midfreq/backups/deploy_gate.sh.20261019 && cp ~/midfreq/current/ops/vm/deploy_gate.sh ~/midfreq/bin/deploy_gate.sh
+DRY_RUN=1 FAKE_ET=2026-10-19T09:35 MIDFREQ_ROOT=$HOME/midfreq/runtime NODE_CONFIG=config/node_sp100.yaml NODE_MODE=paper \
+    ~/midfreq/current/ops/run_node.sh --scheduled             # gate open, paper, duration 386, configuration valid
+~/midfreq/current/ops/vm/maintain.sh && tail -1 ~/midfreq/logs/health.log   # release=0.1.2 opend=up
+ls -l ~/midfreq/runtime/live_sessions/broker_*.json          # still refreshed every 5 minutes from 0.1.2
 ```
 
-The node check must show `[resume] raw state on disk: {...}` with the forward test's positions,
-`[resume] rebalance clock at <the state file's cross_section_count> cross-sections`,
-`[resume] restored positions: {...}` with no position shrunk, the US paper account in
-`account holds ...`, `98 of 98 symbols from the local store` and
-`running in shadow mode: 1 strategies, 98 instruments`.
-
-The launcher as the schedule will start it, dry (a date of the next session, 09:35:01 New York
-time):
+### B3. Monday's session (no orders expected)
 
 ```bash
-cd ~/midfreq/runtime && DRY_RUN=1 FAKE_ET=2026-11-16T09:35:01 NODE_CONFIG=config/node_sp100.yaml NODE_MODE=paper \
-    MIDFREQ_ROOT=$HOME/midfreq/runtime ~/midfreq/current/ops/run_node.sh --scheduled
+tail -f $(ls -t ~/midfreq/runtime/live_sessions/console_*.log | head -1)
 ```
 
-It must print `[gate] Mon 2026-11-16 09:35 EST: market open, running`, `mode : paper`,
-`duration : 386 min`, `configuration config/node_sp100.yaml: valid` with
-`account moomoo-us: connector moomoo, environment paper`, every component `ok`, and
-`[dry run] would run: .../current/.venv/bin/python -u -m midfreq.trading.cli run --config config/node_sp100.yaml --mode paper --duration 386`.
-With `FAKE_ET=2026-11-16T10:35:01` it must print `not the open, skipping` and nothing else.
+- **21:35-21:45 SGT:** started by cron; paper account connected; state restored (clock 84, AMAT 74,
+  MU 35, cash 33,310.91); warm-up 98 of 98; 98 subscribed; trading on; no ERROR in `ops_*.jsonl`.
+- **22:30 SGT:** the first bar of the day arrives and the clock moves to 85 (one per hour after that).
+- **If nothing has started by 21:40 SGT:** go to B5 and start the session runner by hand.
+- **After the close (about 04:05 SGT):** session end logged; clock 91; no orders; the state file is
+  valid JSON; on the laptop `./ops/fetch_live_logs.sh` brings the session in and the dashboard's forward
+  test shows 16 sessions with the holdings unchanged.
 
-Backups, then go on only if all of the above passed:
+### B4. The first rebalance on the node: Wednesday 01:30 SGT (Tuesday 13:30 ET)
+
+Watch `orders_<date>.jsonl` and the console: the decision on the 13:30 ET candle, sells first, then
+buys sized on the cash they raise; each order FILLED, or re-priced (at most twice) and then filled or
+cancelled with the venue's reply logged. Afterwards the bot's holdings equal the broker's
+(`broker_moomoo-us.json`), and the dashboard shows the trades with their decision candle.
+
+### B5. Rollback to the session runner (takes effect from the next session)
 
 ```bash
-D=$(date +%Y%m%d)
-cp -a ~/midfreq/runtime/live_sessions/state_crosssectionalreversal.json ~/midfreq/backups/state_crosssectionalreversal.before_node_$D.json
-crontab -l > ~/midfreq/backups/crontab.before_node_$D.txt
+# laptop: Actions -> Deploy -> action "rollback" (current -> releases/0.1.1); approve
+# VM:
+crontab ~/midfreq/backups/crontab.20261019.txt               # the session runner's schedule
+cp ~/midfreq/backups/deploy_gate.sh.20261019 ~/midfreq/bin/deploy_gate.sh
 ```
 
-### B3. Schedule
+The state file has the same format under both engines, so the session runner resumes whatever the
+node saved; restore `state_crosssectionalreversal.20261019.json` only if the node's file is damaged
+and no trade has happened since the backup. If Monday's node session never started, start the
+session runner by hand for the rest of the session (it runs to the close):
 
 ```bash
-crontab ~/midfreq/current/ops/vm/crontab.txt && crontab -l | grep -E 'run_node|run_sp100'
+crontab ~/midfreq/backups/crontab.20261019.txt
+MIDFREQ_ROOT=$HOME/midfreq/runtime nohup ~/midfreq/releases/0.1.1/ops/run_sp100_forward_test.sh >> ~/midfreq/logs/cron_sp100.log 2>&1 &
 ```
-
-One active line with `run_node.sh ... NODE_MODE=paper`, and the original's line starting
-`#ORIGINAL`.
-
-### B4. The first sessions
-
-**At the open + 5 minutes** (22:40 SGT in November; 21:40 under US daylight saving):
-
-```bash
-pgrep -af "[m]idfreq.trading.cli run"                     # one node, --mode paper --duration 386
-tail -8 ~/midfreq/logs/cron_sp100.log                     # [gate] ... market open, running; mode : paper
-L=$(ls -t ~/midfreq/runtime/live_sessions/console_node_*.log | head -1); grep -v heartbeat $L | head -50
-```
-
-The start-up, in order: `TRADING NODE sp100 — PAPER mode`; `moomoo US execution client connected
-(paper)` and `account moomoo-us: paper execution (MoomooExecutionClient)`; `capital capped at
-100,000.00 (account holds ...)`; `[resume] raw state on disk`, `[resume] rebalance clock at <N>`,
-`[resume] restored positions: {...}` equal to the broker's (no `state says ... but broker holds`);
-`[warmup] complete — 98 of 98`; `trading enabled`; `running in paper mode: 1 strategies, 98
-instruments`; `stream connected`. No WARNING other than these: `grep -E '\| (WARNING|ERROR|CRITICAL) ' $L`.
-
-**During the session**: every hour `cross-section sp100-xsr <time>: all 98 instruments` (or at
-least 89, with the missing ones named); heartbeats every 5 minutes with `open orders 0` between
-rebalances; at a rebalance (the state's `next_rebalance_at`), sells and then buys, each `sent`,
-filled or re-priced (`re-price ... (attempt 2 of 3)`), `family ... done`, and the strategy's
-`[...] SELL/BUY <qty> US.<sym> @ <price> (order ...)`; zero ERROR records:
-`grep -cE '"level": "(ERROR|CRITICAL)"' ~/midfreq/runtime/live_sessions/ops_*_sp100.jsonl`.
-
-**After the close** (05:02 SGT in November) and the next morning (laptop: `./ops/fetch_live_logs.sh`):
-
-- `Session duration reached.`, `stopping (duration)`, the summary, and
-  `[cache] wrote ... bars for 98 instruments` in the console; the launcher's exit status 0;
-- 7 new candles per symbol, the rebalance clock (`cross_section_count` in the state file)
-  advanced by 7, as after every original-engine session;
-- bot positions equal the broker's (the state file against `broker_moomoo-us.json`), as checked
-  after the forward test's sessions;
-- every order in `orders_<date>.jsonl` final, with venue order ids; zero ERROR records;
-- the dashboard's Live page shows the session (the same `session_*.jsonl` format).
-
-Keep checking this way for the first week. Then, in a later release: drop the `#ORIGINAL` line;
-one release after that, retire the original engine (`midfreq-live`, `run_sp100_forward_test.sh`,
-`startup_check.sh`), as LIVE_ARCHITECTURE.md's rollout says.
-
-Calendar notes: the launcher's `--scheduled` gate knows weekdays, not holidays, as the original
-did. On Thanksgiving (26 Nov 2026) the node starts, its calendar says closed, no bar comes and no
-order can be sent; it idles until its duration ends. On 27 Nov (13:00 close) it stops trading at
-13:00 New York time and runs on idle to 16:02.
-
-### B5. Rollback to the original engine
-
-Any time while the original engine is still in the release (until the `#ORIGINAL` line is
-removed):
-
-1. **If a node session is running and misbehaving**, stop it cleanly (it stops trading, cancels its
-   working orders and saves its state):
-
-   ```bash
-   pkill -TERM -f "[m]idfreq.trading.cli run"; sleep 60; pgrep -af "[m]idfreq.trading.cli run" || echo stopped
-   ```
-
-   Only if it is still there after two minutes: `pkill -KILL -f "[m]idfreq.trading.cli run"`, then
-   cancel any working order in the Moomoo app (paper, US) and write down what filled.
-2. **The schedule** back: `crontab ~/midfreq/backups/crontab.before_node_<D>.txt && crontab -l`
-   (or edit the crontab: comment out the node's line, remove `#ORIGINAL ` from the other).
-3. **The state.** The node writes the original engine's format, so the original engine resumes
-   from it, clock and positions included. With the market closed:
-   `~/midfreq/current/ops/vm/startup_check.sh 5` must PASS. Its resume shrinks any claim the
-   broker does not hold, but never adopts a holding the state does not claim (a fill the node did
-   not book): compare the state file with `broker_moomoo-us.json` and the orders journal,
-   and correct by hand (sell the surplus in the app, or, only if nothing traded since, restore
-   `~/midfreq/backups/state_crosssectionalreversal.before_node_<D>.json`).
-4. **If the release itself is at fault** (both engines): Actions -> Deploy -> `rollback` (or
-   `./ops/deploy.sh --rollback`) returns `current` to the previous release, and step 2's crontab
-   runs the original engine from it. The runtime's refreshed node files do not affect the original
-   engine; `~/midfreq/backups/config_before_node/` has the previous copies.
-5. Record what happened (the console, `ops_*.jsonl` and `orders_*.jsonl` of the failed sessions)
-   before the next attempt.

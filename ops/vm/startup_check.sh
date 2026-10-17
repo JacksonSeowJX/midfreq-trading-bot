@@ -27,7 +27,7 @@ fail() { echo "FAIL: $*"; exit 1; }
 
 [ -x "$RELEASE/ops/run_sp100_forward_test.sh" ] || fail "no installed release at $RELEASE"
 [ -d "$RUNTIME/config" ] || fail "no runtime at $RUNTIME"
-pgrep -af "[r]un_live" >/dev/null && fail "a trading session is running"
+pgrep -af '[r]un_live|[m]idfreq\.trading\.cli run|[m]idfreq-node run' >/dev/null && fail "a trading session is running"
 "$RELEASE/.venv/bin/python" - <<'PYEOF' || fail "the US market is open (or about to be); run this outside 09:00-16:30 New York time"
 import sys
 from datetime import datetime
