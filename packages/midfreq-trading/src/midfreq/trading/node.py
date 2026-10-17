@@ -841,6 +841,9 @@ class TradingNode:
                 continue
             cls, _ = resolve_strategy_class(s.cls)
             if not s.state_name:
+                if self.mode in ("paper", "live"):
+                    raise NodeError(f"strategy {s.id}: {self.mode} mode needs an explicit state_name (its "
+                                    "state_<name>.json); refusing to guess one")
                 s = dataclasses.replace(s, state_name=state_slug(s, cls, self.mode))
             params = strategy_params(s)
             venue_spec = self.venues.get(pairs[0][1].venue)

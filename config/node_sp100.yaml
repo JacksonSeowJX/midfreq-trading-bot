@@ -67,12 +67,21 @@ strategies:
     confirm_timeout_s: 150    # at least the unfilled-order policy's 3 x 30 s + 30 s (check-config checks)
 
 # Pre-trade risk (midfreq.trading.risk.RiskLimits). At US$100,000 over 3 names each holding is
-# ~US$33,300. The cash check prices a buy at its limit plus the strategy's commission_rate.
+# ~US$33,300.
 risk:
   max_order_notional: 50000
   max_position_notional: 50000
   price_band_pct: 0.05        # a limit more than 5% from the last price is a fat finger
   require_session_open: true  # no order while the venue's session (calendar, holidays) is closed
+  strategies:
+    sp100-xsr:
+      # The candle strategy sizes its own buys against its own cash, exactly as the original
+      # engine did (price x 1.01 x (1 + commission), unrounded), and sends the limit rounded to
+      # the cent. Risk's cash check prices the buy at the rounded limit, so when the rounding goes
+      # up and the cash left is under a cent a share it would deny a buy the original engine sent
+      # (e.g. cash 33,334.00, 330 shares, 101.006 rounded to 101.01). Off for this strategy, which
+      # keeps the original sizing; the strategy's own cash check is the cash check.
+      check_cash: false
 
 # Orders left unfilled (midfreq.trading.oms.UnfilledOrderPolicy). The original engine waited 30 s,
 # cancelled, and waited up to 30 s more for the final status, with no retry; that is the preset

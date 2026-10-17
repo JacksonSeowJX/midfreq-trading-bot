@@ -151,9 +151,10 @@ class StrategySettings:
     risk_manager: Optional[RiskManagerSettings] = None
     pricing: PricingSettings = field(default_factory=PricingSettings)
     warmup_bars: int = 60
-    # state_<state_name>.json. Default: in paper and live the strategy id (so two strategies of the
-    # same class, e.g. a Hong Kong paper test and the US forward test, never share a state file);
-    # in shadow and sim the class name, lower case (the original engine's name, read only there).
+    # state_<state_name>.json. Required for a candle strategy in paper and live (a configuration
+    # without one is refused, so no strategy ever takes another's state file, as a Hong Kong paper
+    # test of Cross-Sectional Reversal would take the US forward test's); in shadow and sim the
+    # default is the class name, lower case (the original engine's file, read only there).
     state_name: Optional[str] = None
     confirm_fills: bool = True              # candle strategies: wait for each order's outcome (see strategy_host)
     confirm_timeout_s: float = 150.0        # >= the unfilled-order policy's budget (120 s by default)
@@ -455,6 +456,9 @@ def validate(cfg: NodeConfig, venues: Optional[VenueRegistry] = None) -> List[st
             unknown = set(s.params) - set(defaults)
             if unknown:
                 problems.append(f"{where}: unknown params {sorted(unknown)}; valid: {sorted(defaults)}")
+        if s.kind == "legacy" and n.mode in ("paper", "live") and not s.state_name:
+            problems.append(f"{where}: in {n.mode} mode a candle strategy needs an explicit `state_name` (its "
+                            f"state_<name>.json in the records folder); refusing to guess one")
         if cls is not None:
             slug = state_slug(s, cls, n.mode)
             if slug in slugs:

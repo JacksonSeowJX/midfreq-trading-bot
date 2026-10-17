@@ -366,6 +366,7 @@ US_STATE = {"saved_at": "2026-10-15 04:01:04", "positions": {"US.INTC": {"qty": 
 
 def paper_node(tmp_path, records, symbols=HK_SYMS, **strategy):
     from types import SimpleNamespace
+    strategy.setdefault("state_name", "xsr-hk-test")
     d = tiny_config_dict(symbols=symbols, mode="paper", confirm_timeout_s=150, **strategy)
     account = SimpleNamespace(snapshot=lambda: {"cash": 1e6, "total_assets": 1e6, "market_value": 0.0},
                               positions=lambda: [], close=lambda: None)
@@ -376,19 +377,23 @@ def paper_node(tmp_path, records, symbols=HK_SYMS, **strategy):
 
 
 def test_h3_a_paper_node_does_not_take_the_forward_tests_state_file(tmp_path):
-    """H3: an HK paper node running Cross-Sectional Reversal in live_sessions/ with no state_name
-    uses a state file named after its strategy id, never the US forward test's
-    state_crosssectionalreversal.json, and its session logs are its own."""
+    """H3: a paper node without an explicit state_name is refused (it would have taken the
+    class's state_crosssectionalreversal.json, the US forward test's); with its own state_name an
+    HK paper node of Cross-Sectional Reversal never touches the US file or its session record."""
     import json
     records = tmp_path / "live_sessions"
     records.mkdir()
     us = records / "state_crosssectionalreversal.json"
     us.write_text(json.dumps(US_STATE, indent=1))
     before = us.read_bytes()
+    unnamed = paper_node(tmp_path, records, state_name=None)
+    with pytest.raises(Exception, match="explicit state_name"):
+        unnamed.start()
+    assert any("explicit `state_name`" in p for p in validate(unnamed.config))
     node = paper_node(tmp_path, records)
     node.start()
     a = node.host.legacy[0]
-    assert a.state_file.name == "state_xsr-test.json" and a.cross_section_count == 0
+    assert a.state_file.name == "state_xsr-hk-test.json" and a.cross_section_count == 0
     node.stop()
     assert us.read_bytes() == before
     assert not list(records.glob("session_*crosssectionalreversal*"))
@@ -542,7 +547,7 @@ def test_h7_the_account_source_must_be_the_execution_clients_environment(tmp_pat
             return self.conn
 
     for env, usable in (("paper", True), ("live", False)):
-        d = tiny_config_dict(symbols=SYMS, mode="paper", confirm_timeout_s=150)
+        d = tiny_config_dict(symbols=SYMS, mode="paper", confirm_timeout_s=150, state_name=f"xsr-{env}")
         d["accounts"]["acct"] = {"connector": "ccxt", "options": {"exchange": "okx", "updates": "poll"},
                                  "environment": "paper"}
         node = TradingNode(config_from_dict(d), mode="paper", clock=TestClock(START), records_dir=tmp_path / env,

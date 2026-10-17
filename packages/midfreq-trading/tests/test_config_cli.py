@@ -166,15 +166,18 @@ def test_launcher_dry_run(tmp_path):
     assert not (tmp_path / "live_sessions").exists()
 
 
-def test_in_paper_two_strategies_of_one_class_get_their_own_state_files():
-    """H3: in paper and live a strategy's state file is named after its id unless state_name says
-    otherwise, so two Cross-Sectional Reversal strategies never share one; in shadow and sim the
-    class name is kept (the original engine's file, read only there)."""
+def test_paper_and_live_need_an_explicit_state_name():
+    """H3: in paper and live a candle strategy must name its state file; in shadow and sim the
+    class name is the default (the original engine's file, read only there)."""
     from midfreq.trading.config import resolve_strategy_class, state_slug
-    d = tiny_config_dict(mode="paper")
-    d["strategies"].append(dict(d["strategies"][0], id="second"))
-    cfg = config_from_dict(d)
+    for mode in ("paper", "live"):
+        d = tiny_config_dict(mode=mode)
+        if mode == "live":
+            d["accounts"]["acct"]["environment"] = "live"
+        assert any("explicit `state_name`" in p for p in validate(config_from_dict(d)))
+        d["strategies"][0]["state_name"] = "xsr-test"
+        assert not any("state_name" in p for p in validate(config_from_dict(d)))
+    cfg = config_from_dict(tiny_config_dict(mode="shadow"))
     assert validate(cfg) == []
     cls = resolve_strategy_class(cfg.strategies[0].cls)[0]
-    assert [state_slug(s, cls, "paper") for s in cfg.strategies] == ["xsr-test", "second"]
     assert state_slug(cfg.strategies[0], cls, "shadow") == "crosssectionalreversal"
