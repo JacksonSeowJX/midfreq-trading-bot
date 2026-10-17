@@ -49,14 +49,17 @@ status() {
 
 smoke_test() {
     local d=$1 py="$1/.venv/bin/python"
-    "$py" -c "import midfreq.core, midfreq.data, midfreq.strategies, midfreq.backtest, midfreq.live.run_live, midfreq.research"
-    "$d/.venv/bin/midfreq-live" --list > /dev/null
+    # Every check must pass: `set -e` does not apply inside a function called from `if`, so each
+    # line returns on failure (0.1.1's import line failed and the test still passed). The
+    # packages find config/ at import, so the imports get the release's own defaults as root.
+    MIDFREQ_ROOT="$d/defaults" "$py" -c "import midfreq.core, midfreq.data, midfreq.strategies, midfreq.backtest, midfreq.live.run_live, midfreq.research" || return 1
+    MIDFREQ_ROOT="$d/defaults" "$d/.venv/bin/midfreq-live" --list > /dev/null || return 1
     # the launcher end to end, if there is a runtime to launch against
     if [ -f "$HOME_DIR/runtime/config/sp100_forward_test.json" ]; then
         local out
         out=$(DRY_RUN=1 FAKE_ET=2026-11-16T09:35:01 MIDFREQ_ROOT="$HOME_DIR/runtime" PYTHON= \
-            "$d/ops/run_sp100_forward_test.sh" --scheduled)
-        grep -q "importable with $py" <<<"$out"
+            "$d/ops/run_sp100_forward_test.sh" --scheduled) || return 1
+        grep -q "importable with $py" <<<"$out" || return 1
     fi
 }
 
