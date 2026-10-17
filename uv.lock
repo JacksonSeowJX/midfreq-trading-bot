@@ -1875,7 +1875,7 @@ provides-extras = ["gcs"]
 
 [[package]]
 name = "midfreq-backtest"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/midfreq-backtest" }
 dependencies = [
     { name = "midfreq-core" },
@@ -1901,7 +1901,7 @@ provides-extras = ["native"]
 
 [[package]]
 name = "midfreq-core"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/midfreq-core" }
 dependencies = [
     { name = "numpy" },
@@ -1924,7 +1924,7 @@ requires-dist = [
 
 [[package]]
 name = "midfreq-data"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/midfreq-data" }
 dependencies = [
     { name = "midfreq-core" },
@@ -1962,7 +1962,7 @@ provides-extras = ["moomoo", "ibkr", "yfinance", "crypto"]
 
 [[package]]
 name = "midfreq-engine"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/midfreq-engine" }
 dependencies = [
     { name = "numpy" },
@@ -1973,7 +1973,7 @@ requires-dist = [{ name = "numpy", specifier = ">=1.26" }]
 
 [[package]]
 name = "midfreq-live"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/midfreq-live" }
 dependencies = [
     { name = "midfreq-core" },
@@ -1994,7 +1994,7 @@ requires-dist = [
 
 [[package]]
 name = "midfreq-research"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/midfreq-research" }
 dependencies = [
     { name = "midfreq-backtest" },
@@ -2019,7 +2019,7 @@ requires-dist = [
 
 [[package]]
 name = "midfreq-strategies"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/midfreq-strategies" }
 dependencies = [
     { name = "midfreq-core" },
@@ -2045,7 +2045,7 @@ provides-extras = ["hmm"]
 
 [[package]]
 name = "midfreq-trading"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/midfreq-trading" }
 dependencies = [
     { name = "midfreq-core" },
@@ -2064,7 +2064,7 @@ requires-dist = [
 
 [[package]]
 name = "midfreq-trading-bot"
-version = "0.1.1"
+version = "0.1.2"
 source = { virtual = "." }
 dependencies = [
     { name = "matplotlib" },

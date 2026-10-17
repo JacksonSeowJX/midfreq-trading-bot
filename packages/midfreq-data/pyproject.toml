@@ -1,6 +1,6 @@
 [project]
 name = "midfreq-data"
-version = "0.1.1"
+version = "0.1.2"
 description = "Market data: connectors (Moomoo, IBKR, yfinance, Binance, ccxt), the legacy Parquet cache and the Parquet data catalog, and the fetch command line."
 requires-python = ">=3.10"
 dependencies = ["midfreq-core", "pandas>=2.1", "pyarrow>=14", "requests>=2.31"]

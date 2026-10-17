@@ -1,6 +1,6 @@
 [project]
 name = "midfreq-research"
-version = "0.1.1"
+version = "0.1.2"
 description = "Research tools: overfitting (PBO), White's Reality Check, the results index and the forward-test read-back."
 requires-python = ">=3.10"
 dependencies = ["midfreq-core", "midfreq-data", "midfreq-strategies", "midfreq-backtest", "numpy>=1.26", "pandas>=2.1", "statsmodels"]
