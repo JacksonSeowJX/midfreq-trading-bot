@@ -122,6 +122,10 @@ class NodeServices:
     order: Optional[Callable[[ClientOrderId], Optional[Order]]] = None    # OMS.order
     family_done: Optional[Callable[[ClientOrderId], bool]] = None         # OMS.family_done
     next_order_id: Optional[Callable[[StrategyId], ClientOrderId]] = None  # OMS.next_order_id
+    # the order journal's applied fills of a strategy (dicts, see JournalState.fills), and the
+    # records' local wall time back to UTC ns: for fills journaled but never booked (a crash)
+    journal_fills: Optional[Callable[[StrategyId], List[Dict[str, Any]]]] = None
+    local_to_ns: Optional[Callable[[datetime], int]] = None
 
 
 # ── strategy output into the ops log ──────────────────────────────────────────────────────────
@@ -275,6 +279,8 @@ class LiveLegacyAdapter:
         self.orders_sent = 0
         self._orders: Dict[ClientOrderId, _OrderMeta] = {}    # by every id its orders had or have
         self._by_object: Dict[int, _OrderMeta] = {}             # id(order) -> its meta
+        self._recovered: List[Dict[str, Any]] = []              # fills booked at resume (trade lines)
+        self._rebalance_marked: Optional[int] = None            # cross-section whose rebalance is saved as done
         self._booked: Set[tuple] = set()
         self._buffer: Dict[int, Dict[InstrumentId, Bar]] = {}
         self._published: Set[int] = set()       # buffered cross-sections the MarketDataService published
@@ -303,6 +309,14 @@ class LiveLegacyAdapter:
         if saved is not None:
             self.log.info("[resume] raw state on disk: %s", saved.get("positions", {}))
             self._check_state_market(source, saved)
+        else:
+            # No state yet: every fill the journal has for this strategy is one its book lacks.
+            saved = {"saved_at": "1970-01-01 00:00:00", "positions": {}, "peak_prices": {},
+                     "cross_section_count": 0, "next_rebalance_at": None,
+                     "cash": cash if self.capital_cap is not None else None, "_empty": True}
+        saved = self._replay_unbooked_fills(saved, opening_cash=cash)
+        if saved.get("_empty"):
+            saved = None
         resumed = state_mod.resume(p, saved, account, broker_positions, self.capital_cap)
         if resumed.had_state:
             if broker_positions is None:
@@ -331,6 +345,49 @@ class LiveLegacyAdapter:
         if hasattr(self.strategy, "full_cross_section"):
             self.strategy.full_cross_section = len(self.symbols)
         return resumed
+
+    def _replay_unbooked_fills(self, saved: Dict[str, Any], opening_cash: float = 0.0) -> Dict[str, Any]:
+        """Fills the OMS journaled after the state was last saved never reached the strategy's
+        book (the process died between the two, or they were found by the start-up
+        reconciliation while the node was down): book them into the saved state, with the
+        original bookkeeping, before it is resumed against the broker."""
+        if self.services.journal_fills is None or self.services.local_to_ns is None:
+            return saved
+        try:
+            saved_ns = self.services.local_to_ns(pd.Timestamp(saved["saved_at"]).to_pydatetime())
+        except (KeyError, ValueError, TypeError):
+            self.log.warning("[resume] the state's saved_at %r cannot be read: journaled fills not checked",
+                             saved.get("saved_at"))
+            return saved
+        late = [f for f in self.services.journal_fills(self.id) if f["ts"] > saved_ns]
+        if not late:
+            return saved
+        start_cash = float(saved["cash"]) if saved.get("cash") is not None else float(opening_cash)
+        book = CorePortfolio(initial_cash=start_cash, commission_rate=self.commission_rate)
+        book.positions = {s: dict(p) for s, p in (saved.get("positions") or {}).items()}
+        book.cash = start_cash
+        for f in late:
+            tags = f.get("order_tags") or {}
+            symbol = tags.get("legacy_symbol") or self.symbol_for.get(InstrumentId.from_str(f["instrument_id"]))
+            if symbol is None:
+                self.log.error("[resume] journaled fill %s for %s is not in this universe: not booked",
+                               f.get("trade_id"), f.get("instrument_id"))
+                continue
+            is_buy = str(f.get("side")) == "BUY"
+            book.execute_trade(symbol, is_buy, float(f["last_qty"]), float(f["last_px"]), tags.get("decision_ts", ""),
+                               exit_reason=tags.get("exit_reason"))
+            self.log.warning("[resume] %s %g %s @ %s (trade %s) was journaled after the state was saved: booked now",
+                             "BUY" if is_buy else "SELL", float(f["last_qty"]), symbol, f["last_px"], f.get("trade_id"))
+            self._recovered.append({"timestamp": tags.get("decision_ts", ""), "symbol": symbol,
+                                    "side": "BUY" if is_buy else "SELL", "qty": float(f["last_qty"]),
+                                    "price": float(f["last_px"]), "order_id": (f.get("tags") or {}).get("venue_order_id")
+                                    or f.get("client_order_id"), "exit_reason": tags.get("exit_reason")})
+        out = dict(saved)
+        out.pop("_empty", None)
+        out["positions"] = book.positions
+        if saved.get("cash") is not None or self.capital_cap is not None:
+            out["cash"] = book.cash
+        return out
 
     def _check_state_market(self, source: Path, saved: Mapping[str, Any]) -> None:
         """A state whose positions are not on the venues this strategy trades is another
@@ -366,6 +423,11 @@ class LiveLegacyAdapter:
         self.session_log = SessionLog(self.records_dir, self.slug, now=self.services.local_now)
         self.session_log.session_start(self.strategy.__class__.__name__, self.symbols, timeframe_label,
                                        account or {})
+        for t in self._recovered:                                # fills booked from the journal at resume
+            self.session_log.trade(t["timestamp"], t["symbol"], t["side"], t["qty"], t["price"], t["order_id"],
+                                   t["exit_reason"])
+        if self._recovered:
+            self.save_state()
         self.log.info("Session log: %s", self.session_log.path)
         with self._quiet():
             self.strategy.on_start()
@@ -627,6 +689,7 @@ class LiveLegacyAdapter:
         tags = {"decision_ts": str(timestamp), "legacy_symbol": symbol}
         if exit_reason:
             tags["exit_reason"] = exit_reason
+        self._mark_rebalance_in_progress()
         # DAY: a Moomoo GTC order would outlive the session (config.validate refuses anything else).
         order = self.order_factory.limit(iid, OrderSide.BUY if is_buy else OrderSide.SELL, qty, limit,
                                          TimeInForce.DAY, tags)
@@ -658,6 +721,31 @@ class LiveLegacyAdapter:
             elif 0 < meta.filled < qty and meta.resolved:
                 self.log.warning("[%s] PARTIAL %s: %g of %g filled, remainder cancelled", timestamp, symbol,
                                  meta.filled, qty)
+
+    def _rebalance_due_after(self) -> Optional[int]:
+        """While the strategy is running a rebalance (due at the cross-section it just counted),
+        the next one's due count, as the strategy will set it once this one returns."""
+        s = self.strategy
+        count, nra = getattr(s, "_cross_section_count", None), getattr(s, "_next_rebalance_at", None)
+        if count is None or nra is None or count < nra:
+            return None
+        n = max(1, int(getattr(s, "rebalance_every", 1) or 1))
+        while nra <= count:
+            nra += n
+        return nra
+
+    def _mark_rebalance_in_progress(self) -> None:
+        """Before a rebalance's first order leaves, save the state with that rebalance done: a
+        crash in the middle of it must not make the next session run it again over the orders
+        already sent (the journal and the broker have those)."""
+        count = getattr(self.strategy, "_cross_section_count", None)
+        if self._rebalance_due_after() is None or self._rebalance_marked == count:
+            return
+        self._rebalance_marked = count
+        try:
+            self.save_state()
+        except Exception as exc:
+            self.log.error("state save before the rebalance's first order failed: %s", exc)
 
     def _resolved(self, meta: _OrderMeta) -> bool:
         """Whether the order's intent has its outcome: its family done at the OMS (every order of
@@ -727,8 +815,13 @@ class LiveLegacyAdapter:
             self.log.error("fill for %s, which is not in this strategy's universe: not booked", fill.instrument_id)
             return
         is_buy = fill.side is OrderSide.BUY
-        decision_ts = meta.decision_ts if meta is not None else fill.tags.get("decision_ts", "")
-        exit_reason = meta.exit_reason if meta is not None else fill.tags.get("exit_reason")
+        order_tags: Mapping[str, Any] = {}
+        if meta is None and self.services.order is not None:
+            # An order of a previous session (resumed by the OMS): its decision is in its tags.
+            known = self.services.order(fill.client_order_id)
+            order_tags = known.tags if known is not None else {}
+        decision_ts = meta.decision_ts if meta is not None else order_tags.get("decision_ts", "")
+        exit_reason = meta.exit_reason if meta is not None else order_tags.get("exit_reason")
         qty, px = fill.last_qty, fill.last_px
         with log_context(client_order_id=str(fill.client_order_id), strategy=str(self.id)):
             ok = self.portfolio.book(symbol, is_buy, qty, px, decision_ts, exit_reason)
@@ -773,6 +866,8 @@ class LiveLegacyAdapter:
         if hasattr(s, "_cross_section_count"):
             p.cross_section_count = s._cross_section_count
             p.next_rebalance_at = getattr(s, "_next_rebalance_at", None)
+            if self._rebalance_marked is not None and self._rebalance_marked == s._cross_section_count:
+                p.next_rebalance_at = self._rebalance_due_after() or p.next_rebalance_at
         return state_mod.save_state(self.state_file, p, getattr(p, "cross_section_count", 0),
                                     getattr(p, "next_rebalance_at", None), self.capital_cap,
                                     self.services.local_now())

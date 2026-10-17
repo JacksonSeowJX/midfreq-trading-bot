@@ -360,6 +360,19 @@ class TradingNode:
             return datetime.fromtimestamp(ns // NANOS).replace(microsecond=(ns // 1000) % 1_000_000)
         return pd.Timestamp(ns, unit="ns", tz="UTC").tz_convert(self._records_tz).tz_localize(None).to_pydatetime()
 
+    def local_to_ns(self, dt: datetime) -> int:
+        """A records timestamp (local_now's wall time, naive) back to UTC ns."""
+        if self._records_tz is None:
+            return int(dt.timestamp() * NANOS)
+        return int(pd.Timestamp(dt).tz_localize(self._records_tz).value)
+
+    def _journal_fills(self, strategy_id: StrategyId) -> List[Dict[str, Any]]:
+        """The journal's applied fills of one strategy (for fills its book never received)."""
+        if self.journal is None or not callable(getattr(self.journal, "load", None)):
+            return []
+        state = self.journal.load(int(self.config.oms.get("journal_lookback_days", 30)))
+        return [f for f in getattr(state, "fills", []) if f.get("strategy_id") == str(strategy_id)]
+
     def _default_records_dir(self) -> Path:
         n = self.config.node
         if n.records_dir:
@@ -398,6 +411,10 @@ class TradingNode:
             self._connect()
             self._step("reference_data")
             self._load_reference_data()
+            # Orders first: fills the venue made while the node was down are journaled before the
+            # strategies resume, which book whatever the journal has that their state lacks.
+            self._step("reconcile_orders")
+            self._reconcile_orders(reason="start-up")
             self._step("restore")
             self._open_strategies()
             self._step("reconcile")
@@ -688,7 +705,8 @@ class TradingNode:
             latest_price=self.latest_price, quote=self.cache.quote, instrument=self.instrument,
             local_now=self.local_now, warm_up=self._warm_up_bars, order_prefix=self.order_prefix,
             alert=self.alert, market_open=self.market_open, order=self.oms.order,
-            family_done=self.oms.family_done, next_order_id=self.oms.next_order_id)
+            family_done=self.oms.family_done, next_order_id=self.oms.next_order_id,
+            journal_fills=self._journal_fills, local_to_ns=self.local_to_ns)
         self.host = StrategyHost(services)
         self._services = services
 
@@ -1306,11 +1324,8 @@ class TradingNode:
         reconciled shrink-only by the PositionKeeper."""
         if self.oms is None:
             return
-        try:
-            report = self.oms.reconcile()
-            self._log_report(report, reason)
-        except Exception as exc:
-            log.error("order reconciliation failed (%s): %s", reason, exc)
+        if reason != "start-up":                         # at start-up it ran before the strategies opened
+            self._reconcile_orders(reason)
         legacy_ids = {str(a.id) for a in self.host.legacy}
         others = [s.id for s in self.config.strategies if s.id not in legacy_ids]
         for aid in self.ctx.execution_clients:
@@ -1337,6 +1352,13 @@ class TradingNode:
                     self._log_report(self.positions.reconcile(v, by_venue.get(v, []), strategy_ids=mine), reason)
                 except Exception as exc:
                     log.error("position reconciliation for %s failed (%s): %s", v, reason, exc)
+
+    def _reconcile_orders(self, reason: str) -> None:
+        try:
+            report = self.oms.reconcile()
+            self._log_report(report, reason)
+        except Exception as exc:
+            log.error("order reconciliation failed (%s): %s", reason, exc)
 
     def _log_report(self, report: Any, reason: str) -> None:
         if not isinstance(report, ReconcileReport):

@@ -55,8 +55,8 @@ def push(node, i, closes, at=None):
 def test_start_runs_the_lifecycle_in_order(tmp_path):
     node, venue, data = make_node(tmp_path)
     node.start()
-    assert node.lifecycle == ["config", "connect", "reference_data", "restore", "reconcile", "session_start",
-                              "warm_up", "subscribe", "running"]
+    assert node.lifecycle == ["config", "connect", "reference_data", "reconcile_orders", "restore", "reconcile",
+                              "session_start", "warm_up", "subscribe", "running"]
     assert node.state == "running" and venue.connected
     md = node.marketdata
     assert md.calls == ["subscribe_bars"] * len(SYMS) + ["start"]  # warm-up of 0 bars asks for none

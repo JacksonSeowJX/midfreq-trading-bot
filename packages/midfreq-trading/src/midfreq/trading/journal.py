@@ -142,6 +142,9 @@ class JournalState:
     # fill key (OrderManagementSystem.fill_key)
     trade_ids: Set[Tuple[str, str, str]] = field(default_factory=set)
     sequences: Dict[Tuple[str, str], int] = field(default_factory=dict)  # (strategy, day) -> highest seq
+    # every applied fill, oldest first: the event's fields, `ts` (when the OMS applied it, node
+    # clock) and `order_tags` (the order's tags then: decision_ts, legacy_symbol, exit_reason)
+    fills: List[Dict[str, Any]] = field(default_factory=list)
     records: int = 0
     bad_lines: int = 0
     files: List[Path] = field(default_factory=list)
@@ -297,4 +300,8 @@ class OrderJournal:
             venue = InstrumentId.from_str(event["instrument_id"]).venue.value
             order_key = (record.get("venue_order_id") or (event.get("tags") or {}).get("venue_order_id")
                          or event.get("client_order_id"))
-            state.trade_ids.add((venue, str(order_key), str(event["trade_id"])))
+            key = (venue, str(order_key), str(event["trade_id"]))
+            if key not in state.trade_ids:
+                state.fills.append({**event, "ts": int(record.get("ts") or 0),
+                                    "order_tags": dict((snapshot or {}).get("tags") or {})})
+            state.trade_ids.add(key)

@@ -554,3 +554,107 @@ def test_h7_the_account_source_must_be_the_execution_clients_environment(tmp_pat
         assert (node._account_sources["acct"] is not None) is usable
         assert (node.account_snapshot("acct") is not None) is usable
         node.stop()
+
+
+# ── M3: a crash mid-rebalance ─────────────────────────────────────────────────────────────────
+
+class StateReadingVenue(FillingVenue):
+    """Fills at once; records what the state file says when each order arrives."""
+
+    def __init__(self, state_file_of):
+        super().__init__()
+        self.state_file_of = state_file_of
+        self.seen = []
+
+    def submit_order(self, order):
+        import json
+        st = json.loads(self.state_file_of().read_text())
+        self.seen.append((st["cross_section_count"], st["next_rebalance_at"]))
+        super().submit_order(order)
+
+
+def _rebalance(node):
+    for i, closes in enumerate(((100, 100, 100, 100), (90, 100, 100, 100), (95, 95, 95, 95))):
+        at = max(START, FIRST_BAR + (i - 1) * 3600 * SEC + SEC)
+        for sym, c in zip(SYMS, closes):
+            bar = Bar(BarType(instrument_for_symbol(sym), SPEC), c, c, c, c, 1.0, FIRST_BAR + i * 3600 * SEC, at)
+            node.queue.put(BarUpdate(bar, False, at))
+        node.advance_to(at)
+
+
+def test_m3_a_rebalance_is_marked_done_before_its_first_order_is_sent(tmp_path):
+    """M3: the state file says the rebalance is done before its first order leaves, so a crash
+    in the middle of it does not make the next session run it again over the orders sent."""
+    holder = {}
+    venue = StateReadingVenue(lambda: holder["a"].state_file)
+    node, _ = make(tmp_path, venue=venue, strategy={"params": {"lookback": 1, "top_n": 1, "rebalance_every": 1}})
+    node.start()
+    holder["a"] = node.host.legacy[0]
+    _rebalance(node)
+    assert venue.seen, "the rebalance sent an order"
+    count, due = venue.seen[0]
+    assert due > count, f"state at the first order: count {count}, next rebalance due at {due}"
+    node.stop()
+
+
+def test_m3_a_fill_journaled_but_not_booked_before_a_crash_is_booked_at_restart(tmp_path):
+    """M3: the OMS journaled the fill, then the process died before the strategy booked it and
+    saved its state. The next session books it into the strategy's book from the journal."""
+    node, venue = make(tmp_path, venue=FillingVenue())
+    node.start()
+    push_prices(node, (100.0, 200.0, 300.0, 400.0))
+    a = node.host.legacy[0]
+    a._book_fill = lambda fill, meta: None                       # dies before booking
+    node.clock.set_time(START + 60 * SEC)
+    a.portfolio.execute_trade("US.AAPL", True, 10, 100.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    assert venue.submitted[0].status.value == "FILLED"
+    node.abandon()
+    again, _ = make(tmp_path, venue=FillingVenue())
+    again.clock.set_time(START + 120 * SEC)
+    again.start()
+    b = again.host.legacy[0]
+    assert b.portfolio.get_position_qty("US.AAPL") == 10
+    assert b.portfolio.cash == pytest.approx(100_000.0 - 10 * 101.0 * (1 + 0.00005))
+    assert again.positions.position(b.id, instrument_for_symbol("US.AAPL")) == 10
+    again.stop()
+    again2, _ = make(tmp_path, venue=FillingVenue())             # booked once, not at every start
+    again2.clock.set_time(START + 180 * SEC)
+    again2.start()
+    assert again2.host.legacy[0].portfolio.get_position_qty("US.AAPL") == 10
+    again2.stop()
+
+
+class OfflineFillVenue(ScriptedVenue):
+    """Leaves orders working; can fill one while the node is down (reported by fills())."""
+
+    def __init__(self):
+        super().__init__()
+        self.reports = []
+
+    def fill_offline(self, order, qty, px, ts_ns):
+        from midfreq.data.adapters.base import FillReport
+        self.reports.append(FillReport("D-OFF", order.tags["venue_order_id"], "US.AAPL", order.side.value, qty, px,
+                                       pd.Timestamp(ts_ns, unit="ns", tz="UTC"), None, "USD",
+                                       str(order.client_order_id), str(order.instrument_id)))
+
+    def fills(self, since):
+        return [r for r in self.reports if r.ts >= since]
+
+
+def test_m3_a_fill_made_while_the_node_was_down_reaches_the_strategys_book(tmp_path):
+    venue = OfflineFillVenue()
+    node, _ = make(tmp_path, venue=venue, strategy={"confirm_fills": False}, oms={"unfilled_order": {"enabled": False}})
+    node.start()
+    push_prices(node, (100.0, 200.0, 300.0, 400.0))
+    a = node.host.legacy[0]
+    a.portfolio.execute_trade("US.AAPL", True, 10, 100.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    (order,) = venue.submitted
+    node.abandon()                                               # the process dies; the order works
+    venue.fill_offline(order, 10, 100.5, START + 90 * SEC)
+    again, _ = make(tmp_path, venue=venue, oms={"unfilled_order": {"enabled": False}})
+    again.clock.set_time(START + 120 * SEC)
+    again.start()
+    b = again.host.legacy[0]
+    assert b.portfolio.get_position_qty("US.AAPL") == 10
+    trades = [e for e in read_events(b.session_log.path) if e["type"] == "trade"] if b.session_log else []
+    again.stop()
