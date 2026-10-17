@@ -160,10 +160,11 @@ def test_the_configuration_reaches_the_components(tmp_path):
     ("oms", {"unfilled_order": {"reprice_attempts": 1}}, "reprice_attempts"),
     ("marketdata", {"grace": 5}, "grace"),
 ])
-def test_a_misspelt_setting_is_refused(section, value, message):
+def test_a_misspelt_setting_is_refused(tmp_path, section, value, message):
     cfg = config_from_dict({**tiny_config_dict(symbols=SYMS, confirm_timeout_s=150), section: value})
     assert any(message in p for p in validate(cfg))
-    node = TradingNode(cfg, mode="sim", clock=TestClock(START),
+    node = TradingNode(cfg, mode="sim", clock=TestClock(START), records_dir=tmp_path / "rec",
+                       store_dir=tmp_path / "data",
                        components={"execution_client:acct": ScriptedVenue(), "data_client": FakeDataClient()})
     with pytest.raises(ConfigError, match=message):
         node.start()
