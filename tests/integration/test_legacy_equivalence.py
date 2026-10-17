@@ -13,7 +13,7 @@ from datetime import datetime
 
 import pytest
 
-from midfreq.backtest.backtester import Backtester
+from midfreq.backtest.backtester import PythonBacktester as Backtester  # the pure-Python reference
 from midfreq.core.candle import Timeframe
 from midfreq.core.portfolio import Portfolio
 from midfreq.core.risk_manager import EqualDollarSizer, FixedFractionalSizer, RiskManager

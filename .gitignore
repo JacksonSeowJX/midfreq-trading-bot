@@ -25,3 +25,6 @@ dist/
 
 # the documentation site's build output (mkdocs build; published by .github/workflows/pages.yml)
 /site/
+
+# the C++ engine's CMake build trees (scikit-build-core, and cmake -B by hand)
+packages/midfreq-engine/build/

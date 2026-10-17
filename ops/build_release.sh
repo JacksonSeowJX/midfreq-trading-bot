@@ -39,8 +39,13 @@ trap 'rm -rf "$STAGE"' EXIT
 OUT="$STAGE/$NAME"
 mkdir -p "$OUT/wheels" "$OUT/ops/vm" dist
 
-# the six packages the VM runs (packages/*), not the dashboard API (apps/api)
-for p in packages/*/; do uv build "$p" --wheel --quiet --out-dir "$OUT/wheels"; done
+# the six packages the VM runs (packages/*), not the dashboard API (apps/api) and not the C++
+# engine (packages/midfreq-engine): the VM trades and never backtests, and anything that does
+# backtest there falls back to the Python backtester when the engine is not installed
+for p in packages/*/; do
+    [ "$p" = packages/midfreq-engine/ ] && continue
+    uv build "$p" --wheel --quiet --out-dir "$OUT/wheels"
+done
 rm -f "$OUT/wheels/.gitignore"
 cp ops/run_sp100_forward_test.sh ops/run_daily_candidates.sh "$OUT/ops/"
 cp ops/vm/install_release.sh ops/vm/crontab.txt ops/vm/maintain.sh ops/vm/memlog.sh ops/vm/tidy_home.sh ops/vm/sync_logs.sh \

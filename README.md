@@ -7,7 +7,7 @@
 ### Start Date: 12 Jan 2026
 ### End Date: 19 Oct 2026
 
-**Live dashboard:** https://midfreq-dashboard-123943780205.asia-southeast1.run.app (no installation needed; its Guide page walks through every view)
+**Live dashboard:** https://midfreq-dashboard-123943780205.asia-southeast1.run.app (private: sign in with an invited Google account; nothing to install, and its Guide page walks through every view)
 
 **Documentation:** https://jacksonseowjx.github.io/midfreq-trading-bot/ (architecture, deployment, the dashboard guide and the API reference). It is built from `site_docs/` by `.github/workflows/pages.yml`; GitHub Pages must be enabled once, under Settings -> Pages -> Source: GitHub Actions.
 
@@ -88,7 +88,7 @@ Update 14 (18 Oct 26)
 
 - **Data** (`midfreq-data`: `providers/moomoo_provider.py`, `storage.py`): candles are pulled from moomoo OpenD and kept as Parquet, one file per symbol and timeframe. Every study uses moomoo data, the same source the live engine trades on. The Yahoo Finance and Interactive Brokers providers remain from early prototypes.
 - **Strategies** (`midfreq-strategies`: `candle_strategies.py`): 13 strategies behind one interface and a registry, so the backtester, optimiser, dashboard and live engine all run the same strategy code.
-- **Backtester** (`midfreq-backtest`: `backtester.py`; `midfreq-core`: `portfolio.py`, `risk_manager.py`): event-driven, with per-market fees checked against real fills (Hong Kong 0.16% and US 0.005% per side), slippage, board lots, stop-loss, trailing stop, take-profit, position sizing and a drawdown halt.
+- **Backtester** (`midfreq-backtest`: `backtester.py`; `midfreq-core`: `portfolio.py`, `risk_manager.py`): event-driven, with per-market fees checked against real fills (Hong Kong 0.16% and US 0.005% per side), slippage, board lots, stop-loss, trailing stop, take-profit, position sizing and a drawdown halt. Its core runs in C++ underneath, exposed to Python with pybind11 (`midfreq-engine`, see its [README](packages/midfreq-engine/README.md)): the same trades bit for bit as the pure-Python implementation (kept as `PythonBacktester`), and a 3-year S&P 100 backtest in 0.2 s instead of 9 s.
 - **Validation** (`midfreq-backtest`: `optimizer.py`; `midfreq-research`: `overfitting.py`, `reality_check.py`): grid search, walk-forward optimisation, Probability of Backtest Overfitting, and White's Reality Check.
 - **Live trading** (`midfreq-live`: `live_engine.py`, `order_gateway.py`; `apps/live_runner/run_live.py`): streams hourly candles, places marketable limit orders, records only what the broker confirms as filled, and keeps its state between daily sessions. Cron starts a session on the VM each US trading day; `ops/fetch_live_logs.sh` copies the session logs to a laptop. Code reaches the VM only as a versioned release deployed by hand (`ops/deploy.sh`, see [ops/README.md](ops/README.md)).
 - **Dashboard** (`apps/web` over `apps/api`): a web app for backtests, comparisons, optimisation, the live forward test and every research result, hosted on Google Cloud Run. See [docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md).
@@ -96,7 +96,7 @@ Update 14 (18 Oct 26)
 ## Project Structure
 
 ```
-packages/           six installable packages, all under the `midfreq` namespace,
+packages/           seven installable packages, all under the `midfreq` namespace,
                     each with its own tests/; a package imports only those below it
   midfreq-core/       candles, the venue/instrument/order/event model, portfolio,
                       risk rules, venues, repository paths, connection settings
@@ -104,7 +104,9 @@ packages/           six installable packages, all under the `midfreq` namespace,
                       cache and data catalog, `python -m midfreq.data`
   midfreq-strategies/ the 13-strategy library and registry; the event-driven Strategy API
   midfreq-backtest/   backtester, walk-forward optimiser, event-driven BacktestEngine
-                      with fill and slippage models
+                      with fill and slippage models; the C++ engine's adapter (native.py)
+  midfreq-engine/     the backtester's core in C++17 (CMake, pybind11): identical
+                      results, far faster; not part of the VM's release
   midfreq-live/       live trading engine and broker order gateway
   midfreq-research/   PBO, White's Reality Check, results index, forward-test read-back
 apps/

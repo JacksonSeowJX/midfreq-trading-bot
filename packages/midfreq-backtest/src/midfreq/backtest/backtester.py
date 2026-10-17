@@ -8,10 +8,13 @@ from midfreq.core.portfolio import Portfolio
 from midfreq.strategies.candle_strategies import BaseStrategy
 from midfreq.core.risk_manager import RiskManager
 
-class Backtester:
+class PythonBacktester:
     """
-    Event-Driven Historical Simulator Engine.
-    
+    Event-Driven Historical Simulator Engine, in pure Python: the reference implementation.
+
+    Backtester (below) has this interface and these results, and runs the loop in C++; this
+    class is what it falls back to, and what the C++ engine is tested against.
+
     Loads Parquet files, merges all symbols into a single chronological
     event stream, and replays them in time order into a Strategy.
     
@@ -238,3 +241,59 @@ class Backtester:
         benchmark_return = ((total_benchmark_value - self.portfolio.initial_cash) / 
                            self.portfolio.initial_cash) * 100
         return benchmark_return
+
+
+class Backtester(PythonBacktester):
+    """
+    The backtester: PythonBacktester's interface and results, with its core running in C++.
+
+    run() hands the backtest to the C++ engine (packages/midfreq-engine, a pybind11 module, through
+    midfreq.backtest.native.NativeBacktester) whenever that is certain to reproduce PythonBacktester
+    exactly, and runs PythonBacktester otherwise: a strategy without a C++ port, or edited since its
+    port was verified (midfreq.backtest.parity); a portfolio that has already traded or is not a
+    plain Portfolio; a custom risk manager or sizer; bars with missing closes; or no engine built
+    (the VM). The results are the same either way. After a run, `engine_used` says which ran and
+    `fallback_reason` why it was not C++.
+
+    engine: "auto" (the default, or MIDFREQ_ENGINE), "native" (C++ or NativeUnavailable), "python".
+    """
+    def __init__(self, storage: DataStorage, portfolio: Portfolio,
+                 risk_manager: RiskManager = None, slippage_bps: float = 0.0,
+                 engine: Optional[str] = None):
+        # No slippage wrapper yet: the C++ engine applies slippage itself and would read a wrapped
+        # execute_trade as an altered portfolio. PythonBacktester installs it when a run falls
+        # back, once per Backtester, as building this class always did.
+        self.storage = storage
+        self.portfolio = portfolio
+        self.risk_manager = risk_manager
+        self.slippage_bps = slippage_bps
+        self.engine = engine
+        self.engine_used: Optional[str] = None
+        self.fallback_reason: Optional[str] = None
+        self._python: Optional[PythonBacktester] = None
+
+    def python(self) -> PythonBacktester:
+        """The Python backtester over the same storage, portfolio and settings, made once."""
+        if self._python is None:
+            self._python = PythonBacktester(self.storage, self.portfolio, risk_manager=self.risk_manager,
+                                            slippage_bps=self.slippage_bps)
+        return self._python
+
+    def run(self, strategy_class: Type[BaseStrategy], symbols: list[str], timeframe: Timeframe,
+            start_date: datetime = None, end_date: datetime = None,
+            progress_callback: Optional[Callable[[float], None]] = None,
+            end_inclusive: bool = True,
+            **strategy_params) -> Dict[str, Any]:
+        from midfreq.backtest.native import NativeBacktester, resolve_engine  # native builds on this module
+        args = dict(start_date=start_date, end_date=end_date, progress_callback=progress_callback,
+                    end_inclusive=end_inclusive, **strategy_params)
+        name = resolve_engine(self.engine)
+        if name == "python":
+            self.engine_used, self.fallback_reason = "python", "engine=python"
+            return self.python().run(strategy_class, symbols, timeframe, **args)
+        native = NativeBacktester(self.storage, self.portfolio, self.risk_manager, self.slippage_bps,
+                                  fallback=(name == "auto"), python=self.python)
+        try:
+            return native.run(strategy_class, symbols, timeframe, **args)
+        finally:
+            self.engine_used, self.fallback_reason = native.engine_used, native.fallback_reason

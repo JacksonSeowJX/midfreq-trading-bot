@@ -8,9 +8,15 @@ configuration for a given objective (Sharpe, Return, etc.)
 
 Walk-Forward: Splits data into rolling train/test windows to validate that
 optimized parameters generalize to unseen data (prevents overfitting).
+
+Both run their backtests through midfreq.backtest.native.BatchRunner: on the C++ engine when it
+can run the strategy (data loaded once, parameter sets in parallel), else one Backtester.run
+each, as before. `engine` picks: "auto" (the default, or MIDFREQ_ENGINE), "native", "python".
+The results are the same on either engine.
 """
 
 import itertools
+import os
 import pandas as pd
 from typing import Dict, Any, List, Optional, Callable, Type
 from datetime import datetime, timedelta
@@ -20,8 +26,8 @@ from midfreq.core.candle import Timeframe
 from midfreq.data.storage import DataStorage
 from midfreq.core.portfolio import Portfolio
 from midfreq.strategies.candle_strategies import BaseStrategy, STRATEGY_REGISTRY
-from midfreq.backtest.backtester import Backtester
-from midfreq.backtest.runstore import (RunStore, latest_candle, record_from_grid_search,
+from midfreq.backtest.native import BatchRunner
+from midfreq.backtest.runstore import (RunStore, _utc, record_from_grid_search,
                                        record_from_walk_forward, save_quietly)
 from midfreq.core.risk_manager import RiskManager
 
@@ -49,6 +55,14 @@ def _get_objective_value(metrics: Dict[str, Any], objective: str) -> float:
         return 999.0
     
     return val
+
+
+def _later(so_far, last):
+    """The later of two candle times (runstore.latest_candle's rule): the saved run's cut-off."""
+    so_far, last = _utc(so_far), _utc(last)
+    if last is None or (so_far is not None and so_far >= last):
+        return so_far
+    return last
 
 
 # ─── Grid Search ───────────────────────────────────────────────────
@@ -110,6 +124,7 @@ def grid_search(
     commission_rate: float = Portfolio.HK_FEE_RATE,
     run_store: Optional[RunStore] = None,
     run_meta: Optional[Dict[str, Any]] = None,
+    engine: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Exhaustive grid search over all parameter combinations.
@@ -130,6 +145,7 @@ def grid_search(
         run_store: If given, the search is saved there once at the end, as one grid_search run
             (midfreq.backtest.runstore); the returned table is the same either way
         run_meta: Added to the saved run's manifest (e.g. source, universe, risk settings)
+        engine: "auto" (default), "native" or "python" (see midfreq.backtest.native)
         
     Returns:
         DataFrame with all parameter combos and their metrics, sorted by objective
@@ -152,42 +168,33 @@ def grid_search(
     results = []
     last_candle = None  # the latest candle any backtest replayed: the saved run's data cut-off
     
-    import io, contextlib
-    
-    for i, params in enumerate(param_grid):
-        # Run backtest with this parameter set
-        # commission_rate was not a parameter here, so every grid search ran
-        # at Portfolio's HK default (0.16%/side incl. stamp duty) whatever the
-        # market — including US searches launched from the dashboard.
-        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
-        bt = Backtester(storage=storage, portfolio=portfolio, 
-                       risk_manager=risk_manager, slippage_bps=slippage_bps)
-        
-        f_buf = io.StringIO()
-        with contextlib.redirect_stdout(f_buf):
-            try:
-                metrics = bt.run(
-                    strategy_class, symbols=symbols, timeframe=timeframe,
-                    start_date=start_date, end_date=end_date, **params
-                )
-            except Exception:
-                metrics = {}
-        last_candle = latest_candle(portfolio, last_candle)
-        
-        if metrics:
-            row = {**params}
-            row['return_pct'] = metrics.get('return_pct', 0.0)
-            row['sharpe_ratio'] = metrics.get('sharpe_ratio', 0.0)
-            row['max_drawdown'] = metrics.get('max_drawdown', 0.0)
-            row['win_rate'] = metrics.get('win_rate', 0.0)
-            row['profit_factor'] = metrics.get('profit_factor', 0.0)
-            row['total_trades'] = metrics.get('total_trades', 0)
-            row['alpha'] = metrics.get('alpha', 0.0)
-            row['_objective'] = _get_objective_value(metrics, objective)
-            results.append(row)
-        
-        if progress_callback:
-            progress_callback((i + 1) / total, f"Tested {i+1}/{total} combinations")
+    # commission_rate was not a parameter here once, so every grid search ran at Portfolio's HK
+    # default (0.16%/side incl. stamp duty) whatever the market, including US searches.
+    runner = BatchRunner(engine, strategy_class, symbols, timeframe, storage, initial_capital,
+                         commission_rate, risk_manager, slippage_bps)
+    # natively the combinations run in parallel batches (enough for every core, and about ten
+    # progress updates); progress is still reported per combination
+    chunk = max(-(-total // 10), 4 * (os.cpu_count() or 1)) if runner.engine == "native" else 1
+
+    for lo in range(0, total, chunk):
+        batch = param_grid[lo:lo + chunk]
+        for j, (params, (metrics, last)) in enumerate(zip(batch, runner.run(batch, start_date, end_date))):
+            i = lo + j
+            last_candle = _later(last_candle, last)
+            if metrics:
+                row = {**params}
+                row['return_pct'] = metrics.get('return_pct', 0.0)
+                row['sharpe_ratio'] = metrics.get('sharpe_ratio', 0.0)
+                row['max_drawdown'] = metrics.get('max_drawdown', 0.0)
+                row['win_rate'] = metrics.get('win_rate', 0.0)
+                row['profit_factor'] = metrics.get('profit_factor', 0.0)
+                row['total_trades'] = metrics.get('total_trades', 0)
+                row['alpha'] = metrics.get('alpha', 0.0)
+                row['_objective'] = _get_objective_value(metrics, objective)
+                results.append(row)
+
+            if progress_callback:
+                progress_callback((i + 1) / total, f"Tested {i+1}/{total} combinations")
     
     if not results:
         return pd.DataFrame()
@@ -241,6 +248,7 @@ def walk_forward(
     commission_rate: float = Portfolio.HK_FEE_RATE,
     run_store: Optional[RunStore] = None,
     run_meta: Optional[Dict[str, Any]] = None,
+    engine: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Walk-forward optimization with rolling train/test windows.
@@ -272,6 +280,7 @@ def walk_forward(
             walk_forward run with its windows table (midfreq.backtest.runstore); the returned
             result is the same either way
         run_meta: Added to the saved run's manifest (e.g. source, universe, risk settings)
+        engine: "auto" (default), "native" or "python" (see midfreq.backtest.native)
         
     Returns:
         Dict with 'windows' (list of WalkForwardWindow), 'summary' metrics,
@@ -300,8 +309,8 @@ def walk_forward(
     oos_returns = []  # Out-of-sample returns
     skipped_windows = []  # windows with too little data to constitute a test
     last_candle = None  # the latest candle any backtest replayed: the saved run's data cut-off
-
-    import io, contextlib
+    runner = BatchRunner(engine, strategy_class, symbols, timeframe, storage, initial_capital,
+                         commission_rate, risk_manager, slippage_bps)
 
     # Latest candle actually available across the requested symbols. A test
     # segment reaching past this isn't a test, it's a stub: the final
@@ -357,23 +366,9 @@ def walk_forward(
         best_train_metrics = {}
         best_traded = False
 
-        for params in param_grid:
-            portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
-            bt = Backtester(storage=storage, portfolio=portfolio,
-                          risk_manager=risk_manager, slippage_bps=slippage_bps)
-
-            f_buf = io.StringIO()
-            with contextlib.redirect_stdout(f_buf):
-                try:
-                    metrics = bt.run(
-                        strategy_class, symbols=symbols, timeframe=timeframe,
-                        start_date=train_start, end_date=train_end,
-                        end_inclusive=False, **params
-                    )
-                except Exception:
-                    metrics = {}
-            last_candle = latest_candle(portfolio, last_candle)
-            
+        train_runs = runner.run(param_grid, train_start, train_end, end_inclusive=False)
+        for params, (metrics, last) in zip(param_grid, train_runs):
+            last_candle = _later(last_candle, last)
             if metrics:
                 obj_val = _get_objective_value(metrics, objective)
                 traded = metrics.get('total_trades', 0) > 0
@@ -385,20 +380,8 @@ def walk_forward(
                     best_traded = traded
         
         # ─── Step 2: Validate best params on test data ────────
-        portfolio = Portfolio(initial_cash=initial_capital, commission_rate=commission_rate)
-        bt = Backtester(storage=storage, portfolio=portfolio,
-                       risk_manager=risk_manager, slippage_bps=slippage_bps)
-        
-        f_buf = io.StringIO()
-        with contextlib.redirect_stdout(f_buf):
-            try:
-                test_metrics = bt.run(
-                    strategy_class, symbols=symbols, timeframe=timeframe,
-                    start_date=test_start, end_date=test_end, **best_params
-                )
-            except Exception:
-                test_metrics = {}
-        last_candle = latest_candle(portfolio, last_candle)
+        [(test_metrics, last)] = runner.run([best_params], test_start, test_end)
+        last_candle = _later(last_candle, last)
         
         if not test_metrics:
             test_metrics = {'return_pct': 0.0, 'sharpe_ratio': 0.0, 'max_drawdown': 0.0}

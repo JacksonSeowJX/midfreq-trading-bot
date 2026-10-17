@@ -1,10 +1,13 @@
-# Continuous integration. Two environments, because they really are different:
+# Continuous integration. Two Python environments, because they really are different:
 #
 #   research  Python 3.12 with the versions in uv.lock, the ones every reported result was
-#             produced with (the Mac's Anaconda). Also checks the package layering.
+#             produced with (the Mac's Anaconda). Builds the C++ engine's extension (uv sync)
+#             and runs its equivalence tests with the rest. Also checks the package layering.
 #   vm        Python 3.10 with ops/vm/requirements-vm.txt, the versions the live engine runs
 #             on the GCP VM: builds the release bundle, installs it exactly as
-#             ops/vm/install_release.sh does on the VM, and runs the tests against it.
+#             ops/vm/install_release.sh does on the VM, and runs the tests against it. The
+#             bundle has no C++ engine, so this also proves everything falls back to Python.
+#   engine    the C++ engine (packages/midfreq-engine) alone: CMake, GCC, its unit tests.
 #
 # The VM's daily session-log commits touch only live_sessions/ and are skipped.
 name: CI
@@ -39,6 +42,9 @@ jobs:
         run: uv run pytest -q -p no:cacheprovider
       - name: Package layers
         run: uv run lint-imports
+      # a strategy edited since its C++ port was verified runs on Python: a warning, not a failure
+      - name: C++ ports current
+        run: uv run python -m midfreq.backtest.parity status --github
 
   vm:
     name: vm (Python 3.10, the release bundle as the VM installs it)
@@ -63,6 +69,20 @@ jobs:
           rm -rf packages/*/src      # import the installed wheels, not the source tree
           # the VM bundle's packages and the cross-package tests; apps/api is not on the VM
           "$RUNNER_TEMP/midfreq/current/.venv/bin/python" -m pytest -q -p no:cacheprovider packages tests
+
+  engine:
+    name: engine (C++17 core, CMake + ctest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (library and unit tests, no Python)
+        run: cmake -S packages/midfreq-engine -B build/engine -DCMAKE_BUILD_TYPE=Release
+               -DMIDFREQ_ENGINE_TESTS=ON -DMIDFREQ_ENGINE_PYTHON=OFF
+      - name: Build
+        run: cmake --build build/engine -j 4
+      - name: Unit tests
+        run: ctest --test-dir build/engine --output-on-failure
 
   # The dashboard front end (apps/web): Node 22 LTS, the versions in its package-lock.json.
   # Its API types must be regenerated from apps/api/openapi.json whenever the contract changes.
