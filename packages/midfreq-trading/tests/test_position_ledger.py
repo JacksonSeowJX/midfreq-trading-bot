@@ -22,12 +22,13 @@ S1, S2 = StrategyId("S1"), StrategyId("S2")
 _n = 0
 
 
-def fill(side, qty, px, iid=AAPL, sid=S1, commission=0.0):
+def fill(side, qty, px, iid=AAPL, sid=S1, commission=0.0, currency="USD", unknown=False):
     global _n
     _n += 1
     return OrderFilled(ClientOrderId(f"C{_n}"), sid, iid, _n, trade_id=TradeId(f"T{_n}"),
                        side=OrderSide.BUY if side == "B" else OrderSide.SELL, last_qty=float(qty),
-                       last_px=float(px), commission=commission, currency="USD")
+                       last_px=float(px), commission=commission, currency=currency,
+                       tags={"commission_unknown": True} if unknown else {})
 
 
 def ledger(**kw):
@@ -45,14 +46,15 @@ TRADES = [("B", 100, 150.37), ("B", 37, 151.1), ("S", 60, 152.93), ("B", 13, 149
 
 @pytest.mark.parametrize("rate", [0.0, 0.0016, 0.00005])
 def test_cash_quantity_and_average_match_core_portfolio_to_the_bit(rate):
-    """The fee model fills in the commission the venue did not report, as Portfolio's rate does."""
+    """The fee model fills in the commission the venue did not report (the fill says
+    commission_unknown, as Moomoo's do), as Portfolio's rate does."""
     book, _ = ledger(fee_models={"XNAS": PercentFeeModel(rate)})
     legacy = Portfolio(initial_cash=100_000.0, commission_rate=rate)
     for side, qty, px in TRADES:
         if qty == 0:
             continue
         legacy.execute_trade("US.AAPL", side == "B", float(qty), float(px), datetime(2026, 10, 15))
-        book.on_fill(fill(side, qty, px))
+        book.on_fill(fill(side, qty, px, unknown=True))
         assert book.cash(S1) == legacy.cash                    # exactly, not approximately
         assert book.position(S1, AAPL) == legacy.get_position_qty("US.AAPL")
         assert (book.avg_price(S1, AAPL) or 0.0) == legacy.get_entry_price("US.AAPL")
@@ -67,6 +69,38 @@ def test_a_reported_commission_is_booked_as_reported_and_matches_portfolio():
         legacy.execute_trade("US.AAPL", side == "B", float(qty), float(px), datetime(2026, 10, 15))
         book.on_fill(fill(side, qty, px, commission=float(qty) * float(px) * rate))
     assert book.cash(S1) == legacy.cash
+
+
+def test_a_reported_zero_fee_stays_zero():
+    """Only a fill marked commission_unknown gets the fee model's estimate; a venue that reports
+    a fee of 0 (a maker rebate tier, a promotion) is booked at 0."""
+    book, _ = ledger(fee_models={"XNAS": PercentFeeModel(0.01)})
+    book.on_fill(fill("B", 10, 100.0, commission=0.0))
+    assert book.commissions(S1) == 0.0 and book.cash(S1) == 100_000.0 - 1_000.0
+    book.on_fill(fill("B", 10, 100.0, unknown=True))
+    assert book.commissions(S1) == pytest.approx(10.0)
+    assert [b.commission_source for b in book.bookings(S1)] == ["reported", "estimate"]
+
+
+def test_a_fee_in_the_base_asset_is_converted_at_the_fill_price():
+    """OKX charges a spot buy's fee in the base asset: 0.0005 BTC at 60,000 USDT is 30 USDT. The
+    booking keeps the venue's own amount and currency."""
+    from midfreq.core.model.instruments import CurrencyPair
+    btc = InstrumentId.from_str("BTC-USDT.OKX")
+    pair = CurrencyPair(id=btc, raw_symbol="BTC-USDT", currency="USDT", base_currency="BTC",
+                        quote_currency="USDT", size_increment=0.00001)
+    book, _ = ledger(capital={"S1": 100_000.0}, instrument=lambda iid: pair if iid == btc else None)
+    book.on_fill(fill("B", 0.5, 60_000.0, iid=btc, commission=0.0005, currency="BTC"))
+    assert book.commissions(S1) == pytest.approx(30.0)
+    assert book.cash(S1) == pytest.approx(100_000.0 - 30_000.0 - 30.0)
+    b = book.bookings(S1)[-1]
+    assert (b.commission_source, b.venue_commission, b.venue_currency) == ("converted", 0.0005, "BTC")
+    book.on_fill(fill("S", 0.5, 61_000.0, iid=btc, commission=30.5, currency="USDT"))   # quote: as is
+    assert book.bookings(S1)[-1].commission == 30.5
+    # without reference data the currencies come from the id
+    plain, _ = ledger(capital={"S1": 100_000.0})
+    plain.on_fill(fill("B", 0.5, 60_000.0, iid=btc, commission=0.0005, currency="BTC"))
+    assert plain.commissions(S1) == pytest.approx(30.0)
 
 
 def test_realised_pnl_and_the_cash_identity():

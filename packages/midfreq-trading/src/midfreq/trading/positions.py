@@ -19,9 +19,16 @@ Arithmetic, kept operation for operation the same as midfreq.core.portfolio.Port
 So, for a book with no corporate actions and no reconciliation adjustments,
     cash = capital - sum(qty x avg) + realised - commissions.
 
-The commission is the fill's own (the venue's report). Where a venue reports none (the fill says
-0) and a fee model is configured for the venue, the model's estimate is booked instead, as the
-original engine did with its commission rate (Moomoo's fills carry no fees).
+The commission is the fill's own (the venue's report), in the instrument's quote currency:
+- a venue that reports no fee marks the fill `tags["commission_unknown"]` (Moomoo's fills carry
+  no fees); then, and only then, the venue's fee model's estimate is booked, as the original
+  engine did with its commission rate. A reported 0 without the tag is a real zero and stays 0;
+- a fee charged in another currency than the instrument's quote currency (OKX charges a spot
+  buy's fee in the base asset) is converted at the fill's price: base-asset fee x price. A fee in
+  any other currency cannot be converted from the fill alone: the fee model's estimate is booked
+  and the log says so.
+Every booking is kept (`bookings()`), with the venue's own amount and currency next to what was
+booked and how (`reported`, `estimate`, `converted`).
 
 A fill is always booked: the venue's fill is the truth. A buy beyond the book's cash or a sell
 beyond its position is booked and logged as a WARNING (the backtest Portfolio would refuse it;
@@ -51,8 +58,9 @@ ledger, bounded from above by the broker's cash.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Callable, Deque, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from midfreq.core.common.clock import Clock
 from midfreq.core.common.msgbus import MessageBus
@@ -60,12 +68,13 @@ from midfreq.core.model.enums import OrderSide
 from midfreq.core.model.events import OrderFilled
 from midfreq.core.model.fees import FeeModel
 from midfreq.core.model.identifiers import InstrumentId, StrategyId, Venue, as_instrument_id, as_venue
+from midfreq.core.model.instruments import CurrencyPair, Instrument
 from midfreq.data.adapters.base import PositionReport
 from midfreq.trading.interfaces import TOPIC_POSITIONS, CorporateAction, PositionChanged, ReconcileReport
 
 log = logging.getLogger(__name__)
 
-__all__ = ["PositionLedger", "PositionState"]
+__all__ = ["FillBooking", "PositionLedger", "PositionState"]
 
 _QTY_EPS = 1e-9
 
@@ -84,6 +93,23 @@ class PositionState:
     realized_pnl: float
     commissions: float
     dividends: float
+
+
+@dataclass(frozen=True)
+class FillBooking:
+    """One fill as the ledger booked it: the commission booked (quote currency) and the venue's
+    own figure."""
+    strategy_id: StrategyId
+    instrument_id: InstrumentId
+    trade_id: Optional[str]
+    side: str
+    quantity: float
+    price: float
+    commission: float                   # booked, in the quote currency
+    commission_source: str              # 'reported' | 'estimate' | 'converted'
+    venue_commission: float             # the fill's own amount
+    venue_currency: str                 # and its currency ('' if the venue gave none)
+    ts_event: int
 
 
 @dataclass
@@ -136,22 +162,28 @@ class PositionLedger:
     The node's PositionKeeper.
 
     capital: each strategy's capital cap (its starting cash); strategies not listed start at
-    `default_capital` (0 if None, with a warning). fee_models: per venue, used only for fills that
-    report no commission. instrument_of: maps a broker's own symbol ('US.AAPL') to an InstrumentId
-    for PositionReports that carry none.
+    `default_capital` (0 if None, with a warning). fee_models: per venue, for fills whose venue
+    reports no commission (and fees in a currency that cannot be converted). instrument_of: maps a
+    broker's own symbol ('US.AAPL') to an InstrumentId for PositionReports that carry none.
+    instrument: the Instrument of an id (reference data), for its quote and base currencies;
+    without it they are read from the id ('BTC-USDT' -> BTC, USDT; an equity has no base asset).
     """
 
     def __init__(self, clock: Clock, msgbus: MessageBus,
                  capital: Optional[Mapping["StrategyId | str", float]] = None,
                  default_capital: Optional[float] = None,
                  fee_models: Optional[Mapping["Venue | str", FeeModel]] = None,
-                 instrument_of: Optional[Callable[[str], Optional[InstrumentId]]] = None):
+                 instrument_of: Optional[Callable[[str], Optional[InstrumentId]]] = None,
+                 instrument: Optional[Callable[[InstrumentId], Optional[Instrument]]] = None,
+                 keep_bookings: int = 10_000):
         self._clock = clock
         self._msgbus = msgbus
         self._default_capital = default_capital
         self._fee_models: Dict[Venue, FeeModel] = {as_venue(v): m for v, m in (fee_models or {}).items()}
         self._instrument_of = instrument_of
+        self._instrument = instrument
         self._books: Dict[StrategyId, _Book] = {}
+        self._bookings: Deque[FillBooking] = deque(maxlen=keep_bookings)
         for sid, cap in (capital or {}).items():
             self.add_strategy(sid, cap)
 
@@ -220,11 +252,11 @@ class PositionLedger:
             log.error("fill %s for %s has quantity %r; not booked", fill.trade_id, fill.client_order_id, fill.last_qty)
             return
         book = self._book(fill.strategy_id)
-        commission = fill.commission
-        if not commission:
-            model = self._fee_models.get(fill.instrument_id.venue)
-            if model is not None:
-                commission = model.commission(fill.last_qty, fill.last_px, fill.liquidity_side)
+        commission, source = self._commission(fill)
+        self._bookings.append(FillBooking(
+            fill.strategy_id, fill.instrument_id, str(fill.trade_id) if fill.trade_id is not None else None,
+            fill.side.value, fill.last_qty, fill.last_px, commission, source, fill.commission, fill.currency,
+            fill.ts_event))
         # The same operations, in the same order, as midfreq.core.portfolio.Portfolio.execute_trade.
         trade_value = fill.last_qty * fill.last_px
         is_buy = fill.side is OrderSide.BUY
@@ -252,6 +284,61 @@ class PositionLedger:
         self._publish(book, fill.instrument_id, pos, fill.ts_event)
         if pos.quantity == 0:
             del book.positions[fill.instrument_id]
+
+    def _currencies(self, iid: InstrumentId) -> Tuple[Optional[str], Optional[str]]:
+        """(quote, base) currency of an instrument; base is None for equities."""
+        inst = None
+        if self._instrument is not None:
+            try:
+                inst = self._instrument(iid)
+            except Exception:  # noqa: BLE001 - fall back to reading the id
+                inst = None
+        if isinstance(inst, CurrencyPair):
+            return (inst.quote_currency or inst.currency or None), (inst.base_currency or None)
+        if inst is not None:
+            return inst.currency or None, None
+        base, sep, quote = str(iid.symbol).partition("-")
+        return (quote, base) if sep and quote else (None, None)
+
+    def _estimate(self, fill: OrderFilled) -> Optional[float]:
+        model = self._fee_models.get(fill.instrument_id.venue)
+        if model is None:
+            return None
+        inst = None
+        if self._instrument is not None:
+            try:
+                inst = self._instrument(fill.instrument_id)
+            except Exception:  # noqa: BLE001
+                inst = None
+        return model.commission(fill.last_qty, fill.last_px, fill.liquidity_side, instrument=inst)
+
+    def _commission(self, fill: OrderFilled) -> Tuple[float, str]:
+        """(commission in the quote currency, how it was found): see the module docstring."""
+        if fill.tags.get("commission_unknown"):
+            estimate = self._estimate(fill)
+            if estimate is None:
+                log.warning("fill %s of %s reports no fee and %s has no fee model; booked with none",
+                            fill.trade_id, fill.instrument_id, fill.instrument_id.venue)
+                return 0.0, "reported"
+            return estimate, "estimate"
+        commission = fill.commission
+        currency = (fill.currency or "").upper()
+        if not commission or not currency:
+            return commission, "reported"
+        quote, base = self._currencies(fill.instrument_id)
+        if quote is None or currency == quote.upper():
+            return commission, "reported"
+        if base is not None and currency == base.upper():
+            return commission * fill.last_px, "converted"
+        estimate = self._estimate(fill)
+        log.warning("fill %s of %s: fee %g %s is neither in %s nor in %s; %s booked", fill.trade_id,
+                    fill.instrument_id, commission, currency, quote, base or "a base asset",
+                    f"the fee model's estimate {estimate:g} {quote}" if estimate is not None else "no fee")
+        return (estimate, "estimate") if estimate is not None else (0.0, "reported")
+
+    def bookings(self, strategy_id: Optional[StrategyId] = None) -> List[FillBooking]:
+        """The fills booked (the most recent `keep_bookings`), oldest first."""
+        return [b for b in self._bookings if strategy_id is None or b.strategy_id == strategy_id]
 
     def position(self, strategy_id: StrategyId, instrument_id: InstrumentId) -> float:
         book = self._books.get(strategy_id)
@@ -367,10 +454,13 @@ class PositionLedger:
                 log.exception("cannot map broker symbol %r", report.symbol)
         return None
 
-    def reconcile(self, venue: "Venue | str", broker: List[PositionReport]) -> ReconcileReport:
+    def reconcile(self, venue: "Venue | str", broker: List[PositionReport],
+                  strategy_ids: Optional[Iterable["StrategyId | str"]] = None) -> ReconcileReport:
         """Shrink-only, the original engine's rule (module docstring). `broker` must be the
-        venue's answer to a successful query."""
+        venue's answer to a successful query. With `strategy_ids`, only those books are
+        reconciled (the others still count toward the claims on the broker's holdings)."""
         venue = as_venue(venue)
+        only = None if strategy_ids is None else {str(s) for s in strategy_ids}
         now = self._clock.timestamp_ns()
         held: Dict[InstrumentId, float] = {}
         unidentified: List[str] = []
@@ -393,6 +483,9 @@ class PositionLedger:
         for book in self._books.values():
             for iid, pos in list(book.positions.items()):
                 if iid.venue != venue:
+                    continue
+                if only is not None and str(book.strategy_id) not in only:
+                    claimed[iid] = claimed.get(iid, 0.0) + pos.quantity
                     continue
                 broker_qty = held.get(iid)
                 if broker_qty is None:
