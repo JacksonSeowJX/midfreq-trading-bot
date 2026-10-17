@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional
 
 from midfreq.core.model.fees import FeeModel, PercentFeeModel
@@ -219,17 +220,28 @@ MARKETDATA_SETTINGS = ("min_cross_section_share", "finality_grace_s", "limit_uni
 
 def make_marketdata(ctx: "NodeContext", settings: Mapping[str, Any]):
     """One subscription per bar type on each venue's data client; warm-up from (and the session's
-    bars to) the bar store: `store_dir` when the node has one, else data/ of MIDFREQ_ROOT."""
+    bars to) the bar store: `store_dir` when the node has one, else data/ of MIDFREQ_ROOT. Only
+    paper and live sessions write to the real store; shadow and sim never do, whatever
+    `persist` says (they may write to a store_dir of their own, as a replay does)."""
+    from midfreq.core.paths import data_dir
     from midfreq.data.storage import DataStorage
     from midfreq.trading.marketdata import DEFAULT_GRACE_S, DEFAULT_MIN_SHARE, LiveMarketDataService
     s = _known("marketdata", settings, MARKETDATA_SETTINGS)
     store = DataStorage(base_path=str(ctx.store_dir)) if ctx.store_dir is not None else None
+    persist = bool(s.get("persist", ctx.persist_bars))
+    real_store = ctx.store_dir is None or Path(ctx.store_dir).resolve() == data_dir().resolve()
+    if persist and real_store and ctx.mode not in ("paper", "live"):
+        # Only a paper or live session's bars are real: shadow and sim bars (replayed, or seen by
+        # a shadow next to the session that owns the cache) never enter the real store.
+        log.warning("marketdata: %s mode does not write bars to the real store (%s); persist ignored",
+                    ctx.mode, data_dir())
+        persist = False
     return LiveMarketDataService(
         ctx.data_clients, ctx.msgbus, ctx.queue, venues=ctx.venues, refdata=ctx.refdata, store=store,
         clock=ctx.clock, grace=float(s.get("finality_grace_s", DEFAULT_GRACE_S)),
         min_share=float(s.get("min_cross_section_share", DEFAULT_MIN_SHARE)),
         stall_factor=float(ctx.config.node.stall_factor), limit_unit=str(s.get("limit_unit", "stream")),
-        persist=bool(s.get("persist", ctx.persist_bars)))
+        persist=persist)
 
 
 # ── the simulated venue (mode `sim`) ──────────────────────────────────────────────────────────

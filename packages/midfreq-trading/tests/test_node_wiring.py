@@ -215,3 +215,65 @@ def test_c1_a_filled_order_resolves_at_once_under_the_id_the_adapter_stored(tmp_
     assert [(t["timestamp"], t["symbol"], t["qty"]) for t in trades] == [("2026-10-14 10:30:00+00:00", "US.AAPL", 10.0)]
     assert a.open_orders() == []
     node.stop()
+
+
+def _tree(folder):
+    return {str(p.relative_to(folder)): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+@pytest.mark.parametrize("mode", ["sim", "shadow"])
+def test_c4_shadow_and_sim_never_write_the_real_bar_store(tmp_path, monkeypatch, mode):
+    """C4: a shadow or sim node, even configured to persist bars and given no store of its own,
+    reads the real data/ for warm-up but never writes its bars (replayed or shadowed) into it."""
+    from midfreq.core import paths
+    root = tmp_path / "root"
+    (root / "data" / "US_AAPL").mkdir(parents=True)
+    (root / "data" / "US_AAPL" / "1h.parquet").write_bytes(b"the real cache")
+    before = _tree(root / "data")
+    monkeypatch.setenv("MIDFREQ_ROOT", str(root))
+    paths.repo_root.cache_clear()
+    try:
+        d = tiny_config_dict(symbols=SYMS, confirm_timeout_s=150)
+        d["data"] = {"persist_bars": True}
+        cfg = config_from_dict(d)
+        comps = {"data_client": FakeDataClient()}
+        if mode == "sim":
+            comps["execution_client:acct"] = ScriptedVenue()
+        node = TradingNode(cfg, mode=mode, clock=TestClock(START), records_dir=tmp_path / "rec",
+                           records_tz="America/New_York", components=comps)
+        node.start()
+        push_prices(node, (100.0, 200.0, 300.0, 400.0))
+        later = FIRST_BAR + 3600 * SEC
+        for sym, c in zip(SYMS, (101.0, 201.0, 301.0, 401.0)):
+            bar = Bar(BarType(instrument_for_symbol(sym), SPEC), c, c, c, c, 1.0, later, FIRST_BAR + SEC)
+            node.queue.put(BarUpdate(bar, False, FIRST_BAR + SEC))
+        node.advance_to(FIRST_BAR + SEC)
+        node.stop()
+        assert node.marketdata.session_bars(), "bars were finalised in the session"
+        assert _tree(root / "data") == before
+    finally:
+        paths.repo_root.cache_clear()
+
+
+def test_c4_a_replay_leaves_the_real_data_dir_untouched(tmp_path, monkeypatch):
+    """C4: a replay on the real components writes its bars to its own store only."""
+    from midfreq.core import paths
+    from midfreq.trading.replay import RecordedSession, replay_sessions
+    root = tmp_path / "root"
+    (root / "data" / "US_AAPL").mkdir(parents=True)
+    (root / "data" / "US_AAPL" / "1h.parquet").write_bytes(b"the real cache")
+    before = _tree(root / "data")
+    monkeypatch.setenv("MIDFREQ_ROOT", str(root))
+    paths.repo_root.cache_clear()
+    try:
+        hours = [(f"2026-10-14 {h}:30:00", {s: 100.0 + i + k for k, s in enumerate(SYMS)})
+                 for i, h in enumerate((10, 11, 12))]
+        sess = RecordedSession(None, "20261014", "CrossSectionalReversal", list(SYMS), "1h", hours)
+        cfg = config_from_dict(tiny_config_dict(symbols=SYMS, confirm_timeout_s=150))
+        report = replay_sessions(cfg, [sess], records_dir=tmp_path / "rec", store_dir=tmp_path / "store",
+                                 components={})
+        assert report.sessions and not report.sessions[0].crashed
+        assert _tree(root / "data") == before
+        assert list((tmp_path / "store").rglob("1h.parquet")), "the replay wrote its bars to its own store"
+    finally:
+        paths.repo_root.cache_clear()
