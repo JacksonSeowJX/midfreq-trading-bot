@@ -9,6 +9,7 @@ dependencies = [
     "midfreq-strategies",
     "midfreq-backtest",
     "midfreq-live",
+    "midfreq-trading",
     "midfreq-research",
     "midfreq-api",
     "midfreq-engine",
@@ -59,6 +60,7 @@ midfreq-data = { workspace = true }
 midfreq-strategies = { workspace = true }
 midfreq-backtest = { workspace = true }
 midfreq-live = { workspace = true }
+midfreq-trading = { workspace = true }
 midfreq-research = { workspace = true }
 midfreq-api = { workspace = true }
 midfreq-engine = { workspace = true }
@@ -74,7 +76,7 @@ markers = ["slow: needs the real data/ cache (opt-in: MIDFREQ_SLOW=1)"]
 #   apps / research  ->  live, backtest  ->  strategies, data  ->  core, engine (C++)
 [tool.importlinter]
 # midfreq is a PEP 420 namespace spread over several distributions, so list the portions
-root_packages = ["midfreq.core", "midfreq.engine", "midfreq.data", "midfreq.strategies", "midfreq.backtest", "midfreq.live", "midfreq.research", "midfreq.api"]
+root_packages = ["midfreq.core", "midfreq.engine", "midfreq.data", "midfreq.strategies", "midfreq.backtest", "midfreq.live", "midfreq.trading", "midfreq.research", "midfreq.api"]
 
 [[tool.importlinter.contracts]]
 name = "Package layers"
@@ -83,7 +85,11 @@ layers = [
     "midfreq.api",
     "midfreq.research",
     "midfreq.live | midfreq.backtest",
+    # the trading node: OMS, risk, positions, market and reference data (docs/LIVE_ARCHITECTURE.md)
+    "midfreq.trading",
     "midfreq.strategies | midfreq.data",
     # the C++ engine's Python face imports nothing else from midfreq; midfreq.backtest.native adapts it
     "midfreq.core | midfreq.engine",
 ]
+# Venue SDKs only inside connectors: tests/integration/test_venue_sdk_boundary.py (import-linter
+# cannot check external imports in this namespace layout).

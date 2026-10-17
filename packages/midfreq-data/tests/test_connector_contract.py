@@ -14,7 +14,7 @@ from typing import Callable, Dict
 
 import pytest
 
-from midfreq.data.adapters.base import UnsupportedIntervalError, UnsupportedVenueError
+from midfreq.data.adapters.base import ConnectorError, UnsupportedIntervalError, UnsupportedVenueError
 from midfreq.data.adapters.binance.connector import BinanceConnector
 from midfreq.data.adapters.ccxt.connector import CcxtConnector, ccxt_available
 from midfreq.data.adapters.ibkr.connector import IBKRConnector
@@ -204,6 +204,7 @@ def test_capabilities_flags(case):
     conn = case.build(case.truth, False, RecordingSleep())
     caps = conn.capabilities
     assert caps.historical_bars and not caps.execution and not caps.live_data
-    assert conn.execution_client is None
+    with pytest.raises(ConnectorError):
+        conn.execution_client()   # until the connector implements one
     assert BarSpecification.from_str(case.bar).interval in conn.capabilities_for(
         conn.venues.get(InstrumentId.from_str(case.instrument).venue)).intervals
