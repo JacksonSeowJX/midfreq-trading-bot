@@ -66,7 +66,7 @@ them instead.
 
 `site_docs/hooks/gen_api_pages.py` runs at the start of every build, through
 [mkdocs-gen-files](https://oprypin.github.io/mkdocs-gen-files/), and writes one page per public
-module of the six packages under `api/python/`, plus the navigation of that section for
+module of every package in `packages/`, under `api/python/`, plus the navigation of that section for
 [mkdocs-literate-nav](https://oprypin.github.io/mkdocs-literate-nav/);
 [mkdocs-section-index](https://oprypin.github.io/mkdocs-section-index/) makes each package's page
 the index of its section. The pages exist only in the build, so the reference cannot drift from
@@ -79,7 +79,13 @@ become tables, and any other `Title:` line followed by an indented block becomes
 To show a literal block, such as a command line or a path pattern, leave a blank line after its
 introducing line, so that it is read as code. Modules whose name starts with an underscore are
 left out, and so is a folder without an `__init__.py` (`midfreq.data.providers`), which griffe
-does not traverse.
+does not traverse. A package page is the distribution's README, or the package's docstring
+for a distribution without one (`midfreq-trading`).
+
+griffe finds a package only on the search paths listed under the mkdocstrings handler's `paths`
+in `mkdocs.yml`, one `packages/<name>/src` per package. The generator writes pages for every
+package it finds in `packages/`, so a new package must be added to that list as well; otherwise
+its pages cannot be collected and the build fails (`midfreq.trading could not be found`).
 
 ## The HTTP API reference
 

@@ -2,8 +2,9 @@
 
 ## The workspace
 
-The repository is a [uv](https://docs.astral.sh/uv/) workspace whose members are the six
-packages in `packages/` and the dashboard's API in `apps/api`. One command creates `.venv/` with
+The repository is a [uv](https://docs.astral.sh/uv/) workspace whose members are the eight
+packages in `packages/` (seven in Python and the C++ engine, whose extension `uv sync` builds) and
+the dashboard's API in `apps/api`. One command creates `.venv/` with
 every member installed in editable mode:
 
 ```bash

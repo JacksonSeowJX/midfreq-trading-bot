@@ -11,7 +11,7 @@ strategy APIs, in `midfreq-strategies`:
 | Decides by | calling `self.portfolio.execute_trade(...)`, which fills at once at the price given | submitting an `Order` built by `self.order_factory`; the venue decides the fill |
 | Learns of fills | from the portfolio, which it may read and write | from events: `on_order_filled`, `on_order_rejected`, `on_order_denied`, `on_order_canceled` |
 | Sees | the portfolio itself | read-only views of the cache and the portfolio |
-| Runs on | the candle backtester, the optimizer, the dashboard, the live engine; and the venue engine through the legacy adapter | the venue engine (`BacktestEngine`) |
+| Runs on | the candle backtester, the optimizer, the dashboard, the session runner; the venue engine and the trading node through their adapters | the venue engine (`BacktestEngine`) and the trading node |
 
 Every reported result came from the candle API. The event-driven API is the venue engine's,
 modelled on NautilusTrader's `Strategy`.
@@ -31,9 +31,13 @@ The backtester merges every symbol into one stream ordered by time, so candles o
 symbols that share a timestamp arrive one after another. The cross-sectional strategies buffer
 them into a cross-section and rank the universe when the next timestamp begins.
 
-In live trading the same class runs unchanged: the live engine hands it a `LivePortfolio`,
+In live trading the same class runs unchanged. The session runner hands it a `LivePortfolio`,
 whose `execute_trade` sends an order to the broker and records the trade only when the broker
-confirms the fill ([Live trading](live_trading.md)).
+confirms the fill ([Live trading](live_trading.md)); the trading node hands it a portfolio whose
+`execute_trade` sends a limit order to the node's OMS and books the trade only from its fills
+([The trading node](trading_node.md#the-strategy-host)). An event-driven strategy runs natively
+on the trading node, receiving bars, cross-sections and order events as it does in the venue
+engine.
 
 ### The registry
 

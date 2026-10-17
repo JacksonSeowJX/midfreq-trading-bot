@@ -24,8 +24,8 @@ cd midfreq-trading-bot
 uv sync --python 3.12
 ```
 
-`uv sync` creates `.venv/` and installs, in editable mode, the six packages under `packages/`
-and the dashboard's API (`apps/api`), with:
+`uv sync` creates `.venv/` and installs, in editable mode, the eight packages under `packages/`
+(building the C++ engine's extension) and the dashboard's API (`apps/api`), with:
 
 - every connector's optional dependencies (the `moomoo`, `ibkr`, `yfinance` and `crypto`
   extras of `midfreq-data`) and the `hmm` extra of `midfreq-strategies`;

@@ -21,10 +21,12 @@ refuse to run when it is set to `real`.
 ## Running
 
     uv run midfreq-live --list                          # the runner, midfreq.live.run_live
-    ./ops/run_sp100_forward_test.sh --scheduled        # as cron runs it; see ops/README.md
+    ./ops/run_sp100_forward_test.sh --scheduled        # the forward test's launcher; see ops/README.md
 
-On the VM the package is installed from a release's wheel, and cron runs the launcher from
-`~/midfreq/current/ops/` (see ops/README.md).
+On the VM the package is installed from a release's wheel, and the launcher runs from
+`~/midfreq/current/ops/`. The VM's schedule (`ops/vm/crontab.txt`) starts the US forward test on
+the trading node (`midfreq.trading`, `ops/run_node.sh`) and keeps this launcher's line, commented
+as `#ROLLBACK`, to go back to this runner.
 
 ## Tests
 

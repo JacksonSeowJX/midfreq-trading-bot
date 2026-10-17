@@ -10,8 +10,8 @@ hide:
 A Python framework for researching, validating and paper trading mid-frequency (hourly)
 strategies on Hong Kong and US equities. It covers the whole path from market data to orders:
 connectors and a Parquet price cache, two backtesting engines with each market's trading costs,
-walk-forward validation with corrections for the number of things tried, a live engine that
-trades through a broker's paper account, and a dashboard over all of it.
+walk-forward validation with corrections for the number of things tried, a live trading node
+that trades through a broker's paper account, and a dashboard over all of it.
 </p>
 
 [Get started](getting_started/index.md){ .md-button .md-button--primary }
@@ -25,15 +25,17 @@ library.
 
 ## Where to start
 
-- **[Architecture](concepts/architecture.md)**: the six packages, the layers they import across,
+- **[Architecture](concepts/architecture.md)**: the eight packages, the layers they import across,
   and how data flows from the broker's gateway to results.
 - **[Backtesting](concepts/backtesting.md)**: the candle backtester the research used, the
   event-driven venue engine, fill and slippage models, and trading costs.
 - **[Optimization and validation](concepts/optimization_and_validation.md)**: grid search,
   walk-forward, the two-configuration standard, White's Reality Check and the Probability of
   Backtest Overfitting.
-- **[Live trading](concepts/live_trading.md)**: the live engine, the order gateway, session logs,
-  and the reconciliation of the bot's record against the broker's.
+- **[Live trading](concepts/live_trading.md)** and **[The trading node](concepts/trading_node.md)**:
+  the order management system with its write-ahead journal, pre-trade risk and the kill switch,
+  the position ledger, shared market and reference data, the run modes from shadow to live, and
+  the reconciliation of the bot's record against the broker's.
 
 ## Documentation
 
@@ -53,7 +55,7 @@ library.
     ---
 
     Architecture, data and connectors, instruments and venues, strategies, backtesting,
-    validation, live trading, saved runs and the dashboard.
+    validation, live trading and the trading node, saved runs and the dashboard.
 
     [:octicons-arrow-right-24: Concepts](concepts/index.md)
 
@@ -71,7 +73,7 @@ library.
     ---
 
     Moomoo OpenD, Interactive Brokers, yfinance, Binance and ccxt: capabilities, symbology,
-    setup and limits of each connector.
+    setup and limits of each connector, and the execution side of those that trade.
 
     [:octicons-arrow-right-24: Integrations](integrations/index.md)
 
@@ -121,7 +123,7 @@ flowchart LR
     cache[("Parquet price cache<br/>data/")]
     research["Backtesters, optimizer,<br/>research studies"]
     results[("Results<br/>results/")]
-    live["Live engine<br/>on the trading VM"]
+    live["Trading node<br/>on the trading VM"]
     record[("Bot record<br/>session logs, broker snapshots")]
     api["Dashboard API<br/>apps/api"]
     web["Dashboard<br/>apps/web"]
@@ -136,9 +138,9 @@ flowchart LR
 
 | | |
 |---|---|
-| Packages | Six installable packages in one `midfreq` namespace: core, data, strategies, backtest, live, research |
+| Packages | Eight installable packages in one `midfreq` namespace: core, engine (the backtester's C++ core), data, strategies, backtest, live, trading, research |
 | Markets | Hong Kong (HKEX) and US (Nasdaq, NYSE) equities, hourly bars; seven equity venues and four crypto exchanges configured |
-| Connectors | Moomoo OpenD, Interactive Brokers, yfinance, Binance, ccxt |
+| Connectors | Moomoo OpenD, Interactive Brokers, yfinance, Binance, ccxt; Moomoo and ccxt also stream live data and route orders |
 | Strategies | 13 candle strategies behind one registry; an event-driven Strategy API with native strategies |
 | Validation | Walk-forward under two configurations, White's Reality Check, Probability of Backtest Overfitting |
-| Live trading | Paper trading through moomoo OpenD from a cloud virtual machine, recorded and reconciled against the broker |
+| Live trading | Paper trading through moomoo OpenD from a cloud virtual machine, on the trading node (order management, pre-trade risk, a position ledger, shared market data), recorded and reconciled against the broker |

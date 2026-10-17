@@ -3,7 +3,9 @@
 This tutorial adds a connector for a new data source, makes the framework use it for a venue,
 fetches bars through it into the data catalog, and puts it through the contract tests every
 connector passes. The source is a hypothetical REST API, so that the whole tutorial runs offline
-against a stand-in for it; the steps are the ones the five built-in connectors follow.
+against a stand-in for it; the steps are the ones the five built-in connectors follow. The last
+section adds what a connector needs for the trading node to trade through it: an execution
+client, live streams, and the execution contract suite.
 
 **Needs:** the [installation](../getting_started/installation.md). No price cache and no network.
 
@@ -365,6 +367,71 @@ uv run pytest -q packages/midfreq-data/tests/test_connector_contract.py -k examp
 
 The test's `RecordingSleep` stands in for `time.sleep`, so the retry waits are recorded rather
 than slept, and the suite runs in a fraction of a second with no network.
+
+## Trading through the connector
+
+The hypothetical source only serves data. A connector for a venue the
+[trading node](../concepts/trading_node.md) should trade on adds an execution client and live
+streams, both to the contract in `midfreq.data.adapters.base`
+([Trading through connectors](../integrations/index.md#trading-through-connectors)), and says so
+in its capabilities (`live_data=True`, `execution=True`).
+
+**The execution client.** `execution_client(**options)` returns an `ExecutionClient` for one
+account, unconnected. A subclass implements:
+
+| Piece | What it must do |
+|---|---|
+| `environment`, `account_id` | `paper`, `live` or `sim`, from configuration; refuse to start in `live` unless the connection in `config/connections.yaml` says so explicitly |
+| `connect`, `disconnect` | open and close the venue's trading session; report drops and returns with `self._status("disconnected")` and `self._status("reconnected")`, the latter once the client has caught up |
+| `submit_order(order)` | send the order at the price given and return at once, recording the venue's id in `order.tags["venue_order_id"]` |
+| `cancel_order(order)` | ask for the cancel and return at once |
+| `query_order`, `open_orders`, `fills(since)` | the venue's view, as `OrderReport`s and `FillReport`s, for reconciliation |
+
+Everything the venue says afterwards goes to `self._emit(event)`: `OrderAccepted`,
+`OrderRejected`, one `OrderFilled` per execution (never twice for the same venue, order and trade
+id), `OrderCanceled`, and `OrderCancelRejected` when the venue refuses a cancel. A fee the venue
+does not report is `commission=0` with `tags["commission_unknown"] = True`; a fee in another
+currency keeps that currency. Events may be emitted from the client's own threads: the node only
+queues them.
+
+**Live streams.** On the data client, `subscribe_bars(bar_type, handler)` calls the handler with a
+`BarUpdate(bar, closed, ts_received)` for every push of the forming bar and the bar just closed,
+with `ts_event` the bar's close in true UTC and `closed` true only when the venue itself marks the
+bar final; `subscribe_quotes` delivers `QuoteTick`s; `self._stream_status(...)` reports the
+stream's connection; and `subscription_limit()` returns the account's limit, counted as one
+subscription per instrument and data type, or `None`. Handlers must only hand on what they receive.
+
+**The SDK stays in the connector.** Import the venue's SDK inside the connector's package, where
+it is first used. No other package may import it:
+[`tests/integration/test_venue_sdk_boundary.py`](repo:tests/integration/test_venue_sdk_boundary.py)
+fails if one does.
+
+**The execution contract suite.**
+[`packages/midfreq-data/tests/test_execution_contract.py`](repo:packages/midfreq-data/tests/test_execution_contract.py)
+runs 13 scenarios against every execution client: a fill; partial fills; a rejection with the
+venue's reason; a cancel; a cancel racing a fill; a refused cancel; a repeated push; a disconnect
+mid-order with reconciliation after it; the connection status; the venue's order id; events to
+the handler only; paper by default; and live refused without explicit configuration. To enter a
+new client, write a fake of the venue's SDK in `tests/support/` with a factory,
+`make_<venue>_execution_client(**options)`, that returns a pair: a real client wired to the fake,
+unconnected, and a driver through which the suite
+plays the venue's side (`accept`, `fill`, `reject`, `cancel_ack`, `refuse_cancel`,
+`repeat_last_push`, `disconnect`, `reconnect`, and `submitted` to list what the venue received;
+the protocol is `VenueDriver` in `tests/support/venue_driver.py`), then add it to `FACTORIES` in
+the suite. The factory must accept `environment="live"`, which must then fail at construction or
+at connect, and must report fills under the trade id the driver gave.
+
+```bash
+uv run pytest -q packages/midfreq-data/tests/test_execution_contract.py
+```
+
+```text
+....................................................                     [100%]
+52 passed in 16.80s
+```
+
+The 52 are the 13 scenarios against Moomoo, ccxt with websocket updates, ccxt polling, and the
+trading node's simulated venue.
 
 ## Reading accounts
 

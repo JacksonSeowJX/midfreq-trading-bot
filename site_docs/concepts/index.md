@@ -2,7 +2,7 @@
 
 These pages explain how the framework is organized and why: its packages and their layers,
 the data model it trades on, the two engines that run strategies over history, the method used
-to tell a real result from a lucky one, and the live system. For step-by-step code, see the
+to tell a real result from a lucky one, and the live trading node. For step-by-step code, see the
 [Tutorials](../tutorials/index.md); for every class and function, the
 [API reference](../api/index.md).
 
@@ -14,7 +14,7 @@ to tell a real result from a lucky one, and the live system. For step-by-step co
 
     ---
 
-    The six packages and the import layers between them, the research data flow, and the
+    The eight packages and the import layers between them, the research data flow, and the
     venue-based engine and how it maps to NautilusTrader.
 
 </div>
@@ -81,14 +81,22 @@ to tell a real result from a lucky one, and the live system. For step-by-step co
 
     ---
 
-    The live engine and order gateway, session logs and state, broker snapshots, and the
-    reconciliation of the bot's record against the broker's.
+    The two live paths, the session runner and its order gateway, session logs and state,
+    broker snapshots, and the reconciliation of the bot's record against the broker's.
+
+-   **[The trading node](trading_node.md)**
+
+    ---
+
+    The OMS with its write-ahead journal and unfilled-order policy, pre-trade risk and the kill
+    switch, the position ledger, market and reference data, the event loop, the run modes and
+    the `midfreq-node` command.
 
 -   **[The dashboard](dashboard.md)**
 
     ---
 
-    Every view of the web dashboard, and five worked examples that reproduce the project's
-    main findings.
+    Every view of the web dashboard, comparing strategies on one stock or on one universe, and
+    five worked examples that reproduce the project's main findings.
 
 </div>

@@ -10,7 +10,7 @@ result. The venue engine reuses it (the data providers, `midfreq.core.risk_manag
 `midfreq.core.portfolio`'s metric code) and can run every candle strategy unchanged, with identical
 results.
 
-Both live in the workspace's six packages (`packages/midfreq-*`). The engine's model, venues, message
+Both live in the workspace's packages (`packages/midfreq-*`). The engine's model, venues, message
 bus and accounts are in `midfreq-core`; connectors, the catalog and the fetch command in
 `midfreq-data`; the Strategy API and native strategies in `midfreq-strategies`; the engine, simulated
 venues, fill and slippage models and the legacy adapter in `midfreq-backtest`.
@@ -43,7 +43,7 @@ multi-exchange system needs were implicit:
 | `core.model.signals.Signal` | `Signal` (custom data) | `value` may be an immutable ranking, not only a scalar |
 | `core.model.fees`: `PercentFeeModel`, `MakerTakerFeeModel` | `FeeModel` | |
 | `core.venues.VenueSpec` + `config/venues.json` | venue config of `BacktestVenueConfig` | Adds sessions, lot rule and per-connector symbol rules |
-| `data.adapters.base`: `Connector`, `ConnectorConfig`, `ConnectorCapabilities`, `InstrumentProvider`, `DataClient`, `ExecutionClient` (slot only) | `adapters/`: `InstrumentProvider`, `DataClient`, `ExecutionClient`, factories | See "Connectors" |
+| `data.adapters.base`: `Connector`, `ConnectorConfig`, `ConnectorCapabilities`, `InstrumentProvider`, `DataClient`, `ExecutionClient` | `adapters/`: `InstrumentProvider`, `DataClient`, `ExecutionClient`, factories | See "Connectors" |
 | `data.adapters.registry.ConnectorRegistry` | client factories in a node config | The default connector per venue comes from `config/venues.json` |
 | `data.persistence.ParquetDataCatalog` | `ParquetDataCatalog` | `catalog/data/bar/<bar_type>/*.parquet`, `catalog/instruments/*.json` |
 | `core.common.msgbus.MessageBus` | `MessageBus` | Topic pub/sub with `*` and `?` wildcards; synchronous |
@@ -332,8 +332,10 @@ end of the S&P 100 history).
 
 ## Not in this version
 
-- Live trading: no `ExecutionClient` is implemented; live orders stay on `midfreq.live.live_engine` and
-  `midfreq.live.order_gateway` until the forward test ends. `subscribe_bars` on a data client is reserved.
+- Live trading. This engine's venues are simulated, for backtests. Live orders go through the trading
+  node (`midfreq.trading`, [LIVE_ARCHITECTURE.md](LIVE_ARCHITECTURE.md)), which reaches venues through
+  the connectors' `ExecutionClient` and live data streams, or through the session runner
+  (`midfreq.live`).
 - FX conversion, margin and short selling. Order-book simulation uses L2 snapshots (aggregated size
   per price), not individual orders (L3), so queue position is estimated from displayed size.
 - HKEX's price-dependent tick table (one price increment per venue is used).

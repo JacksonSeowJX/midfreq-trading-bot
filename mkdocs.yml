@@ -57,6 +57,7 @@ nav:
       - The C++ engine: concepts/native_engine.md
       - Optimization and validation: concepts/optimization_and_validation.md
       - Live trading: concepts/live_trading.md
+      - The trading node: concepts/trading_node.md
       - Saved runs: concepts/saved_runs.md
       - The dashboard: concepts/dashboard.md
   - Tutorials:

@@ -2,9 +2,11 @@
 
 The venue engine's domain model, in `midfreq.core.model` and `midfreq.core.venues`, follows
 NautilusTrader's: a trade happens on a **venue**, in an **instrument**, from **bars** whose
-type names their source completely. The candle backtester and the live engine still use the
-original model, a moomoo symbol string such as `HK.00700` and a `Candle`; the legacy reader and
-the legacy adapter translate between the two ([Backtesting](backtesting.md)).
+type names their source completely. The trading node uses the same model. The candle backtester
+and the session runner use the original one, a moomoo symbol string such as `HK.00700` and a
+`Candle`; the legacy reader and the legacy adapters translate between the two
+([Backtesting](backtesting.md)), so candle strategies run unchanged in the venue engine and on
+the trading node.
 
 ## Identifiers
 

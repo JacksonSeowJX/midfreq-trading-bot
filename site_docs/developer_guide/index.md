@@ -16,8 +16,9 @@ that run it, and how this site is built.
 
     ---
 
-    The hermetic default suite, the cross-package and opt-in real-data tests, the package-layer
-    check, and the live-path replay.
+    The hermetic default suite and its counts, the connector and execution contracts, the
+    trading node's equivalence tests, the opt-in real-data tests, the package-layer check, and the
+    live-path replay.
 
 -   **[CI workflows](ci.md)**
 
@@ -29,8 +30,8 @@ that run it, and how this site is built.
 
     ---
 
-    The trading VM and its schedule, versioned releases and deploys, and the hosted dashboard,
-    described by role.
+    The trading VM and its schedule, versioned releases, deploys with approval, the startup
+    checks, and the hosted dashboard, described by role; and where the runbooks are.
 
 -   **[Documentation](documentation.md)**
 
@@ -48,6 +49,9 @@ that run it, and how this site is built.
 - **Hermetic tests.** The default suite never touches the network, a broker gateway, or the
   real `data/` and `live_sessions/` folders.
 - **Live changes.** A change to the live trading path is replayed against the recorded sessions
-  and checked for backtest equivalence before it is released to the trading VM.
+  and checked for backtest equivalence before it is released to the trading VM, and a release
+  passes its startup checks on the VM before it trades.
+- **Venue SDKs in connectors only.** Only `midfreq.data.adapters` imports a broker's or exchange's
+  SDK ([Integrations](../integrations/index.md#trading-through-connectors)).
 - **Secrets.** No key, password or access list is ever committed; configuration names the
   environment variables that hold them.

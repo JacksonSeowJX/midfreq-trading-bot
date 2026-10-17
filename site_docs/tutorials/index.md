@@ -33,6 +33,7 @@ period stated in each, and other dates give other figures.
     ---
 
     A connector for a new REST source: symbology, paging, rate limits and UTC close times,
-    registered for a venue and put through the contract tests. Runs offline.
+    registered for a venue and put through the contract tests; then the execution client and
+    live streams a connector adds to trade. Runs offline.
 
 </div>

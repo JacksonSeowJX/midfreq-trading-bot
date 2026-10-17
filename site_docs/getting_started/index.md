@@ -1,9 +1,9 @@
 # Getting started
 
-The repository is a [uv](https://docs.astral.sh/uv/) workspace of six Python packages that share
-one `midfreq` namespace, two applications (the dashboard's HTTP API and its web front end), the
-research studies that produced the project's results, and the scripts that run the live
-paper-trading sessions. Everything a backtest needs is in the workspace except the price data,
+The repository is a [uv](https://docs.astral.sh/uv/) workspace of eight packages that share one
+`midfreq` namespace (seven in Python, and the backtester's C++ core), two applications (the
+dashboard's HTTP API and its web front end), the research studies that produced the project's
+results, and the launchers and scripts that run the live paper-trading sessions. Everything a backtest needs is in the workspace except the price data,
 which is downloaded once into a local Parquet cache.
 
 <div class="grid cards" markdown>

@@ -4,7 +4,7 @@ Four GitHub Actions workflows, in [`.github/workflows/`](repo:.github/workflows)
 
 | Workflow | Runs on | What it does |
 |---|---|---|
-| [`ci.yml`](repo:.github/workflows/ci.yml) | every push and pull request, except commits that touch only `live_sessions/` | the `research`, `vm` and `web` jobs below |
+| [`ci.yml`](repo:.github/workflows/ci.yml) | every push and pull request, except commits that touch only `live_sessions/` | the `research`, `vm`, `engine` and `web` jobs below |
 | [`release.yml`](repo:.github/workflows/release.yml) | a `vX.Y.Z` tag, or *Run workflow* with a version | builds, installs, tests and publishes a release |
 | [`deploy.yml`](repo:.github/workflows/deploy.yml) | *Run workflow* only | deploys, stages, switches or rolls back a release on the trading VM, after approval |
 | [`pages.yml`](repo:.github/workflows/pages.yml) | a push to `main` that changes the documentation's sources, or *Run workflow* | builds this site with `mkdocs build --strict` and publishes it to GitHub Pages |
@@ -15,8 +15,9 @@ A newer push to the same branch cancels a run still in progress.
 
 | Job | Environment | Steps |
 |---|---|---|
-| `research` | Python 3.12, the workspace from `uv.lock` (`uv sync --locked`) | the whole test suite; the package-layer check (`lint-imports`) |
-| `vm` | Python 3.10, the trading VM's pinned versions | builds the release bundle with `ops/build_release.sh`, installs it with the VM's installer (with its smoke test and a dry run of the session launcher), removes the packages' source folders, and runs the packages' and the cross-package tests against the installed wheels |
+| `research` | Python 3.12, the workspace from `uv.lock` (`uv sync --locked`), which builds the C++ engine's extension | the whole test suite; the package-layer check (`lint-imports`); a check that every C++ strategy port is current with its Python strategy (`python -m midfreq.backtest.parity status`), a warning rather than a failure, since a strategy whose port is not current runs on Python |
+| `vm` | Python 3.10, the trading VM's pinned versions | builds the release bundle with `ops/build_release.sh`, installs it with the VM's installer (with its smoke test, which checks the trading node's configurations and dry-runs both launchers), removes the packages' source folders, and runs the packages' and the cross-package tests against the installed wheels |
+| `engine` | CMake and GCC | the C++ engine alone: configure, build and its C++ unit tests (`ctest`), without Python |
 | `web` | Node 22 | checks that the web app's API types match `apps/api/openapi.json`, then typecheck, lint, tests and a production build |
 
 The `vm` job is the reason a release can be trusted on the VM: it tests what the bundle ships,

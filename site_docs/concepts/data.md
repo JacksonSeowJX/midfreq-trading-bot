@@ -5,7 +5,7 @@ share a single contract. It is kept in two stores:
 
 | Store | Layout | Written by | Read by |
 |---|---|---|---|
-| The **price cache**, `data/` | `data/<MARKET>_<CODE>/<timeframe>.parquet` | the download scripts in `scripts/data/` and the live engine | the candle backtester, the optimizer, the studies, the dashboard, the live engine's warm-up |
+| The **price cache**, `data/` | `data/<MARKET>_<CODE>/<timeframe>.parquet` | the download scripts in `scripts/data/`, and the live sessions, which add the bars they received | the candle backtester, the optimizer, the studies, the dashboard, the live sessions' warm-up |
 | The **data catalog**, `catalog/` | `catalog/data/bar/<bar_type>/*.parquet` and `catalog/instruments/*.json` | `python -m midfreq.data fetch` and `migrate` | the venue engine |
 
 Every reported result was computed from the price cache. The catalog is the venue engine's
