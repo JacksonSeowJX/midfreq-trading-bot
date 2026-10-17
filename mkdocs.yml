@@ -177,13 +177,16 @@ plugins:
       default_handler: python
       handlers:
         python:
-          # static analysis with griffe: nothing is imported, so the vendor SDKs are not needed
+          # static analysis with griffe: nothing is imported, so the vendor SDKs are not needed.
+          # Every package under packages/ whose modules have API pages must be listed here, or
+          # the reference cannot collect them and the build fails.
           paths:
             - packages/midfreq-core/src
             - packages/midfreq-data/src
             - packages/midfreq-strategies/src
             - packages/midfreq-backtest/src
             - packages/midfreq-live/src
+            - packages/midfreq-trading/src
             - packages/midfreq-research/src
           options:
             docstring_style: google

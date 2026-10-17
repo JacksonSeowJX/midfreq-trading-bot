@@ -14,7 +14,8 @@ the reference cannot drift from the code.
   of its modules with the first sentence of each module's docstring. A README section that a
   hand-written page includes on its own (`<!-- include: packages/x/README.md#section -->`) is
   left out of the package page, which links to that page instead, so no text appears twice.
-- The packages are listed in layer order: core, engine, data, strategies, backtest, live, research.
+- The packages are listed in layer order: core, engine, data, strategies, backtest, live, trading,
+  research.
 - Private modules (a name starting with "_", including __main__) are left out, and so is any
   folder without an __init__.py below midfreq/ (an implicit namespace subpackage, which griffe
   does not traverse): midfreq.data.providers.
@@ -197,7 +198,7 @@ def _walk(package_dir: Path, identifier: str, doc_dir: Path, readme: Optional[Pa
 
 
 # the packages in layer order, foundation first; any package not named here follows, by name
-LAYER_ORDER = ["core", "engine", "data", "strategies", "backtest", "live", "research"]
+LAYER_ORDER = ["core", "engine", "data", "strategies", "backtest", "live", "trading", "research"]
 
 
 def _layer(init: Path):
