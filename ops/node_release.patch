@@ -7,6 +7,11 @@ then delete this file in the same commit. It changes two shared files, which the
 deployment work does not edit directly while the integration is in progress.
 
 ops/build_release.sh
+  0. The version check. packages/midfreq-engine (0.1.0, merged from feature/native-engine via
+     integration/pre-oms) disagrees with the shipped packages (0.1.1), so the build stops at
+     its first step: "packages disagree on the version ... run ops/set_version.sh". The engine
+     is not shipped (the wheel loop skips it), so the check now skips it too; set_version.sh
+     still sets every package's version, the engine's included.
   1. The wheel count. The script ends with `[ "$n" -eq 6 ]`. Once midfreq-trading is merged,
      packages/ holds eight packages; the loop skips midfreq-engine and builds seven wheels, so
      every release build (and CI's `vm` job, which builds the bundle on every push) fails with
@@ -38,7 +43,7 @@ whose ccxt side imports ccxt lazily, only when an OKX/ccxt account is configured
 numpy, pyarrow, tzdata, pydantic and python-dotenv, which the packages below it use, are pinned.
 
 diff --git a/ops/build_release.sh b/ops/build_release.sh
-index 4eaf4cd..2b94fdd 100755
+index 4eaf4cd..22bc85c 100755
 --- a/ops/build_release.sh
 +++ b/ops/build_release.sh
 @@ -3,11 +3,14 @@
@@ -57,7 +62,19 @@ index 4eaf4cd..2b94fdd 100755
  #     ops/vm/crontab.txt                   the VM's schedule; maintain.sh, memlog.sh, tidy_home.sh
  #     defaults/config/                     config/ as committed, for setting up a runtime folder
  #
-@@ -39,7 +42,7 @@ trap 'rm -rf "$STAGE"' EXIT
+@@ -21,8 +24,10 @@ cd "$(dirname "$0")/.."
+ 
+ VERSION=$(python3 - <<'PYEOF'
+ import re, pathlib, sys
++# the packages the bundle ships: midfreq-engine is not one of them (see the wheel loop below)
+ vs = {p.parent.name: re.search(r'^version = "([^"]+)"', p.read_text(), re.M).group(1)
+-      for p in sorted(pathlib.Path('packages').glob('*/pyproject.toml'))}
++      for p in sorted(pathlib.Path('packages').glob('*/pyproject.toml'))
++      if p.parent.name != 'midfreq-engine'}
+ if len(set(vs.values())) != 1:
+     sys.exit(f"packages disagree on the version: {vs}; run ops/set_version.sh")
+ print(next(iter(vs.values())))
+@@ -39,7 +44,7 @@ trap 'rm -rf "$STAGE"' EXIT
  OUT="$STAGE/$NAME"
  mkdir -p "$OUT/wheels" "$OUT/ops/vm" dist
  
@@ -66,7 +83,7 @@ index 4eaf4cd..2b94fdd 100755
  # engine (packages/midfreq-engine): the VM trades and never backtests, and anything that does
  # backtest there falls back to the Python backtester when the engine is not installed
  for p in packages/*/; do
-@@ -47,9 +50,9 @@ for p in packages/*/; do
+@@ -47,9 +52,9 @@ for p in packages/*/; do
      uv build "$p" --wheel --quiet --out-dir "$OUT/wheels"
  done
  rm -f "$OUT/wheels/.gitignore"
@@ -78,7 +95,7 @@ index 4eaf4cd..2b94fdd 100755
  cp ops/vm/requirements-vm.txt "$OUT/"
  mkdir -p "$OUT/defaults"
  git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, never local edits
-@@ -60,8 +63,16 @@ git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, nev
+@@ -60,8 +65,16 @@ git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, nev
      (cd "$OUT" && shasum -a 256 wheels/*.whl | sed 's/^/sha256 /')
  } > "$OUT/MANIFEST"
  
