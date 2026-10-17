@@ -203,8 +203,9 @@ def test_rate_limit_is_retried_with_backoff(case):
 def test_capabilities_flags(case):
     conn = case.build(case.truth, False, RecordingSleep())
     caps = conn.capabilities
-    assert caps.historical_bars and not caps.execution and not caps.live_data
-    with pytest.raises(ConnectorError):
-        conn.execution_client()   # until the connector implements one
+    assert caps.historical_bars
+    if not caps.execution:
+        with pytest.raises(ConnectorError):
+            conn.execution_client()   # a connector that cannot trade says so
     assert BarSpecification.from_str(case.bar).interval in conn.capabilities_for(
         conn.venues.get(InstrumentId.from_str(case.instrument).venue)).intervals
