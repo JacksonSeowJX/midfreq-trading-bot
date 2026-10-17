@@ -221,13 +221,14 @@ class CcxtConnector(Connector):
 
     def account_client(self, exchange: str, secrets: Sequence[str] = (), quote: Optional[str] = None,
                        exchange_options: Optional[Dict[str, Any]] = None,
-                       timeout_ms: int = 5000) -> CcxtAccountClient:
+                       timeout_ms: int = 5000, environment: Optional[str] = None) -> CcxtAccountClient:
         """
         A read-only account at ccxt exchange `exchange` ('okx'), whose key is in the environment
         variables named by `secrets`. Values are in `quote`, by default the currency of the venue
         in config/venues.json whose exchange_id is `exchange` (OKX: USDT); spot holdings get that
         venue's instrument ids where its symbology is 'dash'. `exchange_options` go to the ccxt
-        constructor after this connector's own `options`.
+        constructor after this connector's own `options`. `environment`: 'paper' reads the
+        exchange's sandbox; 'live' or None (the dashboard's view) the account the key belongs to.
         """
         exchange_id = str(exchange).lower()
         specs = [s for s in self.venues.served_by(self.name)
@@ -245,7 +246,7 @@ class CcxtConnector(Connector):
         return CcxtAccountClient(
             exchange_id, secrets=secrets, quote=quote, exchange_factory=self._account_exchange_factory,
             exchange_options={**self.config.options, **(exchange_options or {})},
-            instrument_id=instrument_id, timeout_ms=timeout_ms, now_ns=self._now_ns)
+            instrument_id=instrument_id, timeout_ms=timeout_ms, now_ns=self._now_ns, environment=environment)
 
 
 class CcxtDataClient(CcxtStreamingMixin, DataClient):

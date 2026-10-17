@@ -645,3 +645,30 @@ def test_c3_an_order_rejected_by_guess_can_still_be_cancelled(paper_config, live
     order.tags["venue_order_id"] = vid                   # what the OMS's reconciliation records (H4)
     client.cancel_order(order)
     assert vid in venue.cancel_requests
+
+
+def test_h7_the_account_client_reads_the_sandbox_in_paper(paper_config, monkeypatch):
+    """H7 (safety review): a paper account client must read OKX's demo account, as the paper
+    execution client trades it, not the production account with the same key names."""
+    made = []
+
+    class Exchange:
+        def __init__(self, config):
+            self.config, self.sandbox = config, False
+            made.append(self)
+
+        def set_sandbox_mode(self, on):
+            self.sandbox = bool(on)
+    for var in ("OKX_PAPER_API_KEY", "OKX_PAPER_API_SECRET", "OKX_PAPER_API_PASSPHRASE"):
+        monkeypatch.setenv(var, "x")
+    conn = CcxtConnector({"min_request_interval": 0.0}, account_exchange_factory=lambda ex_id, config: Exchange(config))
+    secrets = ["OKX_PAPER_API_KEY", "OKX_PAPER_API_SECRET", "OKX_PAPER_API_PASSPHRASE"]
+    paper = conn.account_client("okx", secrets=secrets, environment="paper")
+    assert paper.environment == "paper"
+    paper._exchange()
+    assert made[-1].sandbox is True
+    for live in (conn.account_client("okx", secrets=secrets, environment="live"),
+                 conn.account_client("okx", secrets=secrets)):          # the dashboard's view
+        assert live.environment == "live"
+        live._exchange()
+        assert made[-1].sandbox is False

@@ -490,3 +490,67 @@ def test_m2_halt_cancels_working_orders_and_denies_new_ones(tmp_path):
     a.portfolio.execute_trade("US.MSFT", True, 5, 200.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
     assert len(venue.submitted) == 1 and node.risk.halted
     node.stop()
+
+
+def test_h7_the_account_source_must_be_the_execution_clients_environment(tmp_path):
+    """H7: the node asks the connector for the account client of the execution client's
+    environment, with only the options the account client takes (an execution option such as
+    `updates` used to make it raise, which silently switched reconciliation off), and refuses an
+    account whose environment differs from the execution client's."""
+    from types import SimpleNamespace
+    asked = []
+
+    class Account:
+        def __init__(self, environment):
+            self.environment = environment
+
+        def snapshot(self):
+            return {"cash": 1e6, "total_assets": 1e6, "market_value": 0.0}
+
+        def positions(self):
+            return []
+
+        def close(self):
+            pass
+
+    class Connector:
+        name = "ccxt"
+
+        def __init__(self, environment):
+            from midfreq.core.venues.spec import default_venues
+            self.env = environment
+            self.venues = default_venues()
+
+        def served_venues(self):
+            return []
+
+        def account_client(self, exchange, secrets=(), environment=None):
+            asked.append({"exchange": exchange, "environment": environment})
+            return Account(self.env)
+
+        def connect(self):
+            pass
+
+        def close(self):
+            pass
+
+    class Registry:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def create(self, name, config=None):
+            return self.conn
+
+    for env, usable in (("paper", True), ("live", False)):
+        d = tiny_config_dict(symbols=SYMS, mode="paper", confirm_timeout_s=150)
+        d["accounts"]["acct"] = {"connector": "ccxt", "options": {"exchange": "okx", "updates": "poll"},
+                                 "environment": "paper"}
+        node = TradingNode(config_from_dict(d), mode="paper", clock=TestClock(START), records_dir=tmp_path / env,
+                           store_dir=tmp_path / "data", registry=Registry(Connector(env)),
+                           components={"execution_client:acct": ScriptedVenue("paper"),
+                                       "data_client": FakeDataClient()})
+        node.start()
+        assert asked[-1] == {"exchange": "okx", "environment": "paper"}
+        assert (node._account_sources["acct"] is not None) is usable
+        assert (node.account_snapshot("acct") is not None) is usable
+        node.stop()

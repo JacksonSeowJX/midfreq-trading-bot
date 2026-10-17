@@ -731,13 +731,35 @@ class TradingNode:
             # erase its simulated holdings. Its capital is the configured cap.
             return None
         acc = self.config.accounts[aid]
+        env = getattr(client, "environment", None)
         try:
-            return self._connector(acc.connector).account_client(**(acc.account_options or acc.options))
+            factory = self._connector(acc.connector).account_client
+            if acc.account_options is not None:
+                kwargs = dict(acc.account_options)
+            else:
+                # The execution client's options, as far as the account client takes them (an
+                # execution option such as ccxt's `updates` must not make it fail).
+                accepted = inspect.signature(factory).parameters
+                kwargs = {k: v for k, v in acc.options.items() if k in accepted}
+            if "environment" in inspect.signature(factory).parameters and "environment" not in kwargs:
+                kwargs["environment"] = env
+            src = factory(**kwargs)
         except Exception as exc:
             self.integration_notes.append(f"account {aid}: no read-only account client ({exc})")
-            log.warning("account %s: no account client (%s); the capital cap and the state file are the "
-                        "only record", aid, exc)
+            log.error("account %s: no account client (%s); positions and cash are not reconciled with the "
+                      "broker; the capital cap and the state file are the only record", aid, exc)
             return None
+        src_env = getattr(src, "environment", None)
+        if src_env is not None and env is not None and src_env != env:
+            log.error("account %s: the account client reads the %s account but orders go to the %s one; "
+                      "refusing to reconcile against it", aid, src_env, env)
+            self.integration_notes.append(f"account {aid}: account client is {src_env}, execution {env}; not used")
+            try:
+                src.close()
+            except Exception:
+                pass
+            return None
+        return src
 
     def _make_data_client(self, venue: Venue) -> Any:
         override = self._components.get(f"data_client:{venue}") or self._components.get("data_client")
