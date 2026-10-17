@@ -30,12 +30,35 @@ SEC = 10**9
 
 
 class ChildFillingVenue(ScriptedVenue):
-    """Accepts every order; leaves an original order unfilled, fills a re-priced child at once."""
+    """Accepts every order; leaves an original order unfilled, fills a re-priced child
+    `child_delay_s` after it arrives (on the node's clock, delivered from the OMS's timer)."""
+
+    def __init__(self, child_delay_s: float = 5.0):
+        super().__init__()
+        self.child_delay_ns = int(child_delay_s * SEC)
+        self.clock = None
+        self.pending = []
 
     def submit_order(self, order):
         super().submit_order(order)
         if "parent" in order.tags:
-            self.fill(order, order.quantity, order.price)
+            self.pending.append((self.clock.timestamp_ns() + self.child_delay_ns, order))
+
+    def deliver_due(self, now_ns):
+        for due, order in list(self.pending):
+            if due <= now_ns:
+                self.pending.remove((due, order))
+                self.fill(order, order.quantity, order.price)
+
+
+def deliver_on_timer(node, venue):
+    venue.clock = node.clock
+    real = node.oms.on_timer
+
+    def on_timer(now_ns):
+        venue.deliver_due(now_ns)
+        real(now_ns)
+    node.oms.on_timer = on_timer
 
 
 def make(tmp_path, venue=None, **sections):
@@ -73,9 +96,11 @@ def test_a_repriced_order_is_waited_for_through_its_family(tmp_path):
     cancel does not end the wait), and books the child's fill as its trade."""
     node, venue = make(tmp_path, oms={"unfilled_order": {"wait_s": 30, "max_reprices": 2}})
     node.start()
+    deliver_on_timer(node, venue)
     push_prices(node, (100.0, 200.0, 300.0, 400.0))
     a = node.host.legacy[0]
     a.portfolio.execute_trade("US.AAPL", True, 10, 100.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    assert venue.pending == [], "execute_trade returned before the child filled"
     assert len(venue.submitted) == 2
     parent, child = venue.submitted
     assert child.tags["root"] == str(parent.client_order_id) and child.tags["attempt"] == 2
@@ -89,7 +114,7 @@ def test_a_repriced_order_is_waited_for_through_its_family(tmp_path):
     assert [(t["symbol"], t["side"], t["qty"], t["price"]) for t in trades] == [("US.AAPL", "BUY", 10.0, child.price)]
     assert trades[0]["timestamp"] == "2026-10-14 10:30:00+00:00"             # the decision candle, from the root
     assert a.open_orders() == []
-    assert node.clock.timestamp_ns() - START >= 30 * SEC                     # it waited the 30 s
+    assert node.clock.timestamp_ns() - START >= 35 * SEC                     # 30 s, then the child's 5 s
     node.stop()
 
 
