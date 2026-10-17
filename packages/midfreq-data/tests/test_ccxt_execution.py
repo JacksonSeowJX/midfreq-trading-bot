@@ -481,7 +481,9 @@ class Inbox(Events):
     pass
 
 
-def test_bar_updates_carry_utc_close_times_and_closed_flags():
+def test_bar_updates_carry_utc_close_times_and_are_never_closed_by_the_clock():
+    """M7 (safety review): ccxt's OHLCV rows carry no 'final' mark, so `closed` is always False
+    (base.py: closed only when the venue says so); the MarketDataService decides finality."""
     bt = BarType.of("BTC-USDT.OKX", "1-HOUR")
     open_ms = int(pd.Timestamp("2026-10-17 09:00", tz="UTC").value // 1_000_000)
     hour = 3_600_000_000_000
@@ -489,7 +491,7 @@ def test_bar_updates_carry_utc_close_times_and_closed_flags():
     forming = bar_update(bt, [open_ms, 1, 2, 0.5, 1.5, 10], hour, close_ns - 1)
     assert forming.bar.ts_event == close_ns and forming.bar.timestamp == pd.Timestamp("2026-10-17 10:00", tz="UTC")
     assert not forming.closed and forming.ts_received == close_ns - 1 and forming.bar.ts_init == close_ns - 1
-    assert bar_update(bt, [open_ms, 1, 2, 0.5, 1.5, 10], hour, close_ns).closed
+    assert not bar_update(bt, [open_ms, 1, 2, 0.5, 1.5, 10], hour, close_ns + hour).closed
     assert bar_update(bt, [open_ms, 1, 2, 0.5, None, 10], hour, close_ns) is None
 
 
@@ -522,7 +524,7 @@ def test_watched_bars_and_stream_status():
         driver.push_candle("BTC/USDT", [open_ms, 100, 102, 99, 101.0, 5])
         driver.push_candle("BTC/USDT", [open_ms + 60_000, 101, 101, 101, 101, 1])
         updates = bars.wait(BarUpdate, 3)
-        assert [u.closed for u in updates] == [False, True, False]
+        assert [u.closed for u in updates] == [False, False, False]
         assert [s.state for s in statuses.of(StreamStatus)] == ["connected"]
 
         driver.disconnect()
@@ -574,7 +576,7 @@ def test_polled_bars_push_only_what_changed():
     try:
         updates = bars.wait(BarUpdate, 2)
         quiet()
-        assert [u.closed for u in updates] == [True, False] and len(bars) == 2
+        assert [u.closed for u in updates] == [False, False] and len(bars) == 2
         driver.push_candle("BTC/USDT", [open_ms, 100, 103, 99, 102.0, 4])
         later = bars.wait(BarUpdate, 3)
         assert later[-1].bar.close == 102.0 and not later[-1].closed

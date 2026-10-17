@@ -56,7 +56,8 @@ def bar_update(bar_type: BarType, row, interval_ns: int, now_ns: int) -> Optiona
     if not all(math.isfinite(x) for x in (o, h, lo, c, v)):
         return None
     close_ns = ms_to_ns(open_ms) + interval_ns
-    return BarUpdate(Bar(bar_type, o, h, lo, c, v, close_ns, now_ns), closed=close_ns <= now_ns, ts_received=now_ns)
+    # closed only when the venue says so (base.py); an OHLCV row never does: the MarketDataService decides
+    return BarUpdate(Bar(bar_type, o, h, lo, c, v, close_ns, now_ns), closed=False, ts_received=now_ns)
 
 
 def quote_from_ticker(instrument_id: InstrumentId, ticker: Dict[str, Any], now_ns: int) -> Optional[QuoteTick]:
