@@ -134,6 +134,10 @@ class OrderManager(Protocol):
         """The order with the child orders that replaced it when it was re-priced (tags parent,
         root, attempt), oldest first: one intent's orders."""
 
+    def next_order_id(self, strategy_id: StrategyId) -> ClientOrderId:
+        """A fresh id in the OMS's format, never used before: a strategy that takes its ids from
+        here can record its order under the id it will keep."""
+
     def family_done(self, client_order_id: ClientOrderId) -> bool:
         """Whether that intent has its outcome: every order of the family closed and no child
         order still to come."""

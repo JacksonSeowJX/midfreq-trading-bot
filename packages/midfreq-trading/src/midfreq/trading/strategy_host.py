@@ -31,9 +31,10 @@ returns, processing only order events (and the OMS's timers) meanwhile on the no
 outcome is the outcome of the order's family: when the OMS re-prices an unfilled order it
 cancels it and sends a child order with a new id (tags parent, root, attempt), and the wait
 follows the family (`OrderManager.family_done`) until no order of it is working and none is to
-come; the fills of every child are booked as the strategy's trade. The OMS may also give the
-order a new client order id when it accepts it (its `<strategy>-<date>-<seq>` format); the
-adapter finds its order by the object the OMS updated in place. The original engine did the
+come; the fills of every child are booked as the strategy's trade. The order's id comes from
+the OMS (`next_order_id`, its `<strategy>-<date>-<seq>` format) before the adapter records it,
+so the OMS never renames it; the adapter's own counter is kept in tags['strategy_order_id'].
+The original engine did the
 same (place, confirm, then book), and a candle strategy depends on it:
 CrossSectionalReversal sizes its buys on the cash its sells just raised and stops buying once it
 holds `top_n` names, so if a sell were still open when the buys are sized, the basket would
@@ -120,6 +121,7 @@ class NodeServices:
     market_open: Callable[[Any], bool] = lambda venue: True               # venue in session now
     order: Optional[Callable[[ClientOrderId], Optional[Order]]] = None    # OMS.order
     family_done: Optional[Callable[[ClientOrderId], bool]] = None         # OMS.family_done
+    next_order_id: Optional[Callable[[StrategyId], ClientOrderId]] = None  # OMS.next_order_id
 
 
 # ── strategy output into the ops log ──────────────────────────────────────────────────────────
@@ -609,6 +611,10 @@ class LiveLegacyAdapter:
         # DAY: a Moomoo GTC order would outlive the session (config.validate refuses anything else).
         order = self.order_factory.limit(iid, OrderSide.BUY if is_buy else OrderSide.SELL, qty, limit,
                                          TimeInForce.DAY, tags)
+        if self.services.next_order_id is not None:
+            # The OMS's own id, taken before the record is stored, so the OMS never renames it.
+            order.tags["strategy_order_id"] = str(order.client_order_id)
+            order.client_order_id = self.services.next_order_id(self.id)
         order.reference_price = float(price)
         meta = _OrderMeta(order, symbol, is_buy, timestamp, exit_reason)
         self._orders[order.client_order_id] = meta
@@ -620,7 +626,6 @@ class LiveLegacyAdapter:
             if self.on_order_sent is not None:
                 self.on_order_sent(order)
             self.services.submit(order)
-            self._orders[order.client_order_id] = meta      # the id the OMS gave it, if it gave a new one
             if not self.settings.confirm_fills:
                 return
             done = self.services.wait_until(lambda: self._resolved(meta), self.settings.confirm_timeout_s,

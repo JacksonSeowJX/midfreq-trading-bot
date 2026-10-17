@@ -176,3 +176,42 @@ def test_a_strategy_that_would_give_up_before_the_oms_is_refused():
     assert any("confirm_timeout_s 75 is shorter" in p for p in validate(cfg))
     gtc = config_from_dict(tiny_config_dict(symbols=SYMS, confirm_timeout_s=150, pricing={"time_in_force": "GTC"}))
     assert any("DAY orders" in p for p in validate(gtc))
+
+
+# ── safety review, 17 October 2026 ───────────────────────────────────────────────────────────
+
+class FillingVenue(ScriptedVenue):
+    """Accepts and fills every order at once at its limit."""
+
+    def submit_order(self, order):
+        super().submit_order(order)
+        self.fill(order, order.quantity, order.price)
+
+
+def test_c1_a_filled_order_resolves_at_once_under_the_id_the_adapter_stored(tmp_path):
+    """C1: the adapter takes its order id from the OMS before it stores its record, so the OMS
+    never renames the order, the fill resolves the wait at once (no confirm timeout) and the
+    trade line carries the decision candle's timestamp."""
+    node, venue = make(tmp_path, venue=FillingVenue())
+    node.start()
+    push_prices(node, (100.0, 200.0, 300.0, 400.0))
+    a = node.host.legacy[0]
+    seen = []
+    real_submit = node.oms.submit
+
+    def spy(order):
+        before = order.client_order_id
+        stored = before in a._orders
+        real_submit(order)
+        seen.append((before, order.client_order_id, stored))
+    node.oms.submit = spy
+    t0 = node.now_ns()
+    a.portfolio.execute_trade("US.AAPL", True, 10, 100.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    assert node.now_ns() == t0                                   # resolved without waiting
+    (before, after, stored), = seen
+    assert before == after and stored                            # never renamed; stored first
+    assert str(before).startswith("xsr-test-20261014-")
+    trades = [e for e in read_events(a.session_log.path) if e["type"] == "trade"]
+    assert [(t["timestamp"], t["symbol"], t["qty"]) for t in trades] == [("2026-10-14 10:30:00+00:00", "US.AAPL", 10.0)]
+    assert a.open_orders() == []
+    node.stop()

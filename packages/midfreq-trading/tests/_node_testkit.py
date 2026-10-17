@@ -173,6 +173,11 @@ class StandInOMS:
     def order(self, client_order_id) -> Optional[Order]:
         return self.orders.get(client_order_id)
 
+    def next_order_id(self, strategy_id):
+        from midfreq.core.model.identifiers import ClientOrderId
+        self._n = getattr(self, "_n", 0) + 1
+        return ClientOrderId(f"{strategy_id}-20261014-{self._n:04d}")
+
     def family(self, client_order_id) -> List[Order]:
         o = self.orders.get(client_order_id)
         return [o] if o is not None else []

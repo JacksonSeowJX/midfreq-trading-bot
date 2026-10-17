@@ -120,8 +120,8 @@ DEFAULT_COMPONENTS: Dict[str, str] = {
 
 # What each component must offer (midfreq.trading.interfaces), checked when the node is built.
 REQUIRED_METHODS: Dict[str, Tuple[str, ...]] = {
-    "oms": ("submit", "cancel", "handle_event", "order", "family", "family_done", "open_orders", "on_timer",
-            "reconcile"),
+    "oms": ("submit", "cancel", "handle_event", "order", "family", "family_done", "next_order_id", "open_orders",
+            "on_timer", "reconcile"),
     "marketdata": ("dispatch", "subscribe_bars", "subscribe_quotes", "resubscribe", "warm_up", "start", "stop",
                    "on_timer"),
     "risk": ("check", "halt", "resume"),
@@ -630,7 +630,7 @@ class TradingNode:
             latest_price=self.latest_price, quote=self.cache.quote, instrument=self.instrument,
             local_now=self.local_now, warm_up=self._warm_up_bars, order_prefix=self.order_prefix,
             alert=self.alert, market_open=self.market_open, order=self.oms.order,
-            family_done=self.oms.family_done)
+            family_done=self.oms.family_done, next_order_id=self.oms.next_order_id)
         self.host = StrategyHost(services)
         self._services = services
 
