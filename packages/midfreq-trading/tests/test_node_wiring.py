@@ -277,3 +277,56 @@ def test_c4_a_replay_leaves_the_real_data_dir_untouched(tmp_path, monkeypatch):
         assert list((tmp_path / "store").rglob("1h.parquet")), "the replay wrote its bars to its own store"
     finally:
         paths.repo_root.cache_clear()
+
+
+def test_h1_a_resumed_strategy_can_sell_what_it_carried(tmp_path):
+    """H1: the PositionKeeper is built before risk and seeded (with the right arguments) from the
+    strategy's resumed book, so a sell of a carried position passes the risk check, and cash is
+    the saved cash, not 0."""
+    import json
+    rec = tmp_path / "rec"
+    rec.mkdir()
+    (rec / "state_crosssectionalreversal.json").write_text(json.dumps(
+        {"saved_at": "x", "positions": {"US.AAPL": {"qty": 10.0, "entry_price": 100.0}}, "peak_prices": {},
+         "cross_section_count": 3, "next_rebalance_at": 4, "cash": 99_000.0}, indent=1))
+    node, venue = make(tmp_path, venue=FillingVenue())
+    node.start()
+    a = node.host.legacy[0]
+    aapl = instrument_for_symbol("US.AAPL")
+    assert node.positions.position(a.id, aapl) == 10 and node.positions.cash(a.id) == 99_000.0
+    push_prices(node, (100.0, 200.0, 300.0, 400.0))
+    a.portfolio.execute_trade("US.AAPL", False, 10, 100.0, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    assert [(o.side.value, o.quantity) for o in venue.submitted] == [("SELL", 10.0)]
+    assert node.risk.denied == 0 and a.portfolio.get_position_qty("US.AAPL") == 0
+    node.stop()
+
+
+def test_h1_board_lots_come_from_the_connectors_instrument_provider():
+    """H1: reference data is built from the connectors, so HSBC trades in lots of 400 (the
+    venue's default lot is 100) and risk refuses an odd lot."""
+    from types import SimpleNamespace
+    from midfreq.core.common.msgbus import MessageBus
+    from midfreq.core.model import Equity, OrderFactory, OrderSide, StrategyId, TimeInForce
+    from midfreq.core.venues.spec import default_venues
+    from midfreq.trading.components import make_refdata
+    hsbc = instrument_for_symbol("HK.00005")
+    venues = default_venues()
+
+    class Provider:
+        def load(self, ids):
+            return [Equity(id=i, raw_symbol=str(i.symbol), currency="HKD", lot_size=400.0) for i in ids]
+
+        def find(self, iid):
+            return None
+    conn = SimpleNamespace(name="moomoo", venues=venues, instrument_provider=Provider(),
+                           served_venues=lambda: [hsbc.venue])
+    ctx = SimpleNamespace(venues=venues, connectors={"moomoo": conn}, config=SimpleNamespace(resolve_path=lambda p: p))
+    refdata = make_refdata(ctx, {})
+    assert refdata.instrument(hsbc).lot_size == 400.0
+    assert venues.get(hsbc.venue).default_lot_size != 400.0
+    led = PositionLedger(TestClock(START), MessageBus(), capital={"S": 1e6})
+    risk = PreTradeRiskEngine(TestClock(START), MessageBus(), led, lot_size=lambda i: refdata.instrument(i).quantity_step,
+                              reference_price=lambda i: 50.0)
+    f = OrderFactory(StrategyId("S"))
+    assert "lots of 400" in risk.check(f.limit(hsbc, OrderSide.BUY, 300, 50.0, TimeInForce.DAY))
+    assert risk.check(f.limit(hsbc, OrderSide.BUY, 400, 50.0, TimeInForce.DAY)) is None
