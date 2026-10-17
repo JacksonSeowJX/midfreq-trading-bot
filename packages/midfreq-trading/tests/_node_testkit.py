@@ -111,8 +111,9 @@ class StandInOMS:
         self.clients = execution_clients
         self.risk = risk
         self.positions = positions
-        policy = dict((config or {}).get("unfilled_order", {}))
-        self.wait_ns = int(float(policy.get("wait_s", 30)) * 1e9)
+        from midfreq.trading.oms import UnfilledOrderPolicy       # the configuration's own reader
+        policy = UnfilledOrderPolicy.from_config((config or {}).get("unfilled_order"))
+        self.wait_ns = int(policy.wait_s * 1e9)
         self.orders: Dict[Any, Order] = {}
         self.submitted_at: Dict[Any, int] = {}
         self.events: List[Any] = []
