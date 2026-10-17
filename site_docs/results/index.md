@@ -14,6 +14,8 @@ things tried, and the single-stock strategies did not beat holding the same stoc
 | Passed | **13** (6.0%) |
 | Corrected for the search | White's Reality Check over the 8 cross-sectional candidates: **p = 0.094** (Config A) and **p = 0.098** (Config B), above the 0.05 needed |
 | Overfitting of the strongest result | Probability of Backtest Overfitting **0.274** over 96 configurations (pure noise gives 0.5) |
+| Stability of the live setting | fails all three pre-registered tests over 17,920 settings: a narrow peak, below the median setting from August 2023 to July 2026, before the days it was chosen on |
+| Forward test, to 16 October 2026 | US$100,000 at **−5.29%** after four rebalances, against **+2.03%** for an equal-weight index of the same 98 stocks; too short to confirm or refute the result |
 
 ## The 13 results that passed
 
@@ -51,7 +53,12 @@ stocks with the lowest return, on the expectation that they catch up with the re
 
     Both corrected values are above 0.05: the best result cannot be told apart from the luck of
     picking the best of eight.
-- **Stability.** The result also passes or fails depending on the week its data ends.
+- **Stability.** The result also passes or fails depending on the week its data ends. The
+  setting the forward test trades, the best of 96 over the 84 days before it went live, is a
+  narrow peak: only 2 of its 26 neighbouring settings come within 80% of its Sharpe ratio, and
+  from August 2023 to July 2026, before those 84 days, it ranks below the median of 17,920
+  settings
+  ([Parameter stability](../concepts/optimization_and_validation.md#parameter-stability)).
 
 ## What the project delivers
 
@@ -59,7 +66,8 @@ No strategy beat chance once the number of things tried was accounted for. What 
 delivers is the framework documented on this site, a validation method that catches results a
 single backtest would have reported as real (the strongest result's settings return +56.83% in a
 single backtest over the last year; see [Backtest a strategy](../tutorials/backtest_a_strategy.md#6-a-cross-sectional-strategy)),
-and a live system checked against a real broker ([The forward test](forward_test.md)).
+and a live trading system checked against a real broker ([The forward test](forward_test.md),
+[The trading node](../concepts/trading_node.md)).
 
 ## On the dashboard
 

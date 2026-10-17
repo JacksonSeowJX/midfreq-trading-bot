@@ -14,6 +14,7 @@ the number of candidates it tried.
 | Two-configuration standard | the studies in `research/studies/` | does that hold whichever way the period is cut into windows? |
 | Probability of Backtest Overfitting | `midfreq.research.overfitting` | within one strategy and universe, is the configuration the search picked better than the others, or the luckiest of them? |
 | White's Reality Check | `midfreq.research.reality_check` | across every strategy and universe tried, is the winner better than what trying that many produces? |
+| Parameter stability | `research/studies/param_stability_sp100_reversal.py` | does a chosen setting sit on a plateau of good settings, and does that region hold on data the setting was not chosen on? |
 
 ## Grid search
 
@@ -133,6 +134,54 @@ near 0.5, it is a coin flip; above 0.5, it picks configurations that do worse th
 `build_performance_matrix` runs the backtests, one per configuration and subset;
 `pbo_from_matrix` does the arithmetic on that matrix; `compute_pbo` does both. For the S&P 100
 reversal, over 96 configurations and 10 subsets (252 splits), PBO is 0.274.
+
+## Parameter stability
+
+A grid search's best setting may be the top of a broad region of good settings, or an isolated
+spike that one period's luck produced. The forward test's setting (lookback 30 candles, a basket
+of 3, a rebalance every 19 cross-sections) was the best of the registry's 96-setting grid by
+Sharpe ratio over the 84 days to 25 September 2026
+([How the settings were chosen](../results/forward_test.md#how-the-settings-were-chosen)), and two
+of its three values lie at the edge of that grid, so the grid cannot show which it is. The study
+[`research/studies/param_stability_sp100_reversal.py`](repo:research/studies/param_stability_sp100_reversal.py)
+extends the grid past both edges and puts the setting to three tests, whose rules were fixed and
+committed before the study was run.
+
+It backtests a fine grid of 17,920 settings (lookback 5 to 60, basket 1 to 8, rebalance every 1
+to 40 cross-sections), each from a flat portfolio on the forward test's 98 stocks at 0.005% per
+side and 5 basis points of slippage, over the 84-day selection window and over the period before
+it (25 August 2023 to 2 July 2026), which the setting was not chosen on. On the C++ engine's batch
+runner the five surfaces take about a minute. The *neighbourhood* is the 26 settings one step of
+the original grid away on each parameter (lookback 25, 30 or 35; basket 2, 3 or 4; rebalance 13,
+19 or 25), two of whose values lie outside that grid.
+
+| Test | Passes if | Result |
+|---|---|---|
+| Plateau | at least 20 of the 26 neighbours score at least 80% of the setting's in-sample Sharpe ratio of 5.49 | **fails**: 2 of 26 |
+| Location | the setting with the best smoothed Sharpe ratio on the fine grid (the mean over itself and its neighbours) lies within lookback ±5, basket ±1 and rebalance ±6 of it | **fails**: lookback 36, basket 8, rebalance 15, with a smoothed Sharpe ratio of 4.52 against the setting's 3.17 |
+| Generalization | on the earlier period, the median Sharpe ratio of the setting and its neighbours is above 0 and above the median of the whole fine grid | **fails**: 0.65, above 0 but below the grid's 0.96 |
+
+![Sharpe ratio along each parameter through the live setting, in the selection window and before it](repo:results/charts/param_stability_sp100_reversal_report_slices.png)
+
+The setting is therefore **not robust**: its in-sample score is not evidence of a stable optimum.
+In the selection window it ranks 21st of the 17,920 settings (a Sharpe ratio of 5.49, against a
+median of 1.69), but it is a narrow peak: the rebalance interval scores well only at 19 and the
+lookback only within a few candles of 30. Before that
+window its Sharpe ratio is 0.90, which ranks 9,943rd, below the median setting; by year, it falls
+at the 22nd, 21st and 84th percentiles. Two descriptive checks agree:
+
+- **Rebalance phase.** With a rebalance every 19 hourly cross-sections, the first bar decides when
+  the rebalances fall. Starting the selection window 0 to 18 bars later gives Sharpe ratios from
+  1.21 to 5.62 (median 3.14) and returns from 9.0% to 54.3%; the start the search scored has the
+  highest return of the 19.
+- **Walk-forward choices.** None of the 24 windows of the S&P 100 walk-forward (Config A and
+  Config B) chose the setting, and 2 chose one within its neighbourhood.
+
+A pass would not have validated the strategy; the failure means that the live setting's
+in-sample figures say little about what to expect from it, which is what the Reality Check also
+found for the strategy as a whole. The study writes every test with its numbers to
+`results/param_stability_sp100_reversal_<stamp>.json`, each surface to a CSV beside it, and its
+figures to `results/charts/` ([Reproducing the numbers](../results/reproducing.md)).
 
 ## What a search over noise looks like
 

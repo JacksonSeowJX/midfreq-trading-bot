@@ -19,7 +19,15 @@ uv run python research/studies/pbo_sp100_reversal.py --end-date 2026-08-21
 
 # White's Reality Check, p = 0.094 and 0.098 (report Section 4.11)
 uv run python research/studies/reality_check_study.py --end-date "2026-08-28 16:00" --n-boot 20000
+
+# Parameter stability of the forward test's setting (fixed windows; about a minute on the C++ engine)
+uv run python research/studies/param_stability_sp100_reversal.py
 ```
+
+The parameter-stability study's windows are fixed in the script, and it first reproduces the
+search that chose the forward test's setting, stopping unless it scores exactly as recorded; its
+walk-forward step reads two saved walk-forward runs from the run store (`runs/`). Its committed
+output is `results/param_stability_sp100_reversal_20261017_015938.json`, with a CSV per surface.
 
 A walk-forward over the S&P 100 takes about half an hour, so the Reality Check study, which
 runs eight candidates under two configurations, takes hours. It caches each candidate's

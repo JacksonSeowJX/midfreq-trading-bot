@@ -102,6 +102,17 @@ sequenceDiagram
   cross-sectional strategy, dates and costs) and answers 422 with a one-sentence reason. A
   kind the deployment does not allow (`Settings.job_kinds`) is 403. A run that fails after it has
   started becomes a job with status `failed` and the reason in `error`.
+- **One stock or one universe.** A single-stock strategy needs a `symbol`; a cross-sectional
+  strategy takes a `universe` and no symbol, and the universe must hold more stocks with cached
+  candles than its basket (for a search, than the largest basket its grid tries). A comparison is
+  of single-stock strategies on one stock, or of cross-sectional strategies on one universe,
+  never both: the two kinds trade different stocks, size their positions differently and are
+  measured against different buy and hold, so their rows would not be like-for-like.
+- **Buy and hold.** A backtest's and a comparison's result carries `benchmark`: the starting
+  capital split equally across the stock or the universe's stocks at their first close in the
+  run's dates and held, valued over time. Its last value gives the run's buy-and-hold return,
+  from which `alpha` is measured. A cross-sectional backtest has no `chart`, since it trades no
+  one stock.
 - **Execution.** Runs make the same library calls with the same arguments as the Streamlit
   dashboard's sidebar did, so the same inputs give the same numbers. They run in worker
   processes at a lower priority than the API, so the API keeps answering while a run computes.
