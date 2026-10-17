@@ -1,6 +1,6 @@
 [project]
 name = "midfreq-live"
-version = "0.1.0"
+version = "0.1.1"
 description = "Live trading: the live engine and the broker order gateway."
 requires-python = ">=3.10"
 dependencies = ["midfreq-core", "midfreq-data", "midfreq-strategies", "pandas>=2.1", "moomoo-api"]
