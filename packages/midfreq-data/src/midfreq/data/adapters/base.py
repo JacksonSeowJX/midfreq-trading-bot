@@ -211,6 +211,16 @@ class DataClient(ABC):
     def unsubscribe_bars(self, bar_type: BarType) -> None:
         raise NotImplementedError(f"{self.connector.name} has no live bar stream")
 
+    def subscribe_bars_many(self, bar_types: Iterable[BarType], handler: Callable[["BarUpdate"], None]) -> None:
+        """Several bar types at once. A connector whose venue takes a list in one request (Moomoo)
+        makes it one request; by default, one subscribe_bars each."""
+        for bt in bar_types:
+            self.subscribe_bars(bt, handler)
+
+    def unsubscribe_bars_many(self, bar_types: Iterable[BarType]) -> None:
+        for bt in bar_types:
+            self.unsubscribe_bars(bt)
+
     def subscribe_quotes(self, instrument_id: InstrumentId, handler: Callable[[QuoteTick], None]) -> None:
         """Stream top-of-book quotes (best bid and ask) for one instrument."""
         raise NotImplementedError(f"{self.connector.name} has no live quote stream")

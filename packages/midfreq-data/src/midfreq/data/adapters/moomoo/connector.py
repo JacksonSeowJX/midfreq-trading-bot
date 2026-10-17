@@ -217,6 +217,12 @@ class MoomooDataClient(DataClient):
     def unsubscribe_bars(self, bar_type: BarType) -> None:
         self.streams.unsubscribe_bars(bar_type)
 
+    def subscribe_bars_many(self, bar_types, handler: Callable[[BarUpdate], None]) -> None:
+        self.streams.subscribe_bars_many(list(bar_types), handler)
+
+    def unsubscribe_bars_many(self, bar_types) -> None:
+        self.streams.unsubscribe_bars_many(list(bar_types))
+
     def subscribe_quotes(self, instrument_id: InstrumentId, handler: Callable[[QuoteTick], None]) -> None:
         self.streams.subscribe_quotes(instrument_id, handler)
 

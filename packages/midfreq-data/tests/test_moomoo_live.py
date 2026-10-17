@@ -826,3 +826,17 @@ def test_a_push_payload_the_sdk_cannot_parse_is_ignored():
     venue.push_deal_raw(PushError("bad packet"))
     assert events == []
     assert set(ORDER_PUSH_COLUMNS) >= {"order_id", "order_status", "remark", "dealt_qty", "dealt_avg_price"}
+
+
+def test_m5_many_bar_subscriptions_are_one_opend_call_each_way():
+    """M5 (safety review): 98 symbols are subscribed, resubscribed and unsubscribed in one OpenD
+    call per data type, not one synchronous call per symbol on the node's thread."""
+    conn, dc, venue, _ = streams()
+    bts = [BarType.of(f"{s}.XNAS", "1-HOUR") for s in ("AAPL", "MSFT", "NVDA", "AMD", "INTC")]
+    dc.subscribe_bars_many(bts, lambda u: None)
+    assert [m for m in venue.methods_called() if m == "subscribe"] == ["subscribe"]
+    assert sorted(venue.calls[-1][1]["codes"]) == sorted(f"US.{s}" for s in ("AAPL", "MSFT", "NVDA", "AMD", "INTC"))
+    venue.clock.advance(120)
+    dc.unsubscribe_bars_many(bts)
+    assert [m for m in venue.methods_called() if m == "unsubscribe"] == ["unsubscribe"]
+    assert dc.streams.subscriptions() == []

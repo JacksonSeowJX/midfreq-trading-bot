@@ -109,6 +109,7 @@ class MoomooStreams:
         self._subs: Dict[Tuple[str, str], _Sub] = {}           # (code, subtype) -> who receives it
         self._since: Dict[Tuple[str, str], float] = {}         # (code, subtype) -> when OpenD subscribed it (s)
         self._pending: Dict[Tuple[str, str], Any] = {}         # deferred unsubscribes (timers)
+        self._down = False                                       # OpenD dropped the quote connection
         self._close_cache: Dict[Tuple[str, str, str], Optional[int]] = {}
 
     def _now_s(self) -> float:
@@ -172,6 +173,79 @@ class MoomooStreams:
         key = (self.connector.to_native(bar_type.instrument_id), KLTYPES.get(bar_type.spec.interval, ""))
         self._unsubscribe(key)
 
+    def subscribe_bars_many(self, bar_types: List[BarType], handler: Callable[[BarUpdate], None]) -> None:
+        """Many bar types in one OpenD request per K-line type (one synchronous call, not one per
+        symbol on the node's thread)."""
+        from midfreq.data.adapters.moomoo.connector import KLTYPES
+        conn = self.connector
+        by_type: Dict[str, List[Tuple[Tuple[str, str], _Sub]]] = {}
+        for bt in bar_types:
+            venue = conn.venue_spec(bt.instrument_id.venue)
+            conn.capabilities_for(venue).check(bt.spec, conn.name)
+            key = (conn.to_native(bt.instrument_id), KLTYPES[bt.spec.interval])
+            by_type.setdefault(key[1], []).append((key, _Sub("bar", handler, venue, bt.instrument_id, bt)))
+        ctx = self._context()
+        for subtype, items in by_type.items():
+            new = []
+            with self._lock:
+                for key, sub in items:
+                    _cancel(self._pending.pop(key, None))
+                    if key not in self._since:
+                        new.append(key)
+                    self._subs[key] = sub
+            if not new:
+                continue
+            try:
+                ret, err = ctx.subscribe([k[0] for k in new], [subtype], is_first_push=True)
+            except Exception as exc:
+                ret, err = None, f"{type(exc).__name__}: {exc}"
+            if ret != RET_OK:
+                with self._lock:
+                    for key in new:
+                        self._subs.pop(key, None)
+                self.connector.check_ret(-1, err, f"subscribe {len(new)} codes {subtype}")
+            with self._lock:
+                now = self._now_s()
+                for key in new:
+                    self._since[key] = now
+
+    def unsubscribe_bars_many(self, bar_types: List[BarType]) -> None:
+        """Many bar types in one OpenD request per K-line type; those subscribed less than a
+        minute ago are deferred as one by one; nothing is asked of OpenD while it is away (the
+        subscriptions went with the connection)."""
+        from midfreq.data.adapters.moomoo.connector import KLTYPES
+        keys = [(self.connector.to_native(bt.instrument_id), KLTYPES.get(bt.spec.interval, "")) for bt in bar_types]
+        now_ready: Dict[str, List[Tuple[str, str]]] = {}
+        with self._lock:
+            ctx = self._ctx
+            for key in keys:
+                if self._subs.pop(key, None) is None:
+                    continue
+                since = self._since.get(key)
+                if since is None or ctx is None:
+                    continue
+                if self._down:
+                    self._since.pop(key, None)
+                    continue
+                wait = self.min_subscription_s - (self._now_s() - since)
+                if wait > 0:
+                    _cancel(self._pending.pop(key, None))
+                    self._pending[key] = self._timer(wait + 1.0, lambda key=key: self._release(key))
+                    continue
+                now_ready.setdefault(key[1], []).append(key)
+        for subtype, ready in now_ready.items():
+            try:
+                ret, err = ctx.unsubscribe([k[0] for k in ready], [subtype])
+            except Exception as exc:
+                ret, err = None, f"{type(exc).__name__}: {exc}"
+            if ret == RET_OK:
+                with self._lock:
+                    for key in ready:
+                        if key not in self._subs:
+                            self._since.pop(key, None)
+            else:
+                log.warning("moomoo unsubscribe of %d %s subscriptions failed: %s", len(ready), subtype, err)
+
     def subscribe_quotes(self, instrument_id: InstrumentId, handler: Callable[[QuoteTick], None]) -> None:
         iid = as_instrument_id(instrument_id)
         venue = self.connector.venue_spec(iid.venue)
@@ -221,6 +295,9 @@ class MoomooStreams:
             ctx = self._ctx
             if key in self._subs or key not in self._since or ctx is None:
                 return                     # wanted again meanwhile, or nothing to release
+            if self._down:                 # OpenD is away: the subscription went with the connection
+                self._since.pop(key, None)
+                return
         code, subtype = key
         try:
             ret, err = ctx.unsubscribe([code], [subtype])
@@ -253,11 +330,13 @@ class MoomooStreams:
 
     def _on_disconnected(self, detail: Any) -> None:
         log.warning("moomoo quote connection lost (%s); the SDK reconnects every 6 s", detail)
+        self._down = True
         self.client._stream_status("disconnected", str(detail))
 
     def _on_reconnected(self, ctx) -> None:
         """OpenD is back. Re-subscribe everything held (the SDK has tried from its own record;
         subscribing again is harmless and tells us whether each one is really back)."""
+        self._down = False
         with self._lock:
             keys = sorted(self._subs)
         by_type: Dict[str, List[str]] = {}

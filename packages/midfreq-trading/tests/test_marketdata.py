@@ -773,3 +773,29 @@ def test_h8_an_incomplete_cross_section_waits_for_the_next_interval_as_the_origi
     push(env, mkbar(syms[0], t3), ts_received=t2 + SEC)          # 11:30 final for one instrument
     (xs,) = env.rec.xs
     assert xs.ts_event == t1 and not xs.complete and xs.missing == (InstrumentId.from_str(syms[9]),)
+
+
+class BatchingClient(FakeDataClient):
+    def subscribe_bars_many(self, bar_types, handler):
+        self.calls.append(("sub-many", len(list(bar_types))))
+        for bt in bar_types:
+            self.bar_handlers[bt] = handler
+
+    def unsubscribe_bars_many(self, bar_types):
+        self.calls.append(("unsub-many", len(list(bar_types))))
+
+
+def test_m5_subscriptions_go_to_the_venue_in_batches_and_none_at_stop_while_disconnected(tmp_path):
+    clock = TestClock(et("2026-10-16 09:00"))
+    client = BatchingClient(now_ns=clock.timestamp_ns)
+    env = make_env(tmp_path, clients={"XNAS": client})
+    ids = [f"S{i}.XNAS" for i in range(98)]
+    env.svc.subscribe_bars_many([btype(i) for i in ids], universe="u")
+    assert client.calls == [("sub-many", 98)]
+    env.svc.resubscribe()
+    assert client.calls[1:] == [("unsub-many", 98), ("sub-many", 98)]
+    client._stream_status("disconnected", "OpenD gone")
+    env.q.drain(env.svc)
+    client.calls.clear()
+    env.svc.stop()
+    assert client.calls == [], "no unsubscribe while the connection is down"

@@ -277,6 +277,7 @@ class LiveMarketDataService:
         self._session_bars: Dict[BarType, List[Bar]] = {}
         self._due: Dict[Tuple[Venue, int], int] = {}
 
+        self._down: Set[str] = set()                       # sources whose connection is down
         self._started = False
         self._stopped = False
         self._started_ns: Optional[int] = None
@@ -350,11 +351,17 @@ class LiveMarketDataService:
             self._check_limit(idx, keys, ", ".join(sorted(str(bt) for bt in bts))[:200])
         if universe is not None and universe not in self._universes:
             self._universes[universe] = _Universe(universe, bts[0].spec)
+        new: Dict[int, List[BarType]] = {}
+        for bt in bts:
+            state = self._state(bt)
+            if state.refs == 0:
+                new.setdefault(self._client_index(bt.instrument_id.venue), []).append(bt)
+        for idx, batch in new.items():                     # one request per client (Moomoo: per K-line type)
+            self._clients[idx].subscribe_bars_many(batch, self._queue.put)
         for bt in bts:
             state = self._state(bt)
             if state.refs == 0:
                 idx = self._client_index(bt.instrument_id.venue)
-                self._clients[idx].subscribe_bars(bt, self._queue.put)
                 self._acquire(idx, self._limit_key(bt.instrument_id, f"bars:{bt.spec}"))
                 stream = self._stream(idx, bt)
                 state.stream_key = (idx, bt.spec)
@@ -497,6 +504,10 @@ class LiveMarketDataService:
     def on_stream_status(self, status: StreamStatus) -> None:
         source = getattr(status, "source", "")
         kind = status.state if status.state in _STREAM_STATES else "error"
+        if kind == "disconnected":
+            self._down.add(source)
+        elif kind in ("connected", "reconnected"):
+            self._down.discard(source)
         detail = f"{source}: {status.detail}" if source else status.detail
         if kind in ("disconnected", "error"):
             log.warning("stream %s: %s", kind, detail)
@@ -834,12 +845,12 @@ class LiveMarketDataService:
 
     def _resubscribe(self, stream: _Stream) -> None:
         client = self._clients[stream.client_index]
-        for bt in sorted((b for b in stream.bar_types if self._bars[b].refs > 0), key=str):
-            try:
-                client.unsubscribe_bars(bt)
-            except Exception as exc:                           # noqa: BLE001 - a dead stream may refuse this
-                log.warning("unsubscribe %s before resubscribing failed: %s", bt, exc)
-            client.subscribe_bars(bt, self._queue.put)
+        bts = sorted((b for b in stream.bar_types if self._bars[b].refs > 0), key=str)
+        try:
+            client.unsubscribe_bars_many(bts)
+        except Exception as exc:                               # noqa: BLE001 - a dead stream may refuse this
+            log.warning("unsubscribe of %d bar types before resubscribing failed: %s", len(bts), exc)
+        client.subscribe_bars_many(bts, self._queue.put)
 
     def _silent_ns(self, stream: _Stream, now_ns: int) -> int:
         """Time since the stream's last update that the venue was open; wall time for daily bars."""
@@ -1005,14 +1016,24 @@ class LiveMarketDataService:
             self._in_use[idx][key] = n
 
     def _unsubscribe_all(self) -> None:
+        """At stop: one request per client; none to a client whose connection is down (its
+        subscriptions went with it, and each call would wait out a timeout)."""
+        by_client: Dict[int, List[BarType]] = {}
         for bt, state in self._bars.items():
             if state.refs > 0:
-                try:
-                    self._clients[self._client_index(bt.instrument_id.venue)].unsubscribe_bars(bt)
-                except Exception as exc:                   # noqa: BLE001 - shutting down regardless
-                    log.warning("unsubscribe %s failed: %s", bt, exc)
+                by_client.setdefault(self._client_index(bt.instrument_id.venue), []).append(bt)
+        down = set()
+        for idx, bts in by_client.items():
+            if self._source(idx) in self._down:
+                down.add(idx)
+                log.warning("%s is disconnected: its %d subscriptions are not unsubscribed", self._source(idx), len(bts))
+                continue
+            try:
+                self._clients[idx].unsubscribe_bars_many(bts)
+            except Exception as exc:                       # noqa: BLE001 - shutting down regardless
+                log.warning("unsubscribe of %d bar types failed: %s", len(bts), exc)
         for iid, refs in self._quote_refs.items():
-            if refs > 0:
+            if refs > 0 and self._client_index(iid.venue) not in down:
                 try:
                     self._clients[self._client_index(iid.venue)].unsubscribe_quotes(iid)
                 except Exception as exc:                   # noqa: BLE001
