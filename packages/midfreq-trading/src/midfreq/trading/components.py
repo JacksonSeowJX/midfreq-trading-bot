@@ -57,10 +57,9 @@ def _lot_size(ctx: "NodeContext") -> Callable[[InstrumentId], Optional[float]]:
     return lot
 
 
-def _tick_size(ctx: "NodeContext") -> Callable[[InstrumentId], Optional[float]]:
-    def tick(iid: InstrumentId) -> Optional[float]:
-        inst = ctx.node.instrument(iid)
-        return inst.price_increment if inst is not None else None
+def _tick_size(ctx: "NodeContext") -> Callable[..., Optional[float]]:
+    def tick(iid: InstrumentId, price: Optional[float] = None) -> Optional[float]:
+        return ctx.node.tick_size(iid, price)                    # the venue's spread table at the price
     return tick
 
 

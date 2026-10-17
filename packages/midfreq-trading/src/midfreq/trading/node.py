@@ -706,7 +706,7 @@ class TradingNode:
             local_now=self.local_now, warm_up=self._warm_up_bars, order_prefix=self.order_prefix,
             alert=self.alert, market_open=self.market_open, order=self.oms.order,
             family_done=self.oms.family_done, next_order_id=self.oms.next_order_id,
-            journal_fills=self._journal_fills, local_to_ns=self.local_to_ns)
+            journal_fills=self._journal_fills, local_to_ns=self.local_to_ns, tick_size=self.tick_size)
         self.host = StrategyHost(services)
         self._services = services
 
@@ -1088,6 +1088,17 @@ class TradingNode:
         q = self.cache.quote(instrument_id)
         last = self.latest_price(instrument_id)
         return (q.bid if q else None, q.ask if q else None, last)
+
+    def tick_size(self, instrument_id: InstrumentId, price: Optional[float] = None) -> Optional[float]:
+        """The tick a price of this instrument must be on (the venue's spread table at `price`)."""
+        fn = getattr(self.refdata, "tick_size", None)
+        if callable(fn):
+            try:
+                return fn(instrument_id, price)
+            except Exception:
+                pass
+        inst = self.instrument(instrument_id)
+        return inst.price_increment if inst is not None else None
 
     def instrument(self, instrument_id: InstrumentId) -> Optional[Instrument]:
         inst = self.instruments.get(instrument_id)

@@ -126,6 +126,7 @@ class NodeServices:
     # records' local wall time back to UTC ns: for fills journaled but never booked (a crash)
     journal_fills: Optional[Callable[[StrategyId], List[Dict[str, Any]]]] = None
     local_to_ns: Optional[Callable[[datetime], int]] = None
+    tick_size: Optional[Callable[[InstrumentId, float], Optional[float]]] = None   # the tick at a price
 
 
 # ── strategy output into the ops log ──────────────────────────────────────────────────────────
@@ -640,12 +641,16 @@ class LiveLegacyAdapter:
             if q is not None and q.bid > 0 and q.ask > 0:
                 base = (q.ask if is_buy else q.bid) if rule == "quote" else q.mid
         raw = base * (1 + slip if is_buy else 1 - slip)
-        inst = None
+        tick = None
         try:
-            inst = self.services.instrument(iid)
+            if self.services.tick_size is not None:
+                tick = self.services.tick_size(iid, raw)            # HKEX: the tick of the price's band
+            else:
+                inst = self.services.instrument(iid)
+                tick = inst.price_increment if inst is not None else None
         except Exception:
-            pass
-        limit = round_to_tick(raw, inst.price_increment if inst is not None else None)
+            tick = None
+        limit = round_to_tick(raw, tick)
         return limit, raw
 
     def _route_trade(self, symbol, is_buy, qty, price, timestamp, exit_reason) -> None:

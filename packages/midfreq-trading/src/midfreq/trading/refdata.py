@@ -176,6 +176,39 @@ class ReferenceDataService:
         return dataclasses.replace(inst, lot_size=spec.default_lot_size,
                                    info={**inst.info, "lot_size_source": "venue lot rule"})
 
+    # ── price ticks ──────────────────────────────────────────────────
+
+    def _tick_tables(self) -> Dict[Venue, List[tuple]]:
+        """Venues whose tick depends on the price (config/venues.json `tick_table`, HKEX's
+        spread table): [(upto, tick), ...], the last `upto` None."""
+        tables = getattr(self, "_ticks", None)
+        if tables is None:
+            import json
+            from midfreq.core.venues.spec import DEFAULT_VENUES_PATH
+            tables = {}
+            try:
+                raw = json.loads(Path(self._venues_path or DEFAULT_VENUES_PATH).read_text()).get("venues", {})
+            except (OSError, ValueError) as exc:
+                log.warning("tick tables not read (%s): instruments' own price increments only", exc)
+                raw = {}
+            for mic, d in raw.items():
+                bands = (d.get("tick_table") or {}).get("bands")
+                if bands:
+                    tables[as_venue(mic)] = [(None if u is None else float(u), float(t)) for u, t in bands]
+            self._ticks = tables
+        return tables
+
+    def tick_size(self, instrument_id: "str | InstrumentId", price: Optional[float] = None) -> float:
+        """The tick a price must be a multiple of: the venue's spread table at `price` where it
+        has one (HKEX: 0.2 between 200 and 500), else the instrument's price increment."""
+        iid = as_instrument_id(instrument_id)
+        table = self._tick_tables().get(iid.venue)
+        if table and price is not None and price > 0:
+            for upto, tick in table:
+                if upto is None or price < upto:
+                    return tick
+        return self.instrument(iid).price_increment
+
     # ── calendars ────────────────────────────────────────────────────
 
     def calendar(self, venue: "str | Venue") -> TradingCalendar:

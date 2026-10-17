@@ -723,3 +723,30 @@ def test_m6_reconciliation_does_not_repeat_its_errors_every_cycle(tmp_path, capl
     assert len(errors) == 1
     assert foreign and all(r.levelno == logging.INFO for r in foreign) and len(foreign) == 1
     node.stop()
+
+
+def test_s2_hong_kong_limits_are_on_hkexs_spread_table(tmp_path):
+    """S2: an HKEX price must be a multiple of the tick of its price band (0.2 between 200 and
+    500); the adapter's limit for a Tencent buy is rounded to it, not to the 0.001 floor."""
+    from decimal import Decimal
+    from midfreq.trading.refdata import ReferenceDataService
+    ref = ReferenceDataService({})
+    assert [ref.tick_size(instrument_for_symbol(s), p) for s, p in
+            (("HK.00700", 404.1), ("HK.00005", 60.6), ("HK.00388", 15.15), ("HK.00941", 0.3))] == [0.2, 0.05, 0.02, 0.005]
+    assert ref.tick_size(instrument_for_symbol("US.AAPL"), 404.1) == 0.01
+    hk_start = pd.Timestamp("2026-10-14 10:15", tz="Asia/Hong_Kong").tz_convert("UTC").value
+    venue = ScriptedVenue()
+    d = tiny_config_dict(symbols=HK_SYMS, confirm_timeout_s=150, confirm_fills=False)
+    node = TradingNode(config_from_dict(d), mode="sim", clock=TestClock(hk_start), records_dir=tmp_path / "rec",
+                       store_dir=tmp_path / "data", records_tz="Asia/Hong_Kong",
+                       components={"execution_client:acct": venue, "data_client": FakeDataClient()})
+    node.start()
+    for sym, c in zip(HK_SYMS, (400.1, 60.0, 15.0, 70.0)):
+        bt = BarType(instrument_for_symbol(sym), SPEC)
+        node.queue.put(BarUpdate(Bar(bt, c, c, c, c, 1.0, hk_start + 900 * SEC, hk_start), False, hk_start))
+    node.advance_to(hk_start)
+    node.host.legacy[0].portfolio.execute_trade("HK.00700", True, 100, 400.1, pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    (order,) = venue.submitted
+    tick = Decimal("0.2")
+    assert Decimal(repr(order.price)) % tick == 0, order.price
+    node.stop()

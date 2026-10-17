@@ -24,6 +24,7 @@
       "lot_size": {"rule": "per_instrument", "default": 100,
                    "note": "Board lot differs per stock (Tencent 100, HSBC 400); the connector's instrument provider loads the real one."},
       "price_increment": 0.001,
+      "tick_table": {"note": "HKEX spread table: price below `upto` -> tick. Check against HKEX's current table (its 2025 minimum-spread reduction changed some bands) before trading Hong Kong.", "bands": [[0.25, 0.001], [0.5, 0.005], [10, 0.01], [20, 0.02], [100, 0.05], [200, 0.1], [500, 0.2], [1000, 0.5], [2000, 1], [5000, 2], [null, 5]]},
       "fees": {"model": "percent", "rate": 0.0016, "calibrated": true,
                "note": "All-in per side: broker commission, platform fee, 0.1% stamp duty and exchange/regulatory levies, calibrated against Moomoo paper fills on 2026-07-09 (core.portfolio.Portfolio.HK_FEE_RATE)."},
       "default_connector": "moomoo",

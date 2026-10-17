@@ -1056,9 +1056,22 @@ class OrderManagementSystem:
             price = bid * (1 - q) if bid is not None else (last * (1 - f) if last is not None else None)
         if price is None or not price > 0:
             return None
-        tick = self._size(self._tick_size, order.instrument_id)
+        tick = self._tick_at(order.instrument_id, price)
         price = _to_tick(price, tick, up=order.is_buy) if tick else price
         return price if price > 0 else None
+
+    def _tick_at(self, iid: InstrumentId, price: float) -> Optional[float]:
+        """The tick at `price` (a tick source may take the price: HKEX's spread table), else the
+        instrument's one tick."""
+        if self._tick_size is None:
+            return None
+        try:
+            value = self._tick_size(iid, price)
+        except TypeError:
+            return self._size(self._tick_size, iid)
+        except Exception:  # noqa: BLE001
+            return None
+        return float(value) if value else None
 
     @staticmethod
     def _size(source: Optional[SizeSource], iid: InstrumentId) -> Optional[float]:
