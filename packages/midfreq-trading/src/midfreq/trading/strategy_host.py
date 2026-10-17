@@ -86,7 +86,7 @@ from midfreq.core.portfolio import Portfolio as CorePortfolio
 from midfreq.core.risk_manager import RiskManager, SizingMethod, create_position_sizer
 from midfreq.core.venues.spec import VenueRegistry
 from midfreq.trading import state as state_mod
-from midfreq.trading.config import RiskManagerSettings, StrategySettings
+from midfreq.trading.config import RiskManagerSettings, StrategySettings, instrument_for_symbol
 from midfreq.trading.interfaces import (
     TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_ORDER_EVENTS, CrossSection,
 )
@@ -302,6 +302,7 @@ class LiveLegacyAdapter:
         saved = state_mod.load_state(source)
         if saved is not None:
             self.log.info("[resume] raw state on disk: %s", saved.get("positions", {}))
+            self._check_state_market(source, saved)
         resumed = state_mod.resume(p, saved, account, broker_positions, self.capital_cap)
         if resumed.had_state:
             if broker_positions is None:
@@ -330,6 +331,24 @@ class LiveLegacyAdapter:
         if hasattr(self.strategy, "full_cross_section"):
             self.strategy.full_cross_section = len(self.symbols)
         return resumed
+
+    def _check_state_market(self, source: Path, saved: Mapping[str, Any]) -> None:
+        """A state whose positions are not on the venues this strategy trades is another
+        strategy's (a Hong Kong test pointed at the US forward test's file): refuse to start
+        rather than take it over, or overwrite it."""
+        mine = {iid.venue for iid in self.instrument_for.values()}
+        foreign = []
+        for sym in saved.get("positions", {}) or {}:
+            try:
+                venue = instrument_for_symbol(sym, self.services.venues).venue
+            except (ValueError, KeyError):
+                venue = None
+            if venue not in mine:
+                foreign.append(sym)
+        if foreign:
+            raise state_mod.StateFileError(
+                f"{source} holds positions in {sorted(foreign)}, not on {sorted(map(str, mine))} where {self.id} "
+                f"trades: it is another strategy's state. Refusing to start; give this strategy its own state_name.")
 
     def _lot_sizes(self) -> Dict[str, int]:
         lots = {}

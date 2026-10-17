@@ -62,6 +62,8 @@ the methods of its protocol in midfreq.trading.interfaces, under those names.
 from __future__ import annotations
 
 import collections
+import dataclasses
+import fcntl
 import importlib
 import inspect
 import os
@@ -90,7 +92,8 @@ from midfreq.core.paths import live_sessions_dir
 from midfreq.core.venues.spec import VenueRegistry, default_venues
 from midfreq.data.adapters.base import BarUpdate, ExecutionClient, PositionReport, StreamStatus
 from midfreq.trading.config import (
-    NodeConfig, StrategySettings, TIMEFRAMES, instrument_for_symbol, resolve_strategy_class, strategy_params,
+    NodeConfig, StrategySettings, TIMEFRAMES, instrument_for_symbol, resolve_strategy_class, state_slug,
+    strategy_params,
 )
 from midfreq.trading.interfaces import (
     TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_HEARTBEAT, TOPIC_ORDER_EVENTS, TOPIC_STREAM, Heartbeat,
@@ -520,6 +523,7 @@ class TradingNode:
                 self.exit_code = 1
         self.state = "stopped"
         self._step("stopped")
+        self._unlock_records()
         if self.ops is not None:
             self.ops.uninstall()
 
@@ -527,6 +531,7 @@ class TradingNode:
         """Drop the node without any shutdown, as a crashed process would (replays use it)."""
         self.state = "stopped"
         self.stop_reason = "abandoned"
+        self._unlock_records()                           # a dead process's lock goes with it
         if self.ops is not None:
             self.ops.uninstall()
 
@@ -573,9 +578,37 @@ class TradingNode:
     def _universe_instruments(self, s: StrategySettings) -> List[Tuple[str, InstrumentId]]:
         return [(sym, instrument_for_symbol(sym, self.venues)) for sym in self.config.universes[s.universe].symbols]
 
+    def _lock_records(self) -> None:
+        """One node per records folder: an exclusive lock on <records>/.node.lock, held until the
+        node stops (the operating system drops it if the process dies)."""
+        self.records_dir.mkdir(parents=True, exist_ok=True)
+        path = self.records_dir / ".node.lock"
+        f = open(path, "a+")
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            f.seek(0)
+            holder = f.read().strip()
+            f.close()
+            raise NodeError(f"another node is using {self.records_dir} ({path}: {holder or 'pid unknown'}); "
+                            "one node per records folder") from None
+        f.seek(0)
+        f.truncate()
+        f.write(f"pid {os.getpid()} session {self.session_id}\n")
+        f.flush()
+        self._lock_file = f
+
+    def _unlock_records(self) -> None:
+        f, self._lock_file = getattr(self, "_lock_file", None), None
+        if f is not None:
+            try:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            finally:
+                f.close()
+
     def _build(self) -> None:
         cfg = self.config
-        self.records_dir.mkdir(parents=True, exist_ok=True)
+        self._lock_records()
         self.ctx = ctx = NodeContext(cfg, self.mode, self.clock, self.msgbus, self.queue, self.cache, self.venues,
                                      self.records_dir, self.store_dir, self.session_id, self.persist_bars,
                                      alert=self.alert, node=self)
@@ -742,6 +775,8 @@ class TradingNode:
                 self._open_native(s, spec, pairs)
                 continue
             cls, _ = resolve_strategy_class(s.cls)
+            if not s.state_name:
+                s = dataclasses.replace(s, state_name=state_slug(s, cls, self.mode))
             params = strategy_params(s)
             venue_spec = self.venues.get(pairs[0][1].venue)
             commission = s.commission_rate if s.commission_rate is not None else float(venue_spec.fees.get("rate", 0.0))
@@ -836,6 +871,7 @@ class TradingNode:
             self._disconnect()
         except Exception:
             pass
+        self._unlock_records()
         self.state = "stopped"
         if self.ops is not None:
             self.ops.uninstall()

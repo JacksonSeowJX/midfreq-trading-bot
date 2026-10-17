@@ -355,3 +355,70 @@ def test_h1_board_lots_come_from_the_connectors_instrument_provider():
     f = OrderFactory(StrategyId("S"))
     assert "lots of 400" in risk.check(f.limit(hsbc, OrderSide.BUY, 300, 50.0, TimeInForce.DAY))
     assert risk.check(f.limit(hsbc, OrderSide.BUY, 400, 50.0, TimeInForce.DAY)) is None
+
+
+# ── H3: one state file, one writer ────────────────────────────────────────────────────────────
+
+HK_SYMS = ("HK.00700", "HK.00005", "HK.00388", "HK.00941")
+US_STATE = {"saved_at": "2026-10-15 04:01:04", "positions": {"US.INTC": {"qty": 302.0, "entry_price": 109.585}},
+            "peak_prices": {}, "cross_section_count": 70, "next_rebalance_at": 76, "cash": 4738.62}
+
+
+def paper_node(tmp_path, records, symbols=HK_SYMS, **strategy):
+    from types import SimpleNamespace
+    d = tiny_config_dict(symbols=symbols, mode="paper", confirm_timeout_s=150, **strategy)
+    account = SimpleNamespace(snapshot=lambda: {"cash": 1e6, "total_assets": 1e6, "market_value": 0.0},
+                              positions=lambda: [], close=lambda: None)
+    return TradingNode(config_from_dict(d), mode="paper", clock=TestClock(START), records_dir=records,
+                       store_dir=tmp_path / "data", records_tz="Asia/Hong_Kong",
+                       components={"execution_client:acct": ScriptedVenue("paper"), "data_client": FakeDataClient(),
+                                   "account_source:acct": account})
+
+
+def test_h3_a_paper_node_does_not_take_the_forward_tests_state_file(tmp_path):
+    """H3: an HK paper node running Cross-Sectional Reversal in live_sessions/ with no state_name
+    uses a state file named after its strategy id, never the US forward test's
+    state_crosssectionalreversal.json, and its session logs are its own."""
+    import json
+    records = tmp_path / "live_sessions"
+    records.mkdir()
+    us = records / "state_crosssectionalreversal.json"
+    us.write_text(json.dumps(US_STATE, indent=1))
+    before = us.read_bytes()
+    node = paper_node(tmp_path, records)
+    node.start()
+    a = node.host.legacy[0]
+    assert a.state_file.name == "state_xsr-test.json" and a.cross_section_count == 0
+    node.stop()
+    assert us.read_bytes() == before
+    assert not list(records.glob("session_*crosssectionalreversal*"))
+
+
+def test_h3_a_state_on_another_market_is_refused(tmp_path):
+    import json
+    records = tmp_path / "live_sessions"
+    records.mkdir()
+    (records / "state_crosssectionalreversal.json").write_text(json.dumps(US_STATE, indent=1))
+    node = paper_node(tmp_path, records, state_name="crosssectionalreversal")
+    with pytest.raises(Exception, match="US.INTC"):
+        node.start()
+    assert node.state == "stopped"
+
+
+def test_h3_two_nodes_cannot_share_a_records_folder(tmp_path):
+    records = tmp_path / "live_sessions"
+    first = paper_node(tmp_path, records)
+    first.start()
+    second = paper_node(tmp_path, records)
+    with pytest.raises(Exception, match="another node"):
+        second.start()
+    first.stop()
+    third = paper_node(tmp_path, records)
+    third.start()                                           # the lock went with the first node
+    third.stop()
+
+
+def test_h3_the_mode_defaults_to_shadow():
+    d = tiny_config_dict(symbols=SYMS, confirm_timeout_s=150)
+    d["node"].pop("mode")
+    assert config_from_dict(d).mode == "shadow"

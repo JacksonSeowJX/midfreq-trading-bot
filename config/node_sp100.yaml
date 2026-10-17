@@ -48,6 +48,10 @@ strategies:
     from: config/sp100_forward_test.json      # params, symbols and capital
     account: moomoo-us
     timeframe: 1h
+    # The forward test's own state file, named explicitly: in shadow mode it is only read (the
+    # shadow node writes live_sessions/shadow/); in paper or live the node continues it, so it
+    # must never run in those modes while the original engine trades this strategy.
+    state_name: crosssectionalreversal
     commission_rate: 0.00005
     risk_manager:
       stop_loss_pct: 0        # none: the validated studies ran without a per-position stop

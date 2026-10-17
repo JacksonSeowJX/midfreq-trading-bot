@@ -5,7 +5,7 @@ limits, the policy for orders left unfilled and the capital cap.
 
     node:
       name: sp100
-      mode: shadow                 # shadow | sim | paper | live
+      mode: shadow                 # shadow (the default) | sim | paper | live
       timeframe: 1h
     connectors:
       moomoo: {}                   # ConnectorConfig settings for the registry's connector
@@ -71,7 +71,7 @@ class ConfigError(ValueError):
 @dataclass
 class NodeSettings:
     name: str = "node"
-    mode: str = "paper"
+    mode: str = "shadow"                    # sends nothing unless paper or live is asked for
     timeframe: str = "1h"
     records_dir: Optional[str] = None       # default: live_sessions/ (paper, live), live_sessions/<mode>/ otherwise
     seed_state_from: Optional[str] = None   # shadow/sim: read the strategies' first state from here
@@ -151,9 +151,12 @@ class StrategySettings:
     risk_manager: Optional[RiskManagerSettings] = None
     pricing: PricingSettings = field(default_factory=PricingSettings)
     warmup_bars: int = 60
-    state_name: Optional[str] = None        # state_<state_name>.json; default the class name, lower case
+    # state_<state_name>.json. Default: in paper and live the strategy id (so two strategies of the
+    # same class, e.g. a Hong Kong paper test and the US forward test, never share a state file);
+    # in shadow and sim the class name, lower case (the original engine's name, read only there).
+    state_name: Optional[str] = None
     confirm_fills: bool = True              # candle strategies: wait for each order's outcome (see strategy_host)
-    confirm_timeout_s: float = 75.0
+    confirm_timeout_s: float = 150.0        # >= the unfilled-order policy's budget (120 s by default)
     source: Optional[str] = None            # the `from:` file
 
 
@@ -380,6 +383,13 @@ def strategy_params(settings: StrategySettings) -> Dict[str, Any]:
     return params
 
 
+def state_slug(s: StrategySettings, cls: type, mode: str) -> str:
+    """The name of a strategy's state file, state_<slug>.json (see StrategySettings.state_name)."""
+    if s.state_name:
+        return s.state_name
+    return s.id if mode in ("paper", "live") else cls.__name__.lower()
+
+
 def is_instrument_id(symbol: str, venues: VenueRegistry) -> bool:
     try:
         iid = InstrumentId.from_str(symbol)
@@ -446,7 +456,7 @@ def validate(cfg: NodeConfig, venues: Optional[VenueRegistry] = None) -> List[st
             if unknown:
                 problems.append(f"{where}: unknown params {sorted(unknown)}; valid: {sorted(defaults)}")
         if cls is not None:
-            slug = s.state_name or cls.__name__.lower()
+            slug = state_slug(s, cls, n.mode)
             if slug in slugs:
                 problems.append(f"{where} and strategy {slugs[slug]!r} would share state_{slug}.json; "
                                 "give one a `state_name`")

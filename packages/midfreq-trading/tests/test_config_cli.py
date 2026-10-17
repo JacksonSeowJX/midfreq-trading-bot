@@ -52,7 +52,8 @@ def test_symbols_resolve_to_instruments():
     (lambda d: d["strategies"][0].update(account="nobody"), "account 'nobody'"),
     (lambda d: d["strategies"][0].update(universe="none"), "universe 'none'"),
     (lambda d: d["strategies"][0].update({"class": "No Such Strategy"}), "No Such Strategy"),
-    (lambda d: d["strategies"].append(dict(d["strategies"][0], id="second")), "state_crosssectionalreversal"),
+    (lambda d: (d["strategies"][0].update(state_name="crosssectionalreversal"),
+                d["strategies"].append(dict(d["strategies"][0], id="second"))), "state_crosssectionalreversal"),
     (lambda d: (d["node"].update(mode="live")), "environment: live"),
     (lambda d: d["accounts"]["acct"].update(environment="live"), "live account but the mode is paper"),
     (lambda d: d["universes"]["u"]["symbols"].append("HK.00700"), "one cash balance"),
@@ -163,3 +164,17 @@ def test_launcher_dry_run(tmp_path):
                           env=dict(env, FAKE_ET="2026-10-14T12:00"), capture_output=True, text=True, timeout=120)
     assert gate.returncode == 0 and "not the open, skipping" in gate.stdout
     assert not (tmp_path / "live_sessions").exists()
+
+
+def test_in_paper_two_strategies_of_one_class_get_their_own_state_files():
+    """H3: in paper and live a strategy's state file is named after its id unless state_name says
+    otherwise, so two Cross-Sectional Reversal strategies never share one; in shadow and sim the
+    class name is kept (the original engine's file, read only there)."""
+    from midfreq.trading.config import resolve_strategy_class, state_slug
+    d = tiny_config_dict(mode="paper")
+    d["strategies"].append(dict(d["strategies"][0], id="second"))
+    cfg = config_from_dict(d)
+    assert validate(cfg) == []
+    cls = resolve_strategy_class(cfg.strategies[0].cls)[0]
+    assert [state_slug(s, cls, "paper") for s in cfg.strategies] == ["xsr-test", "second"]
+    assert state_slug(cfg.strategies[0], cls, "shadow") == "crosssectionalreversal"
