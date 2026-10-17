@@ -6,6 +6,7 @@ All against tests/support/fake_ccxt.py; nothing reaches a real exchange.
 """
 from __future__ import annotations
 
+import copy
 import threading
 import time
 
@@ -337,7 +338,8 @@ def test_a_lost_create_reply_is_found_by_client_id(paper_config, live):
     client.submit_order(order)                     # placed, but the reply timed out
     driver.accept(driver.last_order_id())
     events.wait(OrderAccepted)
-    assert order.tags["venue_order_id"] == driver.last_order_id()
+    # found on the client's own thread: its record has the id; the Order object is the OMS's (M4)
+    assert client._by_client_id[str(order.client_order_id)].venue_order_id == driver.last_order_id()
     quiet()
     assert not events.of(OrderRejected)
 
@@ -674,3 +676,39 @@ def test_h7_the_account_client_reads_the_sandbox_in_paper(paper_config, monkeypa
         assert live.environment == "live"
         live._exchange()
         assert made[-1].sandbox is False
+
+
+def test_m4_no_rest_request_while_holding_the_lock_and_no_order_object_written_from_a_stream(paper_config, live):
+    """M4 (safety review): a status update that needs the order's trades fetched must not make
+    the REST request while holding the client's lock (every other thread would wait on the
+    network), and a stream thread never writes the OMS's Order object."""
+    client, driver, events = live(updates="poll", resync_interval=3600.0, poll_interval=3600.0)
+    order = orders().limit(BTC, OrderSide.BUY, 0.3, 60000.0)
+    client.submit_order(order)
+    vid = driver.last_order_id()
+    venue = client.fake_venue
+    with venue.lock:                                        # a trade the client has not seen ...
+        o = venue.order(vid)
+        venue.trades.append({"id": "T-MISSED", "order": vid, "timestamp": BASE_MS + 9, "symbol": "BTC/USDT",
+                             "side": "buy", "price": 60000.0, "amount": 0.1, "takerOrMaker": "taker",
+                             "fee": {"cost": 6.0, "currency": "USDT"}})
+        o["filled"], o["status"] = 0.1, "canceled"          # ... and the order cancelled with 0.1 filled
+        update = copy.deepcopy(o)
+    held = []
+    for name in ("fetch_order_trades", "fetch_my_trades"):
+        real = getattr(client.fake_rest, name, None)
+        if real is None:
+            continue
+
+        def spy(*a, real=real, **k):
+            held.append(client._lock._is_owned())
+            return real(*a, **k)
+        setattr(client.fake_rest, name, spy)
+    order.tags.pop("venue_order_id")                        # as if the reply had been lost
+    t = threading.Thread(target=lambda: client._on_orders([update]))
+    t.start()
+    t.join()
+    assert held and not any(held), "REST called under the client's lock"
+    assert [type(e).__name__ for e in events.of(OrderFilled)] == ["OrderFilled"]
+    assert events.of(OrderCanceled), "the cancel follows the fill it waited for"
+    assert "venue_order_id" not in order.tags, "the stream thread wrote the Order"

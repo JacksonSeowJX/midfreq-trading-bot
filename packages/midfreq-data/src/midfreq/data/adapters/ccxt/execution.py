@@ -213,6 +213,8 @@ class _Tracked:
     unconfirmed: Optional[str] = None   # why create_order's reply is missing
     cancel_pending: bool = False    # cancel asked while unconfirmed
     guessed: bool = False           # rejected because the exchange never confirmed it in time
+    deferred: Optional[Dict[str, Any]] = None   # a terminal status waiting for its trades to be fetched
+    caught_up: bool = False         # its trades were fetched once for a terminal status
 
 
 class CcxtExecutionClient(ExecutionClient):
@@ -468,11 +470,12 @@ class CcxtExecutionClient(ExecutionClient):
                 tr.unconfirmed = "create_order returned no order id"
                 return
             tr.created_ms = _int((reply or {}).get("timestamp"))
-            self._bind(tr, vid)
+            self._bind(tr, vid, on_node_thread=True)
             if reply.get("status"):
                 self._apply_order(tr, reply)
             cancel = tr.cancel_pending and not tr.terminal
             tr.cancel_pending = False
+        self._settle_deferred()
         if cancel:     # asked (from another thread) while the order was on its way
             self.cancel_order(order)
 
@@ -489,7 +492,7 @@ class CcxtExecutionClient(ExecutionClient):
             if tr.terminal and not tr.guessed:
                 return
             if tr.venue_order_id is None and order.tags.get("venue_order_id"):
-                self._bind(tr, str(order.tags["venue_order_id"]))   # learned by the OMS's reconciliation
+                self._bind(tr, str(order.tags["venue_order_id"]), on_node_thread=True)   # learned by the OMS
             if tr.guessed:
                 # Rejected by a guess, but the OMS has found it: take it back and cancel it.
                 log.warning("%s: %s, rejected when the exchange never confirmed it, is being cancelled",
@@ -530,6 +533,7 @@ class CcxtExecutionClient(ExecutionClient):
         if isinstance(reply, dict) and reply.get("status"):
             with self._lock:
                 self._apply_order(tr, reply)
+            self._settle_deferred()
 
     def query_order(self, order: Order) -> Optional[OrderReport]:
         self._require_connected()
@@ -634,10 +638,14 @@ class CcxtExecutionClient(ExecutionClient):
             tr = self._by_venue_cid.get(str(venue_client_id))
         return tr
 
-    def _bind(self, tr: _Tracked, venue_order_id: str) -> None:
+    def _bind(self, tr: _Tracked, venue_order_id: str, on_node_thread: bool = False) -> None:
+        """Record the exchange's order id. The OMS's Order object is written only on the node's
+        own thread (submit, cancel); bound from a stream or poll, the id reaches the OMS through
+        the events (fills carry it) and reconciliation."""
         tr.venue_order_id = venue_order_id
         self._by_venue_id[venue_order_id] = tr
-        tr.order.tags["venue_order_id"] = venue_order_id
+        if on_node_thread:
+            tr.order.tags["venue_order_id"] = venue_order_id
         for kind, item in self._orphans.pop(venue_order_id, []):
             if kind == "order":
                 self._apply_order(tr, item)
@@ -680,6 +688,7 @@ class CcxtExecutionClient(ExecutionClient):
                     tr.unconfirmed = None
                     self._bind(tr, str(o["id"]))
                 self._apply_order(tr, o)
+        self._settle_deferred()
 
     def _on_trades(self, trades: Iterable[Dict[str, Any]]) -> None:
         for t in trades or []:
@@ -714,8 +723,11 @@ class CcxtExecutionClient(ExecutionClient):
         if status not in TERMINAL_STATUSES:
             log.debug("%s order %s: status %r ignored", self.exchange_id, tr.venue_order_id, status)
             return
-        if not self._trades_cover(tr):
-            self._catch_up(tr)
+        if not self._trades_cover(tr) and not tr.caught_up and tr.venue_order_id:
+            # Its trades must be fetched first (so the fill precedes the end): not here, under the
+            # lock, but by _settle_deferred once the caller has let the lock go.
+            tr.deferred = o
+            return
         if status == "closed":
             tr.closed_seen = True
             if self._trades_cover(tr):
@@ -780,9 +792,43 @@ class CcxtExecutionClient(ExecutionClient):
                                "timestamp": o.get("lastTradeTimestamp") or o.get("lastUpdateTimestamp"),
                                "fee": None})
 
+    def _settle_deferred(self) -> None:
+        """Terminal statuses that waited for their order's trades: fetch the trades (no lock
+        held), apply them, then the status. Called by every path that applies updates, after it
+        has released the lock."""
+        while True:
+            with self._lock:
+                waiting = [tr for tr in self._by_client_id.values() if tr.deferred is not None]
+            if not waiting:
+                return
+            for tr in waiting:
+                trades = self._fetch_trades(tr)
+                with self._lock:
+                    o, tr.deferred = tr.deferred, None
+                    if o is None:
+                        continue
+                    for t in sorted(trades or [], key=lambda t: _int(t.get("timestamp")) or 0):
+                        if str(t.get("order") or tr.venue_order_id) == tr.venue_order_id:
+                            self._apply_trade(tr, t)
+                    tr.caught_up = True
+                    self._apply_order(tr, o)
+
+    def _fetch_trades(self, tr: _Tracked) -> List[Dict[str, Any]]:
+        """One order's trades over REST; never called holding _lock."""
+        if not tr.venue_order_id:
+            return []
+        try:
+            if self._rest_has("fetchOrderTrades"):
+                return list(self._rest("fetch_order_trades", tr.venue_order_id, tr.symbol) or [])
+            if self._rest_has("fetchMyTrades"):
+                return list(self._rest("fetch_my_trades", tr.symbol, self._since_ms(tr)) or [])
+        except Exception as exc:
+            log.warning("%s: cannot fetch the trades of order %s: %s: %s", self.exchange_id, tr.venue_order_id,
+                        type(exc).__name__, exc)
+        return []
+
     def _catch_up(self, tr: _Tracked) -> None:
-        """Fetch the trades of one order over REST (called holding _lock, which is allowed: the REST
-        lock is never held while waiting for _lock)."""
+        """(Superseded by _settle_deferred; kept for callers outside the update paths.)"""
         if not tr.venue_order_id:
             return
         try:
@@ -817,6 +863,7 @@ class CcxtExecutionClient(ExecutionClient):
             return False
         with self._lock:
             self._apply_order(tr, o or {})
+        self._settle_deferred()
         return True
 
     # ── background updates ───────────────────────────────────────────
@@ -1018,6 +1065,7 @@ class CcxtExecutionClient(ExecutionClient):
                                              reason=f"no reply from {self.exchange_id} ({tr.unconfirmed}) and no "
                                                     f"order with client id {tr.venue_client_id} after "
                                                     f"{self._unconfirmed_timeout:g}s"))
+            self._settle_deferred()
             if cancel and not tr.terminal:
                 tr.cancel_pending = False
                 self.cancel_order(tr.order)
