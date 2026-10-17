@@ -38,6 +38,7 @@ from midfreq.trading.config import load_config
 from midfreq.trading.replay import (
     ReplayBroker, compare_decisions, decisions, load_recorded_sessions, repeat_backwards, replay_sessions,
 )
+from midfreq.core.model.identifiers import InstrumentId
 from midfreq.trading.session_log import read_events
 
 REPO = repo_root()
@@ -81,7 +82,7 @@ def seed_store(dirs, sessions, days: int = 12):
 
 
 def run_original(sessions, data_dir: Path, log_dir: Path, params, symbols, cap, fee, broker_kwargs,
-                 crash_session=None):
+                 crash_session=None, state=None, broker_pos=None):
     """The original LiveTradingEngine through `sessions`, exactly as the harness's run_scenario
     drives it. Returns (trades, per-session clocks, broker)."""
     import midfreq.data.storage as storage_mod
@@ -93,11 +94,16 @@ def run_original(sessions, data_dir: Path, log_dir: Path, params, symbols, cap, 
 
     h = _harness()
     log_dir.mkdir(parents=True, exist_ok=True)
+    if state is not None:
+        import json
+        (log_dir / "state_crosssectionalreversal.json").write_text(json.dumps(state, indent=1))
     real = storage_mod.DataStorage
     storage_mod.DataStorage = lambda *a, **k: real(base_path=str(data_dir))
     real_dt = live_mod.datetime
     live_mod.datetime = h.ReplayClock
     broker = h.FakeBroker(**broker_kwargs)
+    if broker_pos:
+        broker.pos = {s: {"qty": q, "cost": c} for s, (q, c) in broker_pos.items()}
     trades, clocks = [], []
     buf = io.StringIO()
     try:
@@ -307,3 +313,76 @@ def test_without_confirming_fills_the_baskets_differ_but_the_books_hold(tmp_path
     sessions, orig_trades, _, _, report = _compare(tmp_path, recorded_sessions, (cfg, cfg.strategy(s.id)))
     assert report.ok, report.fails
     assert compare_decisions(orig_trades, report.trades) != []
+
+
+
+# The forward test's state on Saturday 17 October 2026 (live_sessions/state_crosssectionalreversal.json,
+# copied here so the test never reads live_sessions/): clock 84, the next rebalance due at 95.
+STATE_17_OCT = {"saved_at": "2026-10-17 04:01:04.571102",
+                "positions": {"US.AMAT": {"qty": 74.0, "entry_price": 432.18},
+                              "US.MU": {"qty": 35.0, "entry_price": 922.15}},
+                "peak_prices": {"US.AMAT": 542.28, "US.MU": 1088.3995},
+                "cross_section_count": 84, "next_rebalance_at": 95, "cash": 33310.90598600003}
+
+
+def _synthetic_days(symbols, days=("2026-10-19", "2026-10-20")):
+    """Seven hourly cross-sections a day, every symbol, from a deterministic walk (AMAT and MU
+    near their recent prices)."""
+    from midfreq.trading.replay import RecordedSession
+    start = {"US.AMAT": 540.0, "US.MU": 1080.0}
+    out = []
+    for d, day in enumerate(days):
+        hours = []
+        for k, hm in enumerate(("10:30", "11:30", "12:30", "13:30", "14:30", "15:30", "16:00")):
+            closes = {}
+            for sym in symbols:
+                rng = random.Random(zlib.crc32(f"{sym}|{day}|{hm}".encode()))
+                base = start.get(sym, 50.0 + (zlib.crc32(sym.encode()) % 400))
+                closes[sym] = round(base * (1 + 0.004 * (d * 7 + k)) * (1 + rng.gauss(0, 0.01)), 2)
+            hours.append((f"{day} {hm}:00+00:00", closes))          # as recorded: local close tagged UTC
+        out.append(RecordedSession(None, day.replace("-", ""), "CrossSectionalReversal", list(symbols), "1h", hours))
+    return out
+
+
+def test_from_the_real_state_the_first_node_rebalance_matches_the_original(tmp_path, sp100):
+    """The takeover: the node starts on Monday 19 October from the forward test's real state of
+    17 October (clock 84, AMAT 74, MU 35, cash 33,310.91; the broker holding those) and runs a
+    synthetic Monday and Tuesday on its real components with the S&P 100 configuration. Monday
+    has no rebalance (84 -> 91); the first one falls due at 95, on Tuesday's 13:30 cross-section.
+    The node sends the original engine's orders, on the same candle, at the same quantities and
+    prices, and both end with the same clock, holdings and cash."""
+    import copy
+    from midfreq.trading.replay import ReplayBroker, replay_sessions
+    cfg, s = sp100
+    symbols = list(cfg.universes[s.universe].symbols)
+    sessions = _synthetic_days(symbols)
+    orig_data, node_data = tmp_path / "orig_data", tmp_path / "node_data"
+    seed_store([orig_data, node_data], sessions)
+    params = {k: int(v) for k, v in s.params.items()}
+    held = {"US.AMAT": (74.0, 432.18), "US.MU": (35.0, 922.15)}
+    orig_trades, orig_clocks, orig_broker = run_original(
+        sessions, orig_data, tmp_path / "orig_logs", params, symbols, s.capital, s.commission_rate, {},
+        state=copy.deepcopy(STATE_17_OCT), broker_pos=held)
+    import json
+    node_logs = tmp_path / "node_logs"
+    node_logs.mkdir()
+    (node_logs / "state_crosssectionalreversal.json").write_text(json.dumps(STATE_17_OCT, indent=1))
+    broker = ReplayBroker(fee=s.commission_rate)
+    broker.pos = {sym: {"qty": q, "cost": c, "iid": InstrumentId.from_str(f"{sym[3:]}.XNAS")}
+                  for sym, (q, c) in held.items()}
+    report = replay_sessions(cfg, sessions, records_dir=node_logs, store_dir=node_data, strategy_id=s.id,
+                             broker=broker, components={})
+    assert report.ok, report.fails
+    assert [(r.xs_start, r.xs_end) for r in report.sessions] == orig_clocks == [(84, 91), (91, 98)]
+    assert report.sessions[0].orders == 0                         # Monday: no rebalance
+    assert orig_trades, "the rebalance at 95 traded"
+    assert {str(pd.Timestamp(t["timestamp"]))[:16] for t in orig_trades} == {"2026-10-20 13:30"}
+    assert _trade_rows(report.trades) == _trade_rows(orig_trades)
+    assert report.sessions[-1].broker_held == {k: v["qty"] for k, v in orig_broker.pos.items()}
+    assert abs(report.sessions[-1].cash_broker - orig_broker.cash) < 1e-6
+    final = json.loads((node_logs / "state_crosssectionalreversal.json").read_text())
+    orig_final = json.loads((tmp_path / "orig_logs" / "state_crosssectionalreversal.json").read_text())
+    assert final["positions"] == orig_final["positions"]
+    assert abs(final["cash"] - orig_final["cash"]) < 1e-6
+    assert (final["cross_section_count"], final["next_rebalance_at"]) == \
+        (orig_final["cross_section_count"], orig_final["next_rebalance_at"])
