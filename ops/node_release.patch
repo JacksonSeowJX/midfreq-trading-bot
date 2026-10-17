@@ -1,0 +1,120 @@
+Release packaging for the trading node (docs/NODE_RUNBOOK.md). Apply on main after
+feature/live-trading is merged, from the repository root:
+
+    git apply --check ops/node_release.patch && git apply ops/node_release.patch
+
+then delete this file in the same commit. It changes two shared files, which the node's
+deployment work does not edit directly while the integration is in progress.
+
+ops/build_release.sh
+  1. The wheel count. The script ends with `[ "$n" -eq 6 ]`. Once midfreq-trading is merged,
+     packages/ holds eight packages; the loop skips midfreq-engine and builds seven wheels, so
+     every release build (and CI's `vm` job, which builds the bundle on every push) fails with
+     "expected 6 wheels, built 7". It now expects one wheel per package under packages/ except
+     midfreq-engine, at the release's version, and names any that is missing.
+  2. The node's launcher. ops/run_node.sh is not copied into the bundle, so a release cannot run
+     the node from the schedule (nor node_startup_check.sh's launcher dry run). Added to ops/.
+  3. The startup checks. ops/README.md says startup_check.sh ships in releases from 0.1.2, but
+     the copy line never included it; node_startup_check.sh is new. Both added to ops/vm/.
+  Already right, no change: defaults/config/ is `git archive HEAD config`, so the committed
+  config/node_sp100.yaml, config/node_hk_paper.yaml, config/corporate_actions.json and the new
+  holiday fields of config/venues.json all ship; the midfreq-trading wheel carries the
+  `midfreq-node` console script (its [project.scripts]), which pip installs into .venv/bin.
+
+ops/vm/install_release.sh (smoke test)
+  The smoke test imported the six original packages only, so a release whose node could not
+  even import would still be made current. It now also imports midfreq.trading.node and
+  midfreq.trading.cli, and runs `midfreq-node check-config` on every config/node_*.yaml the
+  release ships (with the release's own defaults as MIDFREQ_ROOT, as the import line does):
+  the console script exists, the configurations are valid for this release's code (unknown
+  risk/OMS settings are refused) and every component imports, without connecting to anything.
+  On failure it prints check-config's output. CI's `vm` job runs this on Python 3.10 with
+  requirements-vm.txt, i.e. the node's code is checked on the VM's interpreter and pins.
+
+ops/vm/requirements-vm.txt: no change. midfreq-trading imports pandas and PyYAML (both pinned);
+its components reach the venue only through midfreq.data's connectors, whose Moomoo side uses
+the moomoo SDK (moomoo_api==10.8.6808, pinned; the research environment has 10.2.6208) and
+whose ccxt side imports ccxt lazily, only when an OKX/ccxt account is configured (none on the VM).
+numpy, pyarrow, tzdata, pydantic and python-dotenv, which the packages below it use, are pinned.
+
+diff --git a/ops/build_release.sh b/ops/build_release.sh
+index 4eaf4cd..2b94fdd 100755
+--- a/ops/build_release.sh
++++ b/ops/build_release.sh
+@@ -3,11 +3,14 @@
+ #
+ #   dist/midfreq-<version>.tar.gz          (and .sha256 beside it)
+ #     MANIFEST                             version, commit, build time, wheel checksums
+-#     wheels/midfreq_*-<version>-*.whl     the six packages
++#     wheels/midfreq_*-<version>-*.whl     one per package under packages/, except midfreq-engine
+ #     requirements-vm.txt                  the VM's pinned third-party versions
+ #     ops/run_sp100_forward_test.sh        the session launchers cron runs
+ #     ops/run_daily_candidates.sh
++#     ops/run_node.sh                      the trading node's launcher (midfreq.trading)
+ #     ops/vm/install_release.sh            installs this bundle (run by ops/deploy.sh)
++#     ops/vm/startup_check.sh              a release's first minutes on a copy of the runtime;
++#     ops/vm/node_startup_check.sh         the same for the trading node, in shadow mode
+ #     ops/vm/crontab.txt                   the VM's schedule; maintain.sh, memlog.sh, tidy_home.sh
+ #     defaults/config/                     config/ as committed, for setting up a runtime folder
+ #
+@@ -39,7 +42,7 @@ trap 'rm -rf "$STAGE"' EXIT
+ OUT="$STAGE/$NAME"
+ mkdir -p "$OUT/wheels" "$OUT/ops/vm" dist
+ 
+-# the six packages the VM runs (packages/*), not the dashboard API (apps/api) and not the C++
++# the packages the VM runs (packages/*), not the dashboard API (apps/api) and not the C++
+ # engine (packages/midfreq-engine): the VM trades and never backtests, and anything that does
+ # backtest there falls back to the Python backtester when the engine is not installed
+ for p in packages/*/; do
+@@ -47,9 +50,9 @@ for p in packages/*/; do
+     uv build "$p" --wheel --quiet --out-dir "$OUT/wheels"
+ done
+ rm -f "$OUT/wheels/.gitignore"
+-cp ops/run_sp100_forward_test.sh ops/run_daily_candidates.sh "$OUT/ops/"
++cp ops/run_sp100_forward_test.sh ops/run_daily_candidates.sh ops/run_node.sh "$OUT/ops/"
+ cp ops/vm/install_release.sh ops/vm/crontab.txt ops/vm/maintain.sh ops/vm/memlog.sh ops/vm/tidy_home.sh ops/vm/sync_logs.sh \
+-   ops/vm/broker_snapshot.sh "$OUT/ops/vm/"
++   ops/vm/broker_snapshot.sh ops/vm/startup_check.sh ops/vm/node_startup_check.sh "$OUT/ops/vm/"
+ cp ops/vm/requirements-vm.txt "$OUT/"
+ mkdir -p "$OUT/defaults"
+ git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, never local edits
+@@ -60,8 +63,16 @@ git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, nev
+     (cd "$OUT" && shasum -a 256 wheels/*.whl | sed 's/^/sha256 /')
+ } > "$OUT/MANIFEST"
+ 
++# exactly one wheel per package the VM runs, at this version (seven since midfreq-trading)
+ n=$(ls "$OUT"/wheels/*.whl | wc -l | tr -d ' ')
+-[ "$n" -eq 6 ] || { echo "expected 6 wheels, built $n" >&2; exit 1; }
++want=0
++for p in packages/*/; do
++    name=$(basename "$p")
++    [ "$name" = midfreq-engine ] && continue
++    want=$((want + 1))
++    ls "$OUT/wheels/${name//-/_}-$VERSION-"*.whl >/dev/null 2>&1 || { echo "no wheel for $name $VERSION" >&2; exit 1; }
++done
++[ "$n" -eq "$want" ] || { echo "expected $want wheels, built $n" >&2; exit 1; }
+ 
+ tar -czf "dist/$NAME.tar.gz" -C "$STAGE" "$NAME"
+ (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+diff --git a/ops/vm/install_release.sh b/ops/vm/install_release.sh
+index 70449ac..ac1b0fc 100755
+--- a/ops/vm/install_release.sh
++++ b/ops/vm/install_release.sh
+@@ -52,8 +52,16 @@ smoke_test() {
+     # Every check must pass: `set -e` does not apply inside a function called from `if`, so each
+     # line returns on failure (0.1.1's import line failed and the test still passed). The
+     # packages find config/ at import, so the imports get the release's own defaults as root.
+-    MIDFREQ_ROOT="$d/defaults" "$py" -c "import midfreq.core, midfreq.data, midfreq.strategies, midfreq.backtest, midfreq.live.run_live, midfreq.research" || return 1
++    MIDFREQ_ROOT="$d/defaults" "$py" -c "import midfreq.core, midfreq.data, midfreq.strategies, midfreq.backtest, midfreq.live.run_live, midfreq.research, midfreq.trading.node, midfreq.trading.cli" || return 1
+     MIDFREQ_ROOT="$d/defaults" "$d/.venv/bin/midfreq-live" --list > /dev/null || return 1
++    # the trading node: its console script, and every node configuration this release ships read
++    # and checked (settings valid, components importable) without connecting to anything
++    local cfg checked
++    for cfg in "$d"/defaults/config/node_*.yaml; do
++        [ -e "$cfg" ] || continue
++        checked=$(MIDFREQ_ROOT="$d/defaults" "$d/.venv/bin/midfreq-node" check-config --config "$cfg" 2>&1) \
++            || { echo "$checked" >&2; return 1; }
++    done
+     # the launcher end to end, if there is a runtime to launch against
+     if [ -f "$HOME_DIR/runtime/config/sp100_forward_test.json" ]; then
+         local out
