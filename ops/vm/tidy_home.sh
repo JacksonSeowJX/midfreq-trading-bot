@@ -29,7 +29,7 @@ INSTALLER="opend/moomoo_OpenD_10.8.6818_Ubuntu18.04.tar.gz"
 KNOWN="$SCRIPTS $OLD_LOGS $TO_LOGS $TO_BACKUPS opend midfreq midfreq-trading-bot"
 
 if [ -z "${TIDY_HOME:-}" ]; then
-    pgrep -f '[r]un_live' >/dev/null && { echo "a session is running; tidy afterwards" >&2; exit 1; }
+    pgrep -f '[r]un_live|[m]idfreq\.trading\.cli run|[m]idfreq-node run' >/dev/null && { echo "a session is running; tidy afterwards" >&2; exit 1; }
     if crontab -l 2>/dev/null | grep -v '^#' | grep -q "$H/bin/\|midfreq-trading-bot"; then
         echo "the crontab still uses ~/bin or the old clone; install ops/vm/crontab.txt first" >&2; exit 1
     fi

@@ -54,7 +54,9 @@ if [ -n "${TAG:-}" ]; then
 fi
 NAME=$(basename "$SRC")
 
-if [ "$FORCE" = 0 ] && vm "pgrep -f '[r]un_live' >/dev/null"; then
+# a session: the original engine (python -m midfreq.live.run_live) or the trading node
+# (python -m midfreq.trading.cli run, or the midfreq-node command)
+if [ "$FORCE" = 0 ] && vm "pgrep -f '[r]un_live|[m]idfreq\.trading\.cli run|[m]idfreq-node run' >/dev/null"; then
     echo "a session is running on $VM; deploy after it ends, or pass --force" >&2
     exit 1
 fi

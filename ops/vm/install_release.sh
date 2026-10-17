@@ -52,14 +52,31 @@ smoke_test() {
     # Every check must pass: `set -e` does not apply inside a function called from `if`, so each
     # line returns on failure (0.1.1's import line failed and the test still passed). The
     # packages find config/ at import, so the imports get the release's own defaults as root.
-    MIDFREQ_ROOT="$d/defaults" "$py" -c "import midfreq.core, midfreq.data, midfreq.strategies, midfreq.backtest, midfreq.live.run_live, midfreq.research" || return 1
+    MIDFREQ_ROOT="$d/defaults" "$py" -c "import midfreq.core, midfreq.data, midfreq.strategies, midfreq.backtest, midfreq.live.run_live, midfreq.research, midfreq.trading.node, midfreq.trading.cli" || return 1
     MIDFREQ_ROOT="$d/defaults" "$d/.venv/bin/midfreq-live" --list > /dev/null || return 1
-    # the launcher end to end, if there is a runtime to launch against
+    # the trading node: its console script, and every node configuration this release ships read
+    # and checked (settings valid, components importable) without connecting to anything
+    local cfg checked
+    for cfg in "$d"/defaults/config/node_*.yaml; do
+        [ -e "$cfg" ] || continue
+        checked=$(MIDFREQ_ROOT="$d/defaults" "$d/.venv/bin/midfreq-node" check-config --config "$cfg" 2>&1) \
+            || { echo "$checked" >&2; return 1; }
+    done
+    # the launchers end to end, if there is a runtime to launch against: the original engine's
+    # (kept for rollback) and the node's, exactly as the crontab starts them
     if [ -f "$HOME_DIR/runtime/config/sp100_forward_test.json" ]; then
         local out
         out=$(DRY_RUN=1 FAKE_ET=2026-11-16T09:35:01 MIDFREQ_ROOT="$HOME_DIR/runtime" PYTHON= \
             "$d/ops/run_sp100_forward_test.sh" --scheduled) || return 1
         grep -q "importable with $py" <<<"$out" || return 1
+    fi
+    if [ -f "$HOME_DIR/runtime/config/node_sp100.yaml" ]; then
+        local node_out
+        node_out=$(DRY_RUN=1 FAKE_ET=2026-11-16T09:35:01 MIDFREQ_ROOT="$HOME_DIR/runtime" PYTHON= \
+            NODE_CONFIG=config/node_sp100.yaml NODE_MODE=paper "$d/ops/run_node.sh" --scheduled 2>&1) \
+            || { echo "$node_out" >&2; return 1; }
+        grep -q "would run: $py -u -m midfreq.trading.cli run --config config/node_sp100.yaml --mode paper" <<<"$node_out" \
+            || { echo "$node_out" >&2; return 1; }
     fi
 }
 

@@ -48,10 +48,19 @@ def test_the_schedule_never_reaches_github_or_the_old_clone():
 
 
 def test_the_session_fires_at_both_us_open_times_on_weekdays():
-    session = [l for l in active_lines() if "run_sp100_forward_test.sh" in l]
-    assert len(session) == 1
+    session = [l for l in active_lines() if "run_node.sh" in l or "run_sp100_forward_test.sh" in l]
+    assert len(session) == 1, "exactly one US session launcher may be active"
+    assert "run_node.sh" in session[0] and "NODE_MODE=paper" in session[0]
+    assert "NODE_CONFIG=config/node_sp100.yaml" in session[0]
     assert session[0].split()[:5] == ["35", "21,22", "*", "*", "1-5"]
     assert "--scheduled" in session[0] and "MIDFREQ_ROOT=$HOME/midfreq/runtime" in session[0]
+
+
+def test_the_session_runner_line_is_kept_for_rollback():
+    text = (VM / "crontab.txt").read_text()
+    rollback = [l for l in text.splitlines() if l.startswith("#ROLLBACK ")]
+    assert len(rollback) == 1 and "run_sp100_forward_test.sh --scheduled" in rollback[0]
+    assert rollback[0][len("#ROLLBACK "):].split()[:5] == ["35", "21,22", "*", "*", "1-5"]
 
 
 def test_every_active_line_has_five_time_fields():
