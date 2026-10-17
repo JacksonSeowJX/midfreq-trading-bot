@@ -92,7 +92,7 @@ def test_a_fee_in_the_base_asset_is_converted_at_the_fill_price():
     book, _ = ledger(capital={"S1": 100_000.0}, instrument=lambda iid: pair if iid == btc else None)
     book.on_fill(fill("B", 0.5, 60_000.0, iid=btc, commission=0.0005, currency="BTC"))
     assert book.commissions(S1) == pytest.approx(30.0)
-    assert book.cash(S1) == pytest.approx(100_000.0 - 30_000.0 - 30.0)
+    assert book.cash(S1) == pytest.approx(100_000.0 - 30_000.0)        # paid in coins (M8)
     b = book.bookings(S1)[-1]
     assert (b.commission_source, b.venue_commission, b.venue_currency) == ("converted", 0.0005, "BTC")
     book.on_fill(fill("S", 0.5, 61_000.0, iid=btc, commission=30.5, currency="USDT"))   # quote: as is
@@ -240,3 +240,22 @@ def test_snapshot_and_restore_round_trip():
     # The original engine's state file shape (qty / entry_price) restores too.
     other.restore("S2", 1_000.0, {"MSFT.XNAS": {"qty": 5, "entry_price": 300.0}})
     assert other.positions(S2) == {MSFT: 5.0} and other.avg_price(S2, MSFT) == 300.0
+
+
+def test_m8_a_base_asset_fee_reduces_the_position_not_the_cash():
+    """M8 (safety review): OKX takes a spot buy's fee out of the coins bought, so the account
+    holds 0.4995 BTC after buying 0.5 with a 0.0005 BTC fee, and pays 30,000 USDT, no more. The
+    book holds what the account holds; the fee is recorded as commission at the fill price."""
+    from midfreq.core.model.instruments import CurrencyPair
+    btc = InstrumentId.from_str("BTC-USDT.OKX")
+    pair = CurrencyPair(id=btc, raw_symbol="BTC-USDT", currency="USDT", base_currency="BTC",
+                        quote_currency="USDT", size_increment=0.00001)
+    book, _ = ledger(capital={"S1": 100_000.0}, instrument=lambda iid: pair if iid == btc else None)
+    book.on_fill(fill("B", 0.5, 60_000.0, iid=btc, commission=0.0005, currency="BTC"))
+    assert book.position(S1, btc) == pytest.approx(0.4995)
+    assert book.cash(S1) == pytest.approx(70_000.0)
+    assert book.commissions(S1) == pytest.approx(30.0)
+    assert book.avg_price(S1, btc) == pytest.approx(30_000.0 / 0.4995)
+    book.on_fill(fill("S", 0.4995, 61_000.0, iid=btc, commission=30.47, currency="USDT"))
+    assert book.position(S1, btc) == pytest.approx(0.0, abs=1e-12)
+    assert book.cash(S1) == pytest.approx(70_000.0 + 0.4995 * 61_000.0 - 30.47)

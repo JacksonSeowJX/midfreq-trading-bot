@@ -23,10 +23,11 @@ The commission is the fill's own (the venue's report), in the instrument's quote
 - a venue that reports no fee marks the fill `tags["commission_unknown"]` (Moomoo's fills carry
   no fees); then, and only then, the venue's fee model's estimate is booked, as the original
   engine did with its commission rate. A reported 0 without the tag is a real zero and stays 0;
-- a fee charged in another currency than the instrument's quote currency (OKX charges a spot
-  buy's fee in the base asset) is converted at the fill's price: base-asset fee x price. A fee in
-  any other currency cannot be converted from the fill alone: the fee model's estimate is booked
-  and the log says so.
+- a fee charged in the base asset (OKX takes a spot buy's fee out of the coins bought) is paid
+  in coins, not cash: the book holds the quantity less the fee (what the account holds), at a
+  cost basis that includes the fee, the cash pays the trade value only, and the fee is recorded
+  as commission at the fill's price (base-asset fee x price). A fee in any other currency cannot
+  be converted from the fill alone: the fee model's estimate is booked and the log says so.
 Every booking is kept (`bookings()`), with the venue's own amount and currency next to what was
 booked and how (`reported`, `estimate`, `converted`).
 
@@ -261,6 +262,7 @@ class PositionLedger:
             return
         book = self._book(fill.strategy_id)
         commission, source = self._commission(fill)
+        base_fee = float(fill.commission) if source == "converted" else 0.0
         self._bookings.append(FillBooking(
             fill.strategy_id, fill.instrument_id, str(fill.trade_id) if fill.trade_id is not None else None,
             fill.side.value, fill.last_qty, fill.last_px, commission, source, fill.commission, fill.currency,
@@ -268,7 +270,10 @@ class PositionLedger:
         # The same operations, in the same order, as midfreq.core.portfolio.Portfolio.execute_trade.
         trade_value = fill.last_qty * fill.last_px
         is_buy = fill.side is OrderSide.BUY
-        if is_buy:
+        if base_fee:
+            # Paid in coins: the cash pays (or receives) the trade value only.
+            book.cash += -trade_value if is_buy else trade_value
+        elif is_buy:
             total_cost = trade_value + commission
             book.cash += -total_cost
         else:
@@ -283,7 +288,15 @@ class PositionLedger:
         if not is_buy and fill.last_qty > held + _QTY_EPS:
             log.warning("%s sold %g %s but its book held %g; booked as the venue reported it",
                         fill.strategy_id, fill.last_qty, fill.instrument_id, held)
-        realized = pos.apply(fill.last_qty if is_buy else -fill.last_qty, fill.last_px)
+        if base_fee and is_buy:
+            received = fill.last_qty - base_fee           # the coins the account received
+            realized = pos.apply(received, trade_value / received)
+        else:
+            realized = pos.apply(fill.last_qty if is_buy else -fill.last_qty, fill.last_px)
+            if base_fee:                                  # a sell's fee in coins: more coins leave
+                pos.quantity -= base_fee
+                if _is_zero(pos.quantity):
+                    pos.quantity, pos.avg_px = 0.0, 0.0
         pos.commissions += commission
         book.realized_pnl += realized
         if book.cash < -_QTY_EPS:
