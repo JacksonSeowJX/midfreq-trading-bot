@@ -374,9 +374,10 @@ class OrderManagementSystem:
         self._venue_filled: Dict[ClientOrderId, float] = {}   # what a venue query said had filled
         self._policy_paused: Optional[str] = None             # why no re-price may send an order now
 
-        bind = getattr(risk, "bind_open_orders", None)
-        if callable(bind):
-            bind(self.open_orders)
+        for component in (risk, positions):
+            bind = getattr(component, "bind_open_orders", None)
+            if callable(bind):
+                bind(self.open_orders)
         if restore:
             self.restore(journal_lookback_days)
 

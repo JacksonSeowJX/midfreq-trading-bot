@@ -860,3 +860,21 @@ def test_policy_presets_and_settings():
         UnfilledOrderPolicy.from_config({"reprice_attempts": 2})
     with pytest.raises(ValueError, match="preset"):
         UnfilledOrderPolicy.from_config("orignal_engine")
+
+
+def test_h6_reconciling_positions_skips_instruments_with_orders_in_flight(node):
+    """H6: the broker already shows a sell's fill that has not reached us; shrinking the claim to
+    the broker now would turn that fill, when it arrives, into a short. An instrument with an
+    order working is left alone until the order is done."""
+    from midfreq.data.adapters.base import PositionReport
+    node.ledger.restore("S1", 1_000_000.0, {AAPL: (100.0, 150.0)})
+    order = node.limit(qty=100, price=150.0, side=OrderSide.SELL)
+    node.venue.fill(order, 100, 150.0, push=False)             # filled at the broker; no push yet
+    report = node.ledger.reconcile(XNAS, [PositionReport("US.AAPL", 0.0, None, None, None, None, "AAPL.XNAS")])
+    assert node.ledger.position(S1, AAPL) == 100 and report.adjustments == ()
+    node.venue._emit(node.venue._ev(OrderFilled, order, trade_id=TradeId("D-late"), side=OrderSide.SELL,
+                                    last_qty=100.0, last_px=150.0, tags={"venue_order_id": order.tags["venue_order_id"]}))
+    node.pump()
+    assert node.ledger.position(S1, AAPL) == 0                 # flat, not short
+    node.ledger.reconcile(XNAS, [])
+    assert node.ledger.position(S1, AAPL) == 0

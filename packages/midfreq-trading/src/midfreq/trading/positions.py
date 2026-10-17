@@ -51,7 +51,9 @@ Reconciliation with the broker (`reconcile`) is the original engine's rule
 - a broker surplus over the claims belongs to other sessions (or to manual trades) and is
   never adopted;
 - the caller passes the broker's positions only when its query succeeded: a failed query is "no
-  information", never "holds nothing" (the 2026-07-15 incident).
+  information", never "holds nothing" (the 2026-07-15 incident);
+- an instrument a strategy has an order working on is left alone (the broker may already show a
+  fill that has not reached us; the OMS's open orders, bound with `bind_open_orders`).
 `bound_cash` applies the original engine's cash rule: under a cap, a book's cash is its own
 ledger, bounded from above by the broker's cash.
 """
@@ -184,8 +186,14 @@ class PositionLedger:
         self._instrument = instrument
         self._books: Dict[StrategyId, _Book] = {}
         self._bookings: Deque[FillBooking] = deque(maxlen=keep_bookings)
+        self._open_orders: Optional[Callable[[], List[Any]]] = None
         for sid, cap in (capital or {}).items():
             self.add_strategy(sid, cap)
+
+    def bind_open_orders(self, open_orders: Callable[..., List[Any]]) -> None:
+        """The OMS's open orders (the OMS binds itself when it is built): reconciliation leaves
+        alone an instrument a strategy has an order working on."""
+        self._open_orders = open_orders
 
     # ── books ─────────────────────────────────────────────────────────────────────────────────
 
@@ -461,6 +469,12 @@ class PositionLedger:
         reconciled (the others still count toward the claims on the broker's holdings)."""
         venue = as_venue(venue)
         only = None if strategy_ids is None else {str(s) for s in strategy_ids}
+        in_flight = set()
+        if self._open_orders is not None:
+            try:
+                in_flight = {(str(o.strategy_id), o.instrument_id) for o in self._open_orders()}
+            except Exception:  # noqa: BLE001 - without the OMS's view nothing is skipped
+                log.exception("cannot read the open orders; reconciling every position")
         now = self._clock.timestamp_ns()
         held: Dict[InstrumentId, float] = {}
         unidentified: List[str] = []
@@ -485,6 +499,11 @@ class PositionLedger:
                 if iid.venue != venue:
                     continue
                 if only is not None and str(book.strategy_id) not in only:
+                    claimed[iid] = claimed.get(iid, 0.0) + pos.quantity
+                    continue
+                if (str(book.strategy_id), iid) in in_flight:
+                    # An order is working: the broker may already show a fill we have not had yet.
+                    log.info("position reconciliation: %s %s skipped, an order is in flight", book.strategy_id, iid)
                     claimed[iid] = claimed.get(iid, 0.0) + pos.quantity
                     continue
                 broker_qty = held.get(iid)
