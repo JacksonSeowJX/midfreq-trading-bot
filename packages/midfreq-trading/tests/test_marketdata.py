@@ -182,9 +182,11 @@ def test_the_venues_closed_flag_is_final_at_once_and_never_repeated(env, caplog)
 
 
 def test_the_timer_makes_a_bar_final_after_its_close_plus_grace(env):
+    """Once the stream has delivered a push received after the close (here the bar's own last
+    update), the timer makes it final at close + grace (H8 for a stream that has not)."""
     env.svc.subscribe_bars(btype("AAPL.XNAS"))
     t = et("2026-10-16 15:30")
-    push(env, mkbar("AAPL.XNAS", t, 100.0))
+    push(env, mkbar("AAPL.XNAS", t, 100.0), ts_received=t + SEC)
     env.svc.on_timer(t + GRACE - 1)
     assert env.rec.bars == []
     env.svc.on_timer(t + GRACE)
@@ -205,7 +207,9 @@ def test_a_bar_that_ends_a_session_waits_for_the_next_open_or_for_stop(tmp_path)
     env.svc.on_timer(reopen + GRACE - 1)
     assert env.rec.bars == [] and env.rec.xs == [] and env.rec.stream == []
     env.svc.on_timer(reopen + GRACE)
-    assert len(env.rec.bars) == 9 and [(x.ts_event, x.complete) for x in env.rec.xs] == [(noon, False)]
+    assert len(env.rec.bars) == 9 and env.rec.xs == []         # incomplete: decided by the next interval
+    push(env, mkbar(hk[0], hkt("2026-10-16 14:00")), closed=True)
+    assert [(x.ts_event, x.complete) for x in env.rec.xs] == [(noon, False)]
 
     env.svc.subscribe_bars(btype("AAPL.XNAS"))
     close = et("2026-10-16 16:00")
@@ -252,11 +256,11 @@ def test_a_push_older_than_the_forming_bar_is_dropped_and_does_not_replace_it(en
 def test_a_bar_made_final_by_the_timer_drops_later_pushes_for_it(env):
     env.svc.subscribe_bars(btype("AAPL.XNAS"))
     t1, t2 = et("2026-10-16 10:30"), et("2026-10-16 11:30")
-    push(env, mkbar("AAPL.XNAS", t1, 100.0))
-    env.svc.on_timer(t1 + GRACE)
-    push(env, mkbar("AAPL.XNAS", t1, 100.7))           # too late
-    push(env, mkbar("AAPL.XNAS", t2, 101.0))
-    env.svc.on_timer(t2 + GRACE)
+    push(env, mkbar("AAPL.XNAS", t1, 100.0), ts_received=t1 - SEC)
+    env.svc.on_timer(t1 + LATE)                        # nothing since the close: the late grace
+    push(env, mkbar("AAPL.XNAS", t1, 100.7), ts_received=t1 + LATE + SEC)   # too late
+    push(env, mkbar("AAPL.XNAS", t2, 101.0), ts_received=t1 + LATE + 2 * SEC)
+    env.svc.on_timer(t2 + LATE)
     assert [(b.ts_event, b.close) for b in env.rec.bars] == [(t1, 100.0), (t2, 101.0)]
 
 
@@ -314,23 +318,23 @@ def test_a_cross_section_is_published_as_soon_as_every_instrument_has_its_bar(en
     assert len(env.rec.xs) == 1
 
 
-def test_an_incomplete_cross_section_needs_its_window_to_elapse_and_90_percent(env, caplog):
+def test_an_incomplete_cross_section_needs_the_next_interval_and_90_percent(env, caplog):
     ids = universe(env, 10)
     t = et("2026-10-16 10:30")
     for iid in ids[:9]:
-        push(env, mkbar(iid, t))                       # forming, made final by the timer
-    env.svc.on_timer(t + GRACE - 1)
+        push(env, mkbar(iid, t), ts_received=t - SEC)  # forming, made final by the timer
+    env.svc.on_timer(t + LATE - 1)
     assert env.rec.bars == [] and env.rec.xs == []
-    env.svc.on_timer(t + GRACE)
-    assert len(env.rec.bars) == 9 and len(env.rec.xs) == 1
+    env.svc.on_timer(t + LATE)
+    assert len(env.rec.bars) == 9 and env.rec.xs == []  # not on the clock (H8)
+    push(env, mkbar(ids[0], et("2026-10-16 11:30")), closed=True)   # the next interval decides it
+    assert len(env.rec.bars) == 10 and len(env.rec.xs) == 1
     xs = env.rec.xs[0]
     assert not xs.complete and xs.missing == (InstrumentId.from_str(ids[9]),) and len(xs.bars) == 9
-    assert [k for k, _ in env.rec.all][-1] == "xs"     # after all nine bars, not in the middle
     # The tenth reports afterwards: published as its bar, no second cross-section for 10:30.
     with caplog.at_level(logging.WARNING, logger="midfreq.trading.marketdata"):
-        push(env, mkbar(ids[9], t))
-        env.svc.on_timer(t + GRACE + SEC)
-    assert len(env.rec.bars) == 10 and len(env.rec.xs) == 1
+        push(env, mkbar(ids[9], t), closed=True)
+    assert len(env.rec.bars) == 11 and len(env.rec.xs) == 1
     assert any("after that cross-section was decided" in r.getMessage() for r in caplog.records)
 
 
@@ -339,12 +343,12 @@ def test_below_the_minimum_share_there_is_no_cross_section_but_a_gap_event(env):
     t1, t2 = et("2026-10-16 10:30"), et("2026-10-16 11:30")
     for iid in ids[:8]:
         push(env, mkbar(iid, t1), closed=True)
-    env.svc.on_timer(t1 + GRACE)
-    assert env.rec.xs == []
-    gaps = [e for e in env.rec.stream if e.kind == "gap"]
-    assert len(gaps) == 1 and "8 of 10" in gaps[0].detail
+    env.svc.on_timer(t1 + LATE)
+    assert env.rec.xs == [] and env.rec.stream == []    # undecided until the next interval
     for iid in ids:
         push(env, mkbar(iid, t2), closed=True)
+    gaps = [e for e in env.rec.stream if e.kind == "gap"]
+    assert len(gaps) == 1 and "8 of 10" in gaps[0].detail
     assert [(x.ts_event, x.complete) for x in env.rec.xs] == [(t2, True)]
 
 
@@ -355,7 +359,7 @@ def test_the_minimum_is_the_original_engines_ceil_of_90_percent(env, reported, p
     t = et("2026-10-16 10:30")
     for iid in ids[:reported]:
         push(env, mkbar(iid, t), closed=True)
-    env.svc.on_timer(t + GRACE)
+    push(env, mkbar(ids[0], et("2026-10-16 11:30")), closed=True)     # the next interval decides
     assert bool(env.rec.xs) is published
 
 
@@ -633,15 +637,27 @@ def test_stop_finalises_what_has_elapsed_unsubscribes_and_writes_the_store(tmp_p
     assert env.svc.stop() == report                              # a second stop does nothing
 
 
-def test_stop_after_the_close_includes_the_last_bar_and_decides_its_cross_section(tmp_path):
+def test_stop_after_the_close_includes_the_last_bar_and_decides_a_complete_cross_section(tmp_path):
+    env = make_env(tmp_path)
+    ids = universe(env, 10)
+    t = et("2026-10-16 16:00")
+    for iid in ids:
+        push(env, mkbar(iid, t))
+    env.svc.stop(now_ns=t + 90 * SEC)
+    assert len(env.rec.bars) == 10
+    assert [(x.ts_event, x.complete) for x in env.rec.xs] == [(t, True)]
+
+
+def test_stop_leaves_an_incomplete_last_cross_section_undecided_as_the_original(tmp_path):
+    """The original engine closed an incomplete cross-section only on the next interval's first
+    candle, so the session's last one, if incomplete, was never counted (H8)."""
     env = make_env(tmp_path)
     ids = universe(env, 10)
     t = et("2026-10-16 16:00")
     for iid in ids[:9]:
         push(env, mkbar(iid, t))
     env.svc.stop(now_ns=t + 90 * SEC)
-    assert len(env.rec.bars) == 9
-    assert [(x.ts_event, x.complete) for x in env.rec.xs] == [(t, False)]
+    assert len(env.rec.bars) == 9 and env.rec.xs == []
 
 
 def test_the_store_write_is_what_the_original_engine_wrote(tmp_path, monkeypatch):
@@ -694,3 +710,66 @@ def test_bars_written_at_stop_warm_the_next_session_up_at_the_same_times(tmp_pat
 def test_stream_events_use_the_interface_type(env):
     env.svc.on_stream_status(StreamStatus("weird", "unknown state", 7))
     assert env.rec.stream == [StreamEvent("error", "unknown state", 7)]
+
+
+# ── safety review H8: the clock never cuts a lagging stream short ─────────────────────────────
+
+LATE = 600 * SEC
+
+
+def test_h8_a_lagging_streams_bar_waits_for_a_push_after_its_close(env, caplog):
+    """H8: the stream has delivered nothing received after 10:30, so at 10:30 + grace the bar is
+    not made final by the clock; the bar's own late update (received 10:31:30) is kept, and from
+    then the stream is past the close and the timer finalises it with that update."""
+    env.svc.subscribe_bars(btype("AAPL.XNAS"))
+    t1 = et("2026-10-16 10:30")
+    push(env, mkbar("AAPL.XNAS", t1, 100.0), ts_received=t1 - 30 * SEC)
+    env.svc.on_timer(t1 + GRACE + SEC)
+    assert env.rec.bars == []
+    with caplog.at_level(logging.WARNING, logger="midfreq.trading.marketdata"):
+        push(env, mkbar("AAPL.XNAS", t1, 101.0), ts_received=t1 + 90 * SEC)
+    assert "late bar dropped" not in caplog.text
+    env.svc.on_timer(t1 + 90 * SEC + SEC)
+    assert [(b.ts_event, b.close) for b in env.rec.bars] == [(t1, 101.0)]
+
+
+def test_h8_with_no_push_after_the_close_the_clock_waits_the_late_grace(env):
+    env.svc.subscribe_bars(btype("AAPL.XNAS"))
+    t1 = et("2026-10-16 10:30")
+    push(env, mkbar("AAPL.XNAS", t1, 100.0), ts_received=t1 - 30 * SEC)
+    env.svc.on_timer(t1 + LATE - SEC)
+    assert env.rec.bars == []
+    env.svc.on_timer(t1 + LATE)
+    assert [b.close for b in env.rec.bars] == [100.0]
+
+
+def test_h8_another_instruments_push_after_the_close_lets_the_clock_decide(env):
+    """A push received after the close on the same stream (another instrument's next bar) shows
+    the stream has moved past it: the usual grace applies."""
+    for s in ("AAPL.XNAS", "MSFT.XNAS"):
+        env.svc.subscribe_bars(btype(s))
+    t1, t2 = et("2026-10-16 10:30"), et("2026-10-16 11:30")
+    push(env, mkbar("AAPL.XNAS", t1, 100.0), ts_received=t1 - 30 * SEC)
+    push(env, mkbar("MSFT.XNAS", t2, 300.0), ts_received=t1 + SEC)
+    env.svc.on_timer(t1 + GRACE)
+    assert [b.close for b in env.rec.bars if b.bar_type == btype("AAPL.XNAS")] == [100.0]
+
+
+def test_h8_an_incomplete_cross_section_waits_for_the_next_interval_as_the_original(tmp_path):
+    """H8: 9 of 10 instruments report 10:30 (the 90% minimum). As in the original engine, the
+    cross-section is decided when a bar of the next interval is final, not when 10:30's window
+    elapses: here 11:30 becomes final for one instrument when its 12:30 push arrives."""
+    env = make_env(tmp_path)
+    syms = [f"S{i}.XNAS" for i in range(10)]
+    for s in syms:
+        env.svc.subscribe_bars(btype(s), universe="u")
+    t1, t2, t3 = et("2026-10-16 10:30"), et("2026-10-16 11:30"), et("2026-10-16 12:30")
+    for s in syms[:9]:
+        push(env, mkbar(s, t1), ts_received=t1 - 30 * SEC)
+    for s in syms[:9]:
+        push(env, mkbar(s, t2), ts_received=t1 + SEC)            # 10:30 final for the nine
+    env.svc.on_timer(t1 + 30 * MIN)
+    assert env.rec.xs == [], "decided on the next interval, not on the clock"
+    push(env, mkbar(syms[0], t3), ts_received=t2 + SEC)          # 11:30 final for one instrument
+    (xs,) = env.rec.xs
+    assert xs.ts_event == t1 and not xs.complete and xs.missing == (InstrumentId.from_str(syms[9]),)

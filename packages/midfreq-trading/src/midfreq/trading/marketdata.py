@@ -16,7 +16,10 @@ Finality (a bar is published on TOPIC_BAR once, when it is final)
   - a newer push for the same bar type makes the forming bar final .......... LE 473-475
   - the venue's own `closed` flag makes the pushed bar final at once ........ (new: connectors
     whose venue marks bars final; the original's Moomoo stream never did)
-  - `on_timer(now)`: a forming bar is final when now >= its close + grace .. LE 633-641, which
+  - `on_timer(now)`: a forming bar is final when now >= its close + grace, but only once its
+    stream has delivered a push received after that close (it has moved past the bar); until
+    then the timer waits `late_grace` (10 min), so a lagging stream's last updates to the bar
+    are not cut off and then dropped as late .................................. LE 633-641, which
     did this only at shutdown with no grace; here the timer does it during the session too.
     A bar that ends a session (Hong Kong's 12:00 lunch break, the day's close, an early close)
     waits instead for the next session's open + grace: the original made such a bar final only
@@ -31,9 +34,10 @@ Finality (a bar is published on TOPIC_BAR once, when it is final)
 Cross-sections (published on TOPIC_CROSS_SECTION, once per universe and interval)
   - complete as soon as every instrument of the universe has its final bar
     for the interval .......................................................... LE 366-371 + CS 1065-1075
-  - otherwise decided when the interval's window has elapsed (the same moment
-    the timer makes its bars final, or close <= now at stop) or a later
-    interval has a final bar .................................................. CS 1048-1052
+  - otherwise decided when a later interval has a final bar, as the original
+    strategy closed an incomplete cross-section on the first candle of the
+    next one (never on the clock; the last interval of a session, if
+    incomplete, stays undecided at stop, as it did) .......................... CS 1048-1052
     and then published only if at least ceil(min_share * N) instruments
     reported (min_share 0.9) .................................................. LE 361-363 + CS 1091-1097
     with `missing` listing the others; below that, no cross-section, and a
@@ -97,6 +101,7 @@ __all__ = [
 ]
 
 DEFAULT_GRACE_S = 60.0          # a forming bar is final this long after its close without a successor
+DEFAULT_LATE_GRACE_S = 600.0    # ... or this long, while its stream has delivered nothing since the close
 DEFAULT_MIN_SHARE = 0.9         # LE 363: math.ceil(0.9 * len(symbols))
 DEFAULT_STALL_FACTOR = 1.25     # LE 325: 1.25 candle periods of silence
 DEFAULT_WARM_UP = 60            # LE 373: _warm_up(candles=60)
@@ -168,7 +173,8 @@ class _Stream:
     spec: BarSpecification
     venues: Set[Venue] = field(default_factory=set)
     bar_types: Set[BarType] = field(default_factory=set)
-    last_update_ns: Optional[int] = None
+    last_update_ns: Optional[int] = None    # the stall clock (pushes, the start, a resubscribe)
+    last_push_ns: Optional[int] = None      # when the last push was received (pushes only)
     resubscribed: bool = False
     fatal: bool = False
 
@@ -205,7 +211,8 @@ class LiveMarketDataService:
                  min_share: float = DEFAULT_MIN_SHARE,
                  stall_factor: float = DEFAULT_STALL_FACTOR,
                  limit_unit: str = "stream",
-                 persist: bool = True):
+                 persist: bool = True,
+                 late_grace: "float | timedelta" = DEFAULT_LATE_GRACE_S):
         """
         clients: the DataClient serving each venue (one client may serve several venues, as
             Moomoo serves XHKG, XNAS and XNYS; its subscription limit is then shared).
@@ -225,6 +232,8 @@ class LiveMarketDataService:
             "instrument" (for a client that counts instruments, whatever their data types).
         persist: write the session's bars to the store at stop() (off for shadow and sim runs,
             whose bars must not enter the real cache).
+        late_grace: seconds after a bar's close before the timer makes it final when its stream
+            has delivered no push received after that close (a lagging stream).
         """
         if limit_unit not in ("stream", "instrument"):
             raise ValueError(f"limit_unit must be 'stream' or 'instrument', not {limit_unit!r}")
@@ -241,6 +250,8 @@ class LiveMarketDataService:
         self._clock = clock or LiveClock()
         grace_s = grace.total_seconds() if isinstance(grace, timedelta) else float(grace)
         self._grace_ns = int(round(grace_s * 1e9))
+        late_s = late_grace.total_seconds() if isinstance(late_grace, timedelta) else float(late_grace)
+        self._late_grace_ns = int(round(max(late_s, grace_s) * 1e9))
         self._min_share = float(min_share)
         self._stall_factor = float(stall_factor)
         self._limit_unit = limit_unit
@@ -621,13 +632,23 @@ class LiveMarketDataService:
             if s.forming is None:
                 continue
             t = s.forming.ts_event
-            if now_ns >= (t if stopping else self._due_ns(s.bar_type.instrument_id.venue, t)):
+            if now_ns >= (t if stopping else self._clock_due_ns(s, t)):
                 due.append(s)
         due.sort(key=lambda s: s.forming.ts_event)
         for state in due:
             bar = state.forming
             state.forming = None
             self._finalise(state, bar, "window elapsed")
+
+    def _clock_due_ns(self, state: _BarState, t: int) -> int:
+        """When the timer may make this forming bar final during the session: the grace after its
+        close (or the next open) once its stream has delivered a push received after the close,
+        else not before the late grace: a lagging stream may still be updating it."""
+        due = self._due_ns(state.bar_type.instrument_id.venue, t)
+        stream = self._streams.get(state.stream_key) if state.stream_key is not None else None
+        if stream is not None and stream.last_push_ns is not None and stream.last_push_ns > t:
+            return due
+        return max(due, t + self._late_grace_ns)
 
     def _due_ns(self, venue: Venue, t: int) -> int:
         """When the timer may make a bar closing at `t` final: t + grace, or, when `t` ends a
@@ -700,8 +721,9 @@ class LiveMarketDataService:
         self._evaluate(u, None)
 
     def _evaluate(self, u: _Universe, now_ns: Optional[int], stopping: bool = False) -> None:
-        """Publish every interval of `u` that can be decided: complete, or (window elapsed, or a
-        later interval has a final bar) with at least ceil(min_share * N) instruments."""
+        """Publish every interval of `u` that can be decided: complete, or, once a later interval
+        has a final bar, with at least ceil(min_share * N) instruments (else a gap). The clock
+        never decides an incomplete interval, at stop neither: the original engine's timing."""
         members = [bt.instrument_id for bt in u.members]
         n = len(members)
         if n == 0:
@@ -718,10 +740,7 @@ class LiveMarketDataService:
             if len(have) >= n:
                 self._publish(u, t, bars, have, members, complete=True)
                 continue
-            newer = any(other > t for other in u.pending)
-            elapsed = now_ns is not None and (
-                now_ns >= t if stopping else now_ns >= max(self._due_ns(v, t) for v in venues))
-            if not (newer or elapsed):
+            if not any(other > t for other in u.pending):
                 break
             if len(have) >= need:
                 self._publish(u, t, bars, have, members, complete=False)
@@ -763,6 +782,8 @@ class LiveMarketDataService:
         ts = int(ts_received) if ts_received else self._clock.timestamp_ns()
         if stream.last_update_ns is None or ts > stream.last_update_ns:
             stream.last_update_ns = ts
+        if stream.last_push_ns is None or ts > stream.last_push_ns:
+            stream.last_push_ns = ts
 
     def _check_stalls(self, now_ns: int) -> None:
         for stream in self._streams.values():
