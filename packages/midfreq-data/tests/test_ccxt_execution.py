@@ -619,3 +619,29 @@ def test_a_trade_without_a_fee_is_marked_commission_unknown(paper_config, live):
     assert "commission_unknown" not in fills["ZEROFEE"].tags and fills["ZEROFEE"].commission == 0.0
     assert (fills["BASEFEE"].commission, fills["BASEFEE"].currency) == (0.0001, "BTC")
     assert "commission_unknown" not in fills["BASEFEE"].tags
+
+
+def test_c3_an_order_rejected_by_guess_can_still_be_cancelled(paper_config, live):
+    """C3/H4 (safety review): the create reply is lost and the lookup by client id finds nothing
+    within the timeout, so the client rejects the order by guess. The exchange had it after all:
+    its fills are still reported, and a cancel (with the venue id the OMS learned) reaches the
+    exchange instead of being ignored because the client had given up on the order."""
+    client, driver, events = live(updates="poll")
+    venue, rest = client.fake_venue, client.fake_rest
+    venue.lose_create_reply = True
+    real_fetch = rest.fetch_order
+
+    def blind_lookup(id, symbol=None, params=None):
+        if id is None:                                   # the lookup by client id: not found (yet)
+            raise ccxt.OrderNotFound("okx order not found")
+        return real_fetch(id, symbol, params)
+    rest.fetch_order = blind_lookup
+    order = orders().limit(BTC, OrderSide.BUY, 0.3, 60000.0)
+    client.submit_order(order)
+    (rejected,) = events.wait(OrderRejected)
+    vid = driver.last_order_id()
+    driver.accept(vid)
+    driver.fill(vid, 0.1, 60000.0, "T-AFTER-GUESS")
+    order.tags["venue_order_id"] = vid                   # what the OMS's reconciliation records (H4)
+    client.cancel_order(order)
+    assert vid in venue.cancel_requests

@@ -252,6 +252,7 @@ class _Tracked:
     gap_since: Optional[int] = None         # ns since OpenD reported more filled than we emitted
     pending_terminal: Optional[Tuple[str, str]] = None   # (kind, reason) waiting for fills
     cancel_requested: bool = False
+    guessed: bool = False                   # closed as rejected because nothing was found by remark in time
     unconfirmed_since: Optional[int] = None # place_order's outcome unknown since (ns)
     unconfirmed_reason: str = ""
 
@@ -516,11 +517,33 @@ class MoomooExecutionClient(ExecutionClient):
             log.warning("cannot cancel %s: moomoo's order id is not known", order.client_order_id)
             return
         with self._lock:
-            if t.closed:
+            if t.closed and not t.guessed:
                 return
+            if t.venue_order_id is None and _text(order.tags.get("venue_order_id")):
+                self._bind(t, _text(order.tags.get("venue_order_id")))   # learned by the OMS's reconciliation
+        if t.venue_order_id is None:
+            # Not bound yet: look for it by its remark (one query) before deferring the cancel.
+            try:
+                rows = [r for r in self._query_orders(ctx) if _text(r.get("remark")) == t.remark]
+            except ConnectorError as exc:
+                log.warning("moomoo order lookup by remark for %s failed: %s", t.client_order_id, exc)
+                rows = []
+            with self._lock:
+                if rows and t.venue_order_id is None:
+                    self._bind(t, _text(rows[-1].get("order_id")))
+        with self._lock:
             if t.venue_order_id is None:   # placed with an unknown outcome: cancel once it is found
                 t.cancel_requested = True
                 return
+            if t.guessed:
+                # Rejected by a guess, but the order exists: take it back, so its cancel and
+                # its fills are reported, and cancel it.
+                log.warning("moomoo order %s (%s), rejected when nothing was found by remark, exists: cancelling it",
+                            t.client_order_id, t.venue_order_id)
+                t.guessed = False
+                t.closed = False
+                t.accepted = True
+                t.pending_terminal = None
             vid = t.venue_order_id
         try:
             ret, data = ctx.modify_order("CANCEL", vid, 0, 0, trd_env=self.trd_env, acc_id=self.acc_id)
@@ -643,6 +666,7 @@ class MoomooExecutionClient(ExecutionClient):
                 for t in active:
                     if (t.unconfirmed_since is not None and t.venue_order_id is None and orders is not None
                             and now - t.unconfirmed_since >= self.unconfirmed_grace_ns):
+                        t.guessed = True    # a guess: if the order turns up, it can still be cancelled
                         self._close(t, OrderRejected, f"no order with remark {t.remark!r} reached moomoo "
                                                       f"({t.unconfirmed_reason})")
                         continue
@@ -1057,8 +1081,9 @@ class MoomooExecutionClient(ExecutionClient):
             instrument_id=self._instrument(code))
 
     def _fill_from_order(self, row: Dict[str, Any]) -> Optional[FillReport]:
-        """Where OpenD has no deals: one fill per order, its dealt quantity at its average price,
-        with the same trade id a status-derived OrderFilled for the whole quantity carries."""
+        """Where OpenD has no deals: one report per order, its dealt quantity so far at its
+        average price (cumulative=True), with the trade id a status-derived OrderFilled reaching
+        that total carries."""
         ts = self._utc(row.get("updated_time")) or self._utc(row.get("create_time"))
         qty, px = _num(row.get("dealt_qty")), _positive(row.get("dealt_avg_price"))
         if ts is None or not qty or px is None:
@@ -1067,7 +1092,8 @@ class MoomooExecutionClient(ExecutionClient):
         return FillReport(
             trade_id=f"{vid}#{qty:g}", order_id=vid, symbol=code, side=_side(row.get("trd_side")),
             quantity=qty, price=px, ts=ts, commission=None, currency=self.currency,
-            client_order_id=self._client_order_id(_text(row.get("remark"))), instrument_id=self._instrument(code))
+            client_order_id=self._client_order_id(_text(row.get("remark"))), instrument_id=self._instrument(code),
+            cumulative=True)
 
     # ── events ───────────────────────────────────────────────────────
 

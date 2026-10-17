@@ -212,6 +212,7 @@ class _Tracked:
     venue_cost: float = 0.0         # filled x average at the last synthesized fill
     unconfirmed: Optional[str] = None   # why create_order's reply is missing
     cancel_pending: bool = False    # cancel asked while unconfirmed
+    guessed: bool = False           # rejected because the exchange never confirmed it in time
 
 
 class CcxtExecutionClient(ExecutionClient):
@@ -484,11 +485,33 @@ class CcxtExecutionClient(ExecutionClient):
                 log.warning("%s: cancel of %s, which this client never sent; ignored",
                             self.exchange_id, order.client_order_id)
                 return
-            if tr.terminal:
+            if tr.terminal and not tr.guessed:
                 return
+            if tr.venue_order_id is None and order.tags.get("venue_order_id"):
+                self._bind(tr, str(order.tags["venue_order_id"]))   # learned by the OMS's reconciliation
+            if tr.guessed:
+                # Rejected by a guess, but the OMS has found it: take it back and cancel it.
+                log.warning("%s: %s, rejected when the exchange never confirmed it, is being cancelled",
+                            self.exchange_id, order.client_order_id)
+                tr.guessed = False
+                tr.terminal = False
+                tr.accepted = True
+                tr.unconfirmed = None
             if tr.venue_order_id is None:
-                tr.cancel_pending = True    # sent once the exchange confirms the order
-                return
+                if tr.unconfirmed is not None:
+                    tr.cancel_pending = True    # sent once the exchange confirms the order
+                    return
+                vid, symbol = None, tr.symbol   # cancel by our client order id
+            else:
+                vid, symbol = tr.venue_order_id, tr.symbol
+        if vid is None:
+            try:
+                self._rest("cancel_order", None, symbol, {self._client_id_param: tr.venue_client_id})
+            except Exception as exc:
+                log.warning("%s: cancel of %s by client id failed: %s: %s", self.exchange_id, order.client_order_id,
+                            type(exc).__name__, exc)
+            return
+        with self._lock:
             vid, symbol = tr.venue_order_id, tr.symbol
         try:
             reply = self._rest("cancel_order", vid, symbol)
@@ -987,6 +1010,7 @@ class CcxtExecutionClient(ExecutionClient):
                     cancel = tr.cancel_pending
                 elif (self._now_ns() - tr.submitted_ns) / 1e9 >= self._unconfirmed_timeout:
                     tr.terminal = True
+                    tr.guessed = True       # a guess: should the order exist, it can still be cancelled
                     order = tr.order
                     self._emit(OrderRejected(order.client_order_id, order.strategy_id, order.instrument_id,
                                              self._now_ns(),

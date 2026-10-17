@@ -416,7 +416,10 @@ class OrderReport:
 
 @dataclass(frozen=True)
 class FillReport:
-    """One execution as the venue reports it."""
+    """One execution as the venue reports it. A venue that cannot list executions (Moomoo paper
+    accounts without deal queries) reports an order's fills as one cumulative figure instead:
+    `cumulative` True, `quantity` everything filled so far at the average `price`; the OMS books
+    only what such a report adds to what it already has."""
     trade_id: str                         # the venue's execution (deal) id
     order_id: str                         # the venue's order id
     symbol: str
@@ -428,6 +431,7 @@ class FillReport:
     currency: str = ""                    # the fee's currency
     client_order_id: Optional[str] = None
     instrument_id: Optional[str] = None
+    cumulative: bool = False              # quantity is the order's total filled so far, not one execution
 
 
 class AccountUnavailableError(ConnectorError):

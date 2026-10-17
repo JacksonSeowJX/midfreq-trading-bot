@@ -417,9 +417,11 @@ def test_the_transition_table():
     assert transition(S.FILLED, OrderFilled(None, S1, AAPL, 0)) is Outcome.ILLEGAL
     assert transition(S.PARTIALLY_FILLED, OrderAccepted(None, S1, AAPL, 0)) is Outcome.STALE
     assert transition(S.DENIED, OrderAccepted(None, S1, AAPL, 0)) is Outcome.ILLEGAL
-    # every closed status accepts no fill except CANCELED (the race)
-    for status in (S.FILLED, S.REJECTED, S.DENIED):
+    # a closed order accepts no fill, except a cancelled or rejected one: the cancel crossed the
+    # fill, or the rejection was a guess and the venue had the order (the venue's fill is the truth)
+    for status in (S.FILLED, S.DENIED):
         assert TRANSITIONS.get((status, OrderFilled), Outcome.ILLEGAL) is Outcome.ILLEGAL
+    assert transition(S.REJECTED, OrderFilled(None, S1, AAPL, 0)) is Outcome.RACE
 
 
 def test_venue_status_words():

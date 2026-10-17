@@ -22,11 +22,12 @@ in `tags["strategy_order_id"]`. The order object is the strategy's own and is up
 The state machine (TRANSITIONS below), for each (current status, event) pair:
 
     apply    a legal transition
-    race     a fill after the order was cancelled: the cancel and the fill crossed at the venue.
-             The venue's fill is the truth, so it is applied (WARNING); the order becomes FILLED
-             if that completes it, else stays CANCELED. The same holds for a fill after a
-             rejection the OMS only inferred from a failed submit call (the venue may have the
-             order after all).
+    race     a fill after the order was cancelled or rejected: the cancel and the fill crossed at
+             the venue, or the rejection was a guess (a failed submit call, a client that found
+             no trace of the order in time) and the venue had the order after all. The venue's
+             fill is the truth, so it is always applied (WARNING); the order becomes FILLED if
+             that completes it, else keeps its status. Reconciliation then cancels at the venue
+             whatever it still lists open (see `reconcile`).
     stale    a late or repeated acknowledgement (an accept overtaken by the fill push, a second
              cancel confirmation): nothing changes (INFO)
     illegal  anything else (a fill on a FILLED, REJECTED or DENIED order, a venue event on an
@@ -139,6 +140,7 @@ TRANSITIONS: Dict[Tuple[OrderStatus, type], Outcome] = {
     (_S.CANCELED, OrderAccepted): Outcome.STALE,
 
     (_S.REJECTED, OrderRejected): Outcome.STALE,
+    (_S.REJECTED, OrderFilled): Outcome.RACE,        # the rejection was a guess: the venue's fill is the truth
     (_S.REJECTED, OrderSubmitted): Outcome.STALE,
 
     (_S.DENIED, OrderDenied): Outcome.STALE,
@@ -609,9 +611,6 @@ class OrderManagementSystem:
                 self._by_venue_id[(order.venue, str(voi))] = order.client_order_id
 
         outcome = transition(order.status, event)
-        if (outcome is Outcome.ILLEGAL and isinstance(event, OrderFilled)
-                and order.status is OrderStatus.REJECTED and order.client_order_id in self._local_reject):
-            outcome = Outcome.RACE
         previous = order.status
         if outcome is Outcome.ILLEGAL:
             log.error("illegal transition ignored: %s is %s, got %s %s", order.client_order_id, previous.value,
@@ -788,6 +787,7 @@ class OrderManagementSystem:
                 error = str(exc)
             self._journal_report(order, now, "query_order", report, error)
             if report is not None:
+                self._learn_venue_id(order, report.order_id, "a query of the order")
                 if report.filled_quantity > order.filled_qty + _QTY_EPS:
                     self._venue_filled[cid] = float(report.filled_quantity)
                 final = venue_status(report.status)
@@ -887,6 +887,8 @@ class OrderManagementSystem:
         except Exception as exc:  # noqa: BLE001
             error = str(exc)
         self._journal_report(order, now_ns, "query_order", report, error)
+        if report is not None:
+            self._learn_venue_id(order, report.order_id, "a query of the order")
         final = venue_status(report.status) if report is not None else None
         if error is None and report is None:
             self._process(OrderCanceled(order.client_order_id, order.strategy_id, order.instrument_id, now_ns,
@@ -929,18 +931,67 @@ class OrderManagementSystem:
             self._journal_safe("venue_reply", self._clock.timestamp_ns(), order, call="fills", error=str(exc))
             return 0
         voi = order.tags.get("venue_order_id")
-        applied = 0
-        for r in reports:
-            mine = (r.client_order_id is not None and r.client_order_id == str(order.client_order_id)) or \
-                   (voi is not None and str(r.order_id) == str(voi))
-            if mine and self._apply_fill_report(order, r, "re-query") in (Outcome.APPLY, Outcome.RACE):
-                applied += 1
+        mine = [r for r in reports
+                if (r.client_order_id is not None and r.client_order_id == str(order.client_order_id))
+                or (voi is not None and str(r.order_id) == str(voi))]
+        if mine:
+            self._learn_venue_id(order, mine[0].order_id, "the venue's fills")
+        applied, _ = self._apply_reports(order, mine, "re-query", [])
         if applied:
             log.warning("%d fill(s) of %s found only by asking the venue", applied, order.client_order_id,
                         extra=self._extra(order))
         return applied
 
-    def _apply_fill_report(self, order: Order, report: FillReport, source: str) -> Outcome:
+    def _apply_reports(self, order: Order, reports: List[FillReport], source: str,
+                       notes: List[str]) -> Tuple[int, int]:
+        """Apply what one order's fill reports add to what the OMS has booked, never beyond the
+        venue's own cumulative filled quantity: the larger of the executions' total and any
+        cumulative report. A cumulative report (Moomoo without deal queries) adds only its total
+        less what is booked; an execution report under an id not seen before adds only what the
+        venue's total leaves room for, since the same execution may already be booked under
+        another id (a status-derived fill whose deal arrived later). Returns (applied, matched)."""
+        if not reports:
+            return 0, 0
+        executions = [r for r in reports if not r.cumulative]
+        venue_total = max([sum(float(r.quantity) for r in executions)] +
+                          [float(r.quantity) for r in reports if r.cumulative])
+        applied = matched = 0
+        for r in sorted(reports, key=lambda r: (bool(r.cumulative), pd.Timestamp(r.ts).value, str(r.trade_id))):
+            if self.fill_key(order, r.trade_id, r.order_id) in self._trade_ids:
+                matched += 1
+                continue
+            already = order.filled_qty
+            if r.cumulative:
+                qty = float(r.quantity) - already
+                px = float(r.price)
+                if qty > _QTY_EPS and already > 0 and order.avg_px is not None:
+                    px = (float(r.price) * float(r.quantity) - order.avg_px * already) / qty
+                    if not (math.isfinite(px) and px > 0):
+                        px = float(r.price)
+            else:
+                qty = min(float(r.quantity), venue_total - already)
+                px = float(r.price)
+            if qty <= _QTY_EPS * max(1.0, order.quantity):
+                matched += 1                                  # booked already, under another id
+                continue
+            if qty < float(r.quantity) - _QTY_EPS and not r.cumulative:
+                log.warning("venue fill %s of %s: %g of its %g already booked under another id; %g applied",
+                            r.trade_id, order.client_order_id, float(r.quantity) - qty, r.quantity, qty,
+                            extra=self._extra(order))
+            outcome = self._apply_fill_report(order, r, source, quantity=qty, price=px)
+            if outcome in (Outcome.APPLY, Outcome.RACE):
+                applied += 1
+                notes.append(f"{order.client_order_id}: missed fill {r.trade_id} {r.side} {qty:g} @ {px:g} "
+                             f"applied{' (cumulative report)' if r.cumulative else ''}")
+            elif outcome is Outcome.DUPLICATE:
+                matched += 1
+            else:
+                notes.append(f"{order.client_order_id}: venue fill {r.trade_id} not applied "
+                             f"({outcome.value}; order is {order.status.value})")
+        return applied, matched
+
+    def _apply_fill_report(self, order: Order, report: FillReport, source: str,
+                           quantity: Optional[float] = None, price: Optional[float] = None) -> Outcome:
         try:
             side = OrderSide(str(report.side).upper())
             trade_id = TradeId(str(report.trade_id))
@@ -952,12 +1003,19 @@ class OrderManagementSystem:
                       order.client_order_id, side.value, order.side.value)
             return Outcome.ILLEGAL
         tags: Dict[str, Any] = {"venue_order_id": str(report.order_id), "source": source}
-        if report.commission is None:
+        if report.commission is None or report.cumulative:
             tags["commission_unknown"] = True
+        if report.cumulative:
+            tags["cumulative_report"] = True
+        qty = float(report.quantity) if quantity is None else float(quantity)
+        px = float(report.price) if price is None else float(price)
+        commission = float(report.commission or 0.0)
+        if report.commission and qty != float(report.quantity) and float(report.quantity) > 0:
+            commission *= qty / float(report.quantity)
         fill = OrderFilled(order.client_order_id, order.strategy_id, order.instrument_id,
                            int(pd.Timestamp(report.ts).value), trade_id=trade_id,
-                           side=side, last_qty=float(report.quantity), last_px=float(report.price),
-                           commission=float(report.commission or 0.0), currency=report.currency,
+                           side=side, last_qty=qty, last_px=px,
+                           commission=commission, currency=report.currency,
                            tags=tags)
         return self._process(fill)
 
@@ -1013,22 +1071,21 @@ class OrderManagementSystem:
             except Exception as exc:  # noqa: BLE001
                 unexplained.append(f"{venue}: fills query failed: {exc}")
                 reports = None
+            by_order: Dict[ClientOrderId, List[FillReport]] = {}
             for r in reports or []:
                 order = self._order_for_report(venue, r.client_order_id, r.order_id)
                 if order is None:
                     unexplained.append(f"{venue}: fill {r.trade_id} on venue order {r.order_id} ({r.side} "
                                        f"{r.quantity:g} {r.symbol} @ {r.price:g}) is not one of ours")
                     continue
-                if self.fill_key(order, r.trade_id, r.order_id) in self._trade_ids:
-                    matched += 1
-                    continue
-                outcome = self._apply_fill_report(order, r, "reconcile")
-                if outcome in (Outcome.APPLY, Outcome.RACE):
-                    adjustments.append(f"{order.client_order_id}: missed fill {r.trade_id} {r.side} {r.quantity:g} "
-                                       f"@ {r.price:g} applied")
-                elif outcome is not Outcome.DUPLICATE:
-                    unexplained.append(f"{order.client_order_id}: venue fill {r.trade_id} not applied "
-                                       f"({outcome.value}; order is {order.status.value})")
+                by_order.setdefault(order.client_order_id, []).append(r)
+            for cid, mine in by_order.items():
+                self._learn_venue_id(self._orders[cid], mine[0].order_id, "the venue's fills")
+                notes: List[str] = []
+                _, m = self._apply_reports(self._orders[cid], mine, "reconcile", notes)
+                matched += m
+                for note in notes:
+                    (adjustments if "missed fill" in note else unexplained).append(note)
             # 2. open orders
             try:
                 venue_open = client.open_orders()
@@ -1043,9 +1100,13 @@ class OrderManagementSystem:
                                        f"@ {r.price}) is not in the journal")
                     continue
                 listed.add(order.client_order_id)
+                self._learn_venue_id(order, r.order_id, "the venue's open orders")
                 if order.is_closed:
-                    unexplained.append(f"{order.client_order_id}: the venue lists it open ({r.status}) but it is "
-                                       f"{order.status.value} here")
+                    if order.status in (OrderStatus.REJECTED, OrderStatus.CANCELED):
+                        self._reopen_and_cancel(order, r, now, adjustments)
+                    else:
+                        unexplained.append(f"{order.client_order_id}: the venue lists it open ({r.status}) but it "
+                                           f"is {order.status.value} here")
                     continue
                 matched += 1
                 if r.filled_quantity > order.filled_qty + _QTY_EPS:
@@ -1081,6 +1142,8 @@ class OrderManagementSystem:
         except Exception as exc:  # noqa: BLE001
             error = str(exc)
         self._journal_report(order, now, "query_order", report, error)
+        if report is not None:
+            self._learn_venue_id(order, report.order_id, "a query of the order")
         if error is not None:
             unexplained.append(f"{cid}: not among the venue's open orders and the query failed: {error}")
             return
@@ -1105,6 +1168,46 @@ class OrderManagementSystem:
                                    f"{order.filled_qty:g} of {order.quantity:g} arrived; left open")
         else:
             unexplained.append(f"{cid}: not among the venue's open orders, but its status is {report.status}")
+
+    def _learn_venue_id(self, order: Order, venue_order_id: Any, source: str) -> None:
+        """A venue report revealed the venue's id of an order the OMS has none for (a lost
+        place reply): keep it on the order, index it and journal it, so cancels and later
+        reports reach the right order."""
+        vid = str(venue_order_id or "").strip()
+        if not vid or order.tags.get("venue_order_id"):
+            return
+        order.tags["venue_order_id"] = vid
+        self._by_venue_id[(order.venue, vid)] = order.client_order_id
+        log.warning("%s: the venue's order id %s learned from %s", order.client_order_id, vid, source,
+                    extra=self._extra(order))
+        self._journal_safe("venue_id", self._clock.timestamp_ns(), order, venue_order_id=vid, source=source)
+
+    def _reopen_and_cancel(self, order: Order, report: OrderReport, now: int, adjustments: List[str]) -> None:
+        """The venue lists the order open but the OMS has closed it (a rejection or a cancel it had
+        to guess). Its fills are applied as they come; what is left is cancelled at the venue,
+        through a family in 'cancelling' so an unconfirmed cancel is followed up."""
+        cid = order.client_order_id
+        previous = order.status
+        reason = (f"open at the venue ({report.status}) but {previous.value} here: reopened to cancel the "
+                  f"remainder at the venue")
+        order.status = OrderStatus.PARTIALLY_FILLED if order.filled_qty > 0 else OrderStatus.ACCEPTED
+        order.reason = reason
+        self._open[cid] = order
+        self._local_reject.discard(cid)
+        fam = self._family_of.get(cid)
+        if fam is None:
+            fam = _Family(cid, order.quantity, [cid], cid, int(order.tags.get("attempt", 1) or 1), now)
+            self._families[cid] = fam
+            self._family_of[cid] = fam
+        fam.active = cid
+        fam.state = "cancelling"
+        fam.cancel_sent_ns = now
+        fam.cancel_retries = 0
+        self._working[fam.root] = fam
+        log.error("%s: %s", cid, reason, extra=self._extra(order))
+        self._journal_safe("reopened", now, order, previous_status=previous.value, venue_status=report.status)
+        adjustments.append(f"{cid}: {reason}")
+        self._send_cancel(order, "cancel the remainder of an order the venue still had open")
 
     def _order_for_report(self, venue: Venue, client_order_id: Optional[str], venue_order_id: Optional[str]) -> Optional[Order]:
         if client_order_id:
