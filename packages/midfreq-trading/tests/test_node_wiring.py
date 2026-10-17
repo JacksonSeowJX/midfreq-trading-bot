@@ -683,3 +683,27 @@ def test_m10_a_stop_request_ends_the_wait_for_a_fill(tmp_path):
     assert venue.cancels == venue.submitted
     assert node._stop_flag == "signal SIGTERM"
     node.stop()
+
+
+def test_s3_an_empty_position_list_with_holdings_in_the_account_is_a_failed_read(tmp_path):
+    """S3: the broker answers 'no positions' while the account snapshot values its holdings at
+    US$50,000: that answer is a failed read, so the saved claims are kept, not wiped."""
+    import json
+    from types import SimpleNamespace
+    records = tmp_path / "live_sessions"
+    records.mkdir()
+    (records / "state_xsr.json").write_text(json.dumps(
+        {"saved_at": "x", "positions": {"US.AAPL": {"qty": 10.0, "entry_price": 100.0}}, "peak_prices": {},
+         "cross_section_count": 3, "next_rebalance_at": 4, "cash": 99_000.0}, indent=1))
+    account = SimpleNamespace(snapshot=lambda: {"cash": 1e6, "total_assets": 1_050_000.0, "market_value": 50_000.0},
+                              positions=lambda: [], close=lambda: None)
+    d = tiny_config_dict(symbols=SYMS, mode="paper", confirm_timeout_s=150, state_name="xsr")
+    node = TradingNode(config_from_dict(d), mode="paper", clock=TestClock(START), records_dir=records,
+                       store_dir=tmp_path / "data", records_tz="America/New_York",
+                       components={"execution_client:acct": ScriptedVenue("paper"), "data_client": FakeDataClient(),
+                                   "account_source:acct": account})
+    assert node.broker_positions("acct") == (None, None) or not node.ctx
+    node.start()
+    assert node.broker_positions("acct") == (None, None)
+    assert node.host.legacy[0].portfolio.get_position_qty("US.AAPL") == 10
+    node.stop()

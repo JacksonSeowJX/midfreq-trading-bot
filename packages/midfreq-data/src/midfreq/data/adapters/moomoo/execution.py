@@ -114,8 +114,12 @@ ORDER_STATUS: Dict[str, str] = {
 }
 OPEN_KINDS = frozenset({PENDING, WORKING, UNKNOWN})
 
-# place_order errors that mean the request never left this process (the order cannot exist) ...
+# place_order errors that mean the request never left this process (the order cannot exist), when
+# the client already knew its connection was down; otherwise the same words can follow a request
+# that reached OpenD, and the order is looked up by its remark (S1) ...
 _NOT_SENT = ("connect timeout", "connection closed")
+# OpenD answers at most 10 order (and 10 deal) list queries with refresh_cache per 30 s.
+REFRESH_LIMIT, REFRESH_WINDOW_S = 10, 30.0
 # ... and those that mean it may have reached OpenD (outcome unknown until we find it by remark).
 _MAYBE_SENT = ("timeout", "disconnect", "sendfail", "超时", "断开")
 # OpenD's answer when a query is not available in this environment (deals on some paper accounts).
@@ -334,6 +338,8 @@ class MoomooExecutionClient(ExecutionClient):
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._poller: Optional[threading.Thread] = None
+        self._link_down = False                 # OpenD told us the trade connection was lost
+        self._refreshed: Dict[str, Deque[int]] = {}   # method -> times of refreshed queries (S4)
 
     def __repr__(self) -> str:
         return f"MoomooExecutionClient({self.market} {self.environment} via {self.host}:{self.port})"
@@ -469,9 +475,9 @@ class MoomooExecutionClient(ExecutionClient):
                             t.client_order_id, message, t.venue_order_id)
                 return
             low = message.lower()
-            if ret != RET_OK and any(m in low for m in _NOT_SENT):
+            if ret != RET_OK and any(m in low for m in _NOT_SENT) and self._link_down:
                 self._close(t, OrderRejected, f"not sent: {message}")
-            elif ret is None or ret == RET_OK or any(m in low for m in _MAYBE_SENT):
+            elif ret is None or ret == RET_OK or any(m in low for m in _MAYBE_SENT + _NOT_SENT):
                 t.unconfirmed_since = self._now_ns()
                 t.unconfirmed_reason = message
                 log.warning("moomoo place_order for %s: %s; looking for it by remark %r", t.client_order_id,
@@ -604,7 +610,7 @@ class MoomooExecutionClient(ExecutionClient):
                        if (_num(r.get("dealt_qty")) or 0) > 0]
         else:
             ret, data = self._call(ctx, "deal_list_query", trd_env=self.trd_env, acc_id=self.acc_id,
-                                   refresh_cache=True)
+                                   refresh_cache=self._refresh_allowed("deal_list_query"))
             if ret != RET_OK:
                 if any(m in str(data).lower() for m in _UNSUPPORTED):
                     self._deals_supported = False
@@ -751,10 +757,12 @@ class MoomooExecutionClient(ExecutionClient):
                 self.poll_now()
             except Exception:
                 log.exception("moomoo %s catch-up poll after reconnect failed", self.market)
+        self._link_down = False
         self._status("reconnected", f"moomoo {self.market} trade connection restored", self._now_ns())
 
     def _on_disconnected(self, ctx, detail: Any) -> None:
         log.warning("moomoo %s trade connection lost (%s); the SDK reconnects every 6 s", self.market, detail)
+        self._link_down = True
         self._status("disconnected", f"moomoo {self.market} trade connection lost: {detail}", self._now_ns())
 
     # ── applying what OpenD says (always under self._lock) ───────────
@@ -1002,10 +1010,24 @@ class MoomooExecutionClient(ExecutionClient):
         except Exception as exc:
             return None, f"{type(exc).__name__}: {exc}"
 
+    def _refresh_allowed(self, method: str) -> bool:
+        """Whether a query may ask OpenD to refresh its cache now: OpenD allows 10 per 30 s for
+        each list query; past that the cached answer is read rather than being refused."""
+        now = self._now_ns()
+        with self._lock:
+            times = self._refreshed.setdefault(method, deque())
+            while times and now - times[0] >= REFRESH_WINDOW_S * 1e9:
+                times.popleft()
+            if len(times) >= REFRESH_LIMIT:
+                return False
+            times.append(now)
+            return True
+
     def _query_orders(self, ctx, order_id: str = "") -> List[Dict[str, Any]]:
-        """Today's orders (or one of them), uncached: the status OpenD caches can lag."""
+        """Today's orders (or one of them), uncached while OpenD's refresh budget allows: the
+        status OpenD caches can lag."""
         ret, data = self._call(ctx, "order_list_query", order_id=order_id, trd_env=self.trd_env,
-                               acc_id=self.acc_id, refresh_cache=True)
+                               acc_id=self.acc_id, refresh_cache=self._refresh_allowed("order_list_query"))
         if ret != RET_OK:
             raise ConnectorError(f"moomoo order list ({self.market}) failed: {data}")
         rows = _records(data)
@@ -1026,7 +1048,7 @@ class MoomooExecutionClient(ExecutionClient):
 
     def _query_deals(self, ctx) -> Optional[List[Dict[str, Any]]]:
         ret, data = self._call(ctx, "deal_list_query", trd_env=self.trd_env, acc_id=self.acc_id,
-                               refresh_cache=True)
+                               refresh_cache=self._refresh_allowed("deal_list_query"))
         if ret == RET_OK:
             self._deals_supported = True
             return _records(data)

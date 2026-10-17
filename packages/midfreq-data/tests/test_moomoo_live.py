@@ -840,3 +840,32 @@ def test_m5_many_bar_subscriptions_are_one_opend_call_each_way():
     dc.unsubscribe_bars_many(bts)
     assert [m for m in venue.methods_called() if m == "unsubscribe"] == ["unsubscribe"]
     assert dc.streams.subscriptions() == []
+
+
+def test_s1_a_not_sent_error_on_a_live_connection_is_looked_up_by_remark():
+    """S1 (safety review): 'connection closed' can come back after the request reached OpenD.
+    Unless the client knew the connection was down before sending, the order's outcome is
+    unknown: it is looked up by its remark, not rejected at once."""
+    client, venue, events = setup()
+    venue.fail_next_place("Connection closed", placed=True)        # sent, then the reply was lost
+    o = order()
+    client.submit_order(o)
+    assert "OrderRejected" not in kinds(events)
+    client.poll_now()                                              # found by its remark
+    assert client._by_cid[o.client_order_id].venue_order_id == venue.last_order_id()
+    assert "OrderRejected" not in kinds(events)
+
+
+def test_s4_refreshed_queries_stay_within_opends_limit():
+    """S4 (safety review): OpenD allows 10 order (and 10 deal) queries with refresh_cache per 30
+    s; beyond that the client reads its cache instead of being refused."""
+    client, venue, events = setup()
+    client.submit_order(order())
+    for _ in range(25):
+        client.poll_now()
+    for method in ("order_list_query", "deal_list_query"):
+        refreshed = [c for m, c in venue.calls if m == method and c.get("refresh_cache")]
+        assert len(refreshed) <= 10, f"{method}: {len(refreshed)} refreshed queries in 30 s"
+    venue.clock.advance(31)
+    client.poll_now()
+    assert [c for m, c in venue.calls if m == "order_list_query"][-1]["refresh_cache"] is True

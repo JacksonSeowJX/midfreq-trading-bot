@@ -1297,6 +1297,14 @@ class TradingNode:
             except Exception as exc:
                 reports = None
                 log.warning("account %s: position query failed (%s)", account_id, exc)
+            if reports is not None and not any(r.quantity for r in reports):
+                snap = self.account_snapshot(account_id)
+                if snap and float(snap.get("market_value") or 0.0) > 0:
+                    # "No positions" from an account the broker values at more than nothing is a
+                    # failed read, never "holds nothing" (it would wipe every claim).
+                    log.warning("account %s: no positions listed but the account holds %s in securities; "
+                                "treated as a failed read", account_id, f"{float(snap['market_value']):,.2f}")
+                    reports = None
             if reports is not None:
                 out: Dict[str, Dict[str, float]] = {}
                 for r in reports:
