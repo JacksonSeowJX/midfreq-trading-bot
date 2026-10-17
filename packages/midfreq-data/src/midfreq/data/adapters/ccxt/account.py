@@ -82,10 +82,16 @@ class CcxtAccountClient(AccountClient):
                  exchange_options: Optional[Dict[str, Any]] = None,
                  get_secret: Callable[[str], Optional[str]] = _env_secret,
                  instrument_id: Optional[Callable[[str], Optional[str]]] = None,
-                 timeout_ms: int = 5000, now_ns: Callable[[], int] = time.time_ns):
+                 timeout_ms: int = 5000, now_ns: Callable[[], int] = time.time_ns,
+                 environment: Optional[str] = None):
         """`exchange_factory(exchange_id, config)` makes the exchange object (ccxt's class by
         default; tests pass a fake); `config` holds the credentials, enableRateLimit and the
-        request timeout, plus `exchange_options`."""
+        request timeout, plus `exchange_options`. `environment` says which account is read:
+        'paper' the exchange's sandbox (OKX demo trading), the account a paper execution client
+        trades; 'live', or None (the dashboard's read-only view of the account the key belongs
+        to), the production account. The trading node always passes its execution client's."""
+        from midfreq.data.adapters.ccxt.execution import environment_word
+        self.environment = environment_word(environment) if environment else "live"
         self.exchange_id = str(exchange_id).lower()
         self.secrets = [str(s) for s in secrets]
         self._fields = {var: credential_field(var) for var in self.secrets}
@@ -101,7 +107,7 @@ class CcxtAccountClient(AccountClient):
         self._ex = None
 
     def __repr__(self) -> str:
-        return f"CcxtAccountClient({self.exchange_id}, quote={self.quote})"
+        return f"CcxtAccountClient({self.exchange_id}, {self.environment}, quote={self.quote})"
 
     # ── session ──────────────────────────────────────────────────────
 
@@ -134,7 +140,14 @@ class CcxtAccountClient(AccountClient):
                                               "API key, in the environment or .env)")
             config = {"enableRateLimit": True, "timeout": self.timeout_ms, **self.exchange_options}
             config.update({self._fields[var]: value for var, value in values.items()})
-            self._ex = self._factory(self.exchange_id, config)
+            ex = self._factory(self.exchange_id, config)
+            if self.environment == "paper":
+                try:
+                    ex.set_sandbox_mode(True)
+                except Exception as exc:
+                    raise ConnectorError(f"{self.exchange_id} has no sandbox in ccxt ({type(exc).__name__}: {exc}); "
+                                         "its paper account cannot be read") from exc
+            self._ex = ex
         return self._ex
 
     def _has(self, feature: str) -> bool:

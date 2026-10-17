@@ -3,11 +3,14 @@
 #
 #   dist/midfreq-<version>.tar.gz          (and .sha256 beside it)
 #     MANIFEST                             version, commit, build time, wheel checksums
-#     wheels/midfreq_*-<version>-*.whl     the six packages
+#     wheels/midfreq_*-<version>-*.whl     one per package under packages/, except midfreq-engine
 #     requirements-vm.txt                  the VM's pinned third-party versions
 #     ops/run_sp100_forward_test.sh        the session launchers cron runs
 #     ops/run_daily_candidates.sh
+#     ops/run_node.sh                      the trading node's launcher (midfreq.trading)
 #     ops/vm/install_release.sh            installs this bundle (run by ops/deploy.sh)
+#     ops/vm/startup_check.sh              a release's first minutes on a copy of the runtime;
+#     ops/vm/node_startup_check.sh         the same for the trading node, in shadow mode
 #     ops/vm/crontab.txt                   the VM's schedule; maintain.sh, memlog.sh, tidy_home.sh
 #     defaults/config/                     config/ as committed, for setting up a runtime folder
 #
@@ -21,8 +24,10 @@ cd "$(dirname "$0")/.."
 
 VERSION=$(python3 - <<'PYEOF'
 import re, pathlib, sys
+# the packages the bundle ships: midfreq-engine is not one of them (see the wheel loop below)
 vs = {p.parent.name: re.search(r'^version = "([^"]+)"', p.read_text(), re.M).group(1)
-      for p in sorted(pathlib.Path('packages').glob('*/pyproject.toml'))}
+      for p in sorted(pathlib.Path('packages').glob('*/pyproject.toml'))
+      if p.parent.name != 'midfreq-engine'}
 if len(set(vs.values())) != 1:
     sys.exit(f"packages disagree on the version: {vs}; run ops/set_version.sh")
 print(next(iter(vs.values())))
@@ -39,7 +44,7 @@ trap 'rm -rf "$STAGE"' EXIT
 OUT="$STAGE/$NAME"
 mkdir -p "$OUT/wheels" "$OUT/ops/vm" dist
 
-# the six packages the VM runs (packages/*), not the dashboard API (apps/api) and not the C++
+# the packages the VM runs (packages/*), not the dashboard API (apps/api) and not the C++
 # engine (packages/midfreq-engine): the VM trades and never backtests, and anything that does
 # backtest there falls back to the Python backtester when the engine is not installed
 for p in packages/*/; do
@@ -47,9 +52,9 @@ for p in packages/*/; do
     uv build "$p" --wheel --quiet --out-dir "$OUT/wheels"
 done
 rm -f "$OUT/wheels/.gitignore"
-cp ops/run_sp100_forward_test.sh ops/run_daily_candidates.sh "$OUT/ops/"
+cp ops/run_sp100_forward_test.sh ops/run_daily_candidates.sh ops/run_node.sh "$OUT/ops/"
 cp ops/vm/install_release.sh ops/vm/crontab.txt ops/vm/maintain.sh ops/vm/memlog.sh ops/vm/tidy_home.sh ops/vm/sync_logs.sh \
-   ops/vm/broker_snapshot.sh "$OUT/ops/vm/"
+   ops/vm/broker_snapshot.sh ops/vm/startup_check.sh ops/vm/node_startup_check.sh "$OUT/ops/vm/"
 cp ops/vm/requirements-vm.txt "$OUT/"
 mkdir -p "$OUT/defaults"
 git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, never local edits
@@ -60,8 +65,16 @@ git archive HEAD config | tar -x -C "$OUT/defaults"     # committed content, nev
     (cd "$OUT" && shasum -a 256 wheels/*.whl | sed 's/^/sha256 /')
 } > "$OUT/MANIFEST"
 
+# exactly one wheel per package the VM runs, at this version (seven since midfreq-trading)
 n=$(ls "$OUT"/wheels/*.whl | wc -l | tr -d ' ')
-[ "$n" -eq 6 ] || { echo "expected 6 wheels, built $n" >&2; exit 1; }
+want=0
+for p in packages/*/; do
+    name=$(basename "$p")
+    [ "$name" = midfreq-engine ] && continue
+    want=$((want + 1))
+    ls "$OUT/wheels/${name//-/_}-$VERSION-"*.whl >/dev/null 2>&1 || { echo "no wheel for $name $VERSION" >&2; exit 1; }
+done
+[ "$n" -eq "$want" ] || { echo "expected $want wheels, built $n" >&2; exit 1; }
 
 tar -czf "dist/$NAME.tar.gz" -C "$STAGE" "$NAME"
 (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")

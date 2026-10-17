@@ -15,6 +15,10 @@ ccxt gives one interface to over a hundred exchanges; this connector maps it ont
   are retried with backoff.
 - Accounts: `account_client(exchange='okx', secrets=[...])` is a read-only view of an account,
   with a key from the environment (see midfreq.data.adapters.ccxt.account).
+- Trading: `execution_client(exchange='okx')` routes orders to one account, paper (the exchange's
+  sandbox) unless connections.yaml says live (midfreq.data.adapters.ccxt.execution).
+- Live data: the data client streams bars and quotes through ccxt.pro, or polls without it
+  (midfreq.data.adapters.ccxt.streaming).
 
 ccxt is optional: the package imports without it, and creating a real exchange object without it
 raises a clear error. Tests inject a fake exchange object.
@@ -32,6 +36,8 @@ from midfreq.data.adapters.base import (
     InstrumentProvider, RateLimitError,
 )
 from midfreq.data.adapters.ccxt.account import CcxtAccountClient
+from midfreq.data.adapters.ccxt.execution import CcxtExecutionClient
+from midfreq.data.adapters.ccxt.streaming import CcxtStreamingMixin
 from midfreq.data.connection_settings import connection_settings
 from midfreq.core.common.timestamps import ms_to_ns
 from midfreq.core.model.data import Bar, BarSpecification, BarType
@@ -75,6 +81,12 @@ class CcxtConnectorConfig(ConnectorConfig):
     options: Dict[str, Any] = field(default_factory=dict)   # passed to the ccxt exchange constructor
     default_bars_per_request: int = 500
     bars_per_request: Optional[int] = None   # override the venue's max_bars_per_request
+    # live streams (midfreq.data.adapters.ccxt.streaming)
+    stream_mode: str = "auto"                # auto (watch with ccxt.pro, else poll) | watch | poll
+    quote_source: str = "auto"               # auto | ticker | book
+    stream_poll_interval: float = 0.0        # seconds between polls; 0 = by bar interval (quotes: 2 s)
+    stream_reconnect_delay: float = 1.0      # first wait after a stream error, doubled up to the max
+    stream_max_reconnect_delay: float = 30.0
 
 
 class CcxtConnector(Connector):
@@ -82,27 +94,35 @@ class CcxtConnector(Connector):
     config_class = CcxtConnectorConfig
 
     def __init__(self, config=None, venues=None, exchanges: Optional[Dict[str, Any]] = None,
-                 account_exchange_factory: Optional[Callable[[str, Dict[str, Any]], Any]] = None, **kwargs):
+                 account_exchange_factory: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
+                 stream_exchanges: Optional[Dict[str, Any]] = None,
+                 execution_exchange_factory: Optional[Callable[[str, Dict[str, Any]], Any]] = None, **kwargs):
         """`exchanges` maps a venue ('KRAKEN') to a ready ccxt exchange object; by default one is
         created per venue from its `exchange_id`. `account_exchange_factory(exchange_id, config)`
         makes the authenticated exchange objects of account clients (ccxt's class by default;
-        tests pass a fake)."""
+        tests pass a fake). `stream_exchanges` maps a venue to a ready ccxt.pro exchange for the
+        live streams, and `execution_exchange_factory(exchange_id, config)` makes the REST
+        exchange objects of execution clients (both ccxt's by default)."""
         super().__init__(config, venues, **kwargs)
         self._exchanges: Dict[str, Any] = {str(k).upper(): v for k, v in (exchanges or {}).items()}
         self._markets_loaded: set = set()
         self._account_exchange_factory = account_exchange_factory
+        self._stream_exchanges: Dict[str, Any] = {str(k).upper(): v for k, v in (stream_exchanges or {}).items()}
+        self._execution_exchange_factory = execution_exchange_factory
 
     @property
     def capabilities(self) -> ConnectorCapabilities:
         # Without a venue, the intervals every model aggregation can express; per-venue
         # capabilities (capabilities_for) narrow this to what the exchange lists.
         return ConnectorCapabilities(intervals=("1-MINUTE", "5-MINUTE", "15-MINUTE", "30-MINUTE",
-                                                "1-HOUR", "4-HOUR", "1-DAY", "1-WEEK"))
+                                                "1-HOUR", "4-HOUR", "1-DAY", "1-WEEK"),
+                                     live_data=ccxt_available(), execution=ccxt_available())
 
     def capabilities_for(self, venue: VenueSpec) -> ConnectorCapabilities:
         ex = self.exchange(venue.venue)
         intervals = tuple(i for i in (interval_for(tf) for tf in getattr(ex, "timeframes", {}) or {}) if i)
-        return ConnectorCapabilities(intervals=intervals, max_bars_per_request=self.bars_per_request(venue))
+        return ConnectorCapabilities(intervals=intervals, max_bars_per_request=self.bars_per_request(venue),
+                                     live_data=ccxt_available(), execution=ccxt_available())
 
     def bars_per_request(self, venue: VenueSpec) -> int:
         if self.config.bars_per_request:
@@ -182,15 +202,33 @@ class CcxtConnector(Connector):
     def _create_data_client(self) -> DataClient:
         return CcxtDataClient(self, now_ns=self._now_ns)
 
+    def execution_client(self, **options: Any) -> CcxtExecutionClient:
+        """
+        An ExecutionClient for one account at ccxt exchange `exchange` (default 'okx'), in the
+        exchange's sandbox unless config/connections.yaml says `trading_env: live` for ccxt.
+        Options: midfreq.data.adapters.ccxt.execution.OPTIONS (environment, secrets,
+        exchange_options, updates, intervals, ...).
+        """
+        if ccxt is None and self._execution_exchange_factory is None:
+            raise ConnectorError("trading through ccxt needs the ccxt package: pip install ccxt")
+        return CcxtExecutionClient(self, options, exchange_factory=self._execution_exchange_factory,
+                                   now_ns=self._now_ns)
+
+    def close(self) -> None:
+        if self._data_client is not None:
+            self._data_client.stop_streams()
+        super().close()
+
     def account_client(self, exchange: str, secrets: Sequence[str] = (), quote: Optional[str] = None,
                        exchange_options: Optional[Dict[str, Any]] = None,
-                       timeout_ms: int = 5000) -> CcxtAccountClient:
+                       timeout_ms: int = 5000, environment: Optional[str] = None) -> CcxtAccountClient:
         """
         A read-only account at ccxt exchange `exchange` ('okx'), whose key is in the environment
         variables named by `secrets`. Values are in `quote`, by default the currency of the venue
         in config/venues.json whose exchange_id is `exchange` (OKX: USDT); spot holdings get that
         venue's instrument ids where its symbology is 'dash'. `exchange_options` go to the ccxt
-        constructor after this connector's own `options`.
+        constructor after this connector's own `options`. `environment`: 'paper' reads the
+        exchange's sandbox; 'live' or None (the dashboard's view) the account the key belongs to.
         """
         exchange_id = str(exchange).lower()
         specs = [s for s in self.venues.served_by(self.name)
@@ -208,10 +246,11 @@ class CcxtConnector(Connector):
         return CcxtAccountClient(
             exchange_id, secrets=secrets, quote=quote, exchange_factory=self._account_exchange_factory,
             exchange_options={**self.config.options, **(exchange_options or {})},
-            instrument_id=instrument_id, timeout_ms=timeout_ms, now_ns=self._now_ns)
+            instrument_id=instrument_id, timeout_ms=timeout_ms, now_ns=self._now_ns, environment=environment)
 
 
-class CcxtDataClient(DataClient):
+class CcxtDataClient(CcxtStreamingMixin, DataClient):
+    """Historical bars (request_bars) and live streams (subscribe_bars, subscribe_quotes)."""
     connector: CcxtConnector
 
     def _request_bars(self, bar_type: BarType, venue: VenueSpec,

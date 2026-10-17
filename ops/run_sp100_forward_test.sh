@@ -134,6 +134,12 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
   exit 0
 fi
 
+# never two trading sessions at once: both would trade the same account and state file
+if pgrep -f '[r]un_live|[m]idfreq\.trading\.cli run|[m]idfreq-node run' >/dev/null; then
+  echo "a trading session is already running; not starting another" >&2
+  exit 1
+fi
+
 $PY -u -m "$RUN_LIVE" \
     --strategy "Cross-Sectional Reversal" \
     --symbols $SYMBOLS \

@@ -1,0 +1,129 @@
+# The trading node's first end-to-end paper test: the Hong Kong paper account, during Hong Kong
+# hours, on six liquid Hong Kong stocks (docs/NODE_RUNBOOK.md, part A).
+#
+# Why this test. Everything the node does with a venue (orders, fills pushed by the broker, the
+# OMS's unfilled-order policy, reconciliation, board lots) is tested against fakes and the
+# simulated venue; this run is the first against a real broker gateway. It uses the Hong Kong
+# paper account, which nothing else trades, during Hong Kong hours (09:30-12:00 and 13:00-16:00
+# HKT = SGT), so it can never touch the US forward test's account or its quote quota: the US
+# session subscribes 98 of the account's 100 quotes from 21:35 to 04:01 SGT, and this node holds
+# 6 subscriptions (bars only) and stops at 16:02.
+#
+# Strategy: Cross-Sectional Reversal, the registry strategy the US forward test runs, so the run
+# exercises the path the US switch will use (candle strategy through LiveLegacyAdapter, published
+# cross-sections, equal-dollar sizing, the rebalance clock and the state file). Unlike a signal
+# strategy (RSI, Bollinger, SMA crossover), which may not trade at all in a few hours, its orders
+# come on a fixed clock: on 5-minute bars with rebalance_every 6 it rebalances every 30 minutes,
+# about ten times in a Hong Kong day, each time selling what left the basket and buying what
+# entered it, so buys and sells, board-lot rounding and several order families are all exercised.
+# lookback 5 < rebalance_every 6: every ranking uses only bars received live, so the stale
+# warm-up history (the local store's Hong Kong 5-minute files end in July/August 2026; the node
+# never backfills from the broker's metered history) never decides a trade.
+#
+# Stocks: Alibaba, Meituan, Xiaomi, AIA, CCB, ICBC: among the most traded on HKEX, all in
+# config/symbols.json's Hong Kong list with data/HK_<code>/5m.parquet in the store, and each
+# board lot (HK$5,500-15,100 at the store's last prices, with lots of 100, 100, 200, 200, 1000
+# and 1000 shares; the node reads the real lots from OpenD at start-up and logs them) fits three
+# or more times into one basket slot (HK$49,800), so lot rounding never skips a buy. Tencent
+# (HK$45,500 a lot), HSBC (HK$64,300) and China Mobile (HK$39,800) would round to one lot or
+# none and are left out, as
+# are 00700 and 09888, which the paused Hong Kong roster traded in this account (any leftover
+# holding stays the roster's: the node never adopts a broker surplus).
+#
+# Records: live_sessions/hk_paper/ under MIDFREQ_ROOT (state_hk_paper_xsr.json, session_*.jsonl,
+# orders_<date>.jsonl, ops_*.jsonl), never live_sessions/ itself, where the US forward test's
+# state_crosssectionalreversal.json lives. `state_name` keeps the state file distinct as well.
+#
+#   midfreq-node check-config --config config/node_hk_paper.yaml
+
+node:
+  name: hk_paper
+  mode: paper
+  timeframe: 5m
+  records_dir: live_sessions/hk_paper     # paper: records here; shadow: live_sessions/hk_paper/shadow/
+  seed_state_from: live_sessions/hk_paper # a shadow run starts from this test's own state, read only
+  heartbeat_s: 300
+  reconcile_s: 120            # positions and orders against the broker every 2 minutes (5 in the US)
+  stall_factor: 1.25          # no closed 5-minute bar for 6.25 minutes of session time: resubscribe once
+  stop_order_wait_s: 30
+  console_tz: Asia/Singapore
+  console_tz_label: SGT
+  market_tz: Asia/Hong_Kong
+  market_tz_label: HKT
+
+connectors:
+  moomoo: {}                  # OpenD host and port from config/connections.yaml
+
+data:
+  connector: moomoo
+  quotes: false               # bars only, as the US configuration: 6 subscriptions of the 100
+
+accounts:
+  moomoo-hk:
+    connector: moomoo
+    options: {market: HK}     # the Hong Kong trade account; trading_env (simulate) from connections.yaml
+    environment: paper
+
+universes:
+  hk6:
+    symbols: [HK.09988, HK.03690, HK.01810, HK.01299, HK.00939, HK.01398]
+
+strategies:
+  - id: hk-xsr
+    class: Cross-Sectional Reversal
+    params:
+      lookback: 5             # 25-minute return, all of it live (see above)
+      top_n: 2                # hold the two laggards of six
+      rebalance_every: 6      # every 30 minutes
+    account: moomoo-hk
+    universe: hk6
+    timeframe: 5m
+    capital: 100000           # HK$100,000 of the paper account (about US$12,800)
+    commission_rate: 0.0016   # Hong Kong all-in per side (config/venues.json, calibrated on paper fills)
+    risk_manager:
+      stop_loss_pct: 0        # none, as the US configuration
+      take_profit_pct: 0
+      max_drawdown_pct: 0.05  # the strategy halts its rebalances after a 5% drawdown of the HK$100,000
+      sizing: equal-dollar    # basket size: top_n
+    pricing:
+      rule: last              # the latest pushed price ...
+      slip: 0.0               # ... exactly: a first order may rest, which exercises the unfilled-order policy
+      time_in_force: DAY
+    warmup_bars: 12           # exercises warm-up from the store; the decisions do not depend on it
+    state_name: hk_paper_xsr  # state_hk_paper_xsr.json, never the US strategy's file
+    confirm_fills: true       # wait for each order's outcome, as the US configuration
+    confirm_timeout_s: 90     # at least the policy's 3 x 20 s + 15 s (check-config checks)
+
+# Pre-trade risk (midfreq.trading.risk.RiskLimits), in HKD. Each basket slot is HK$49,800, so an
+# order or a position above HK$60,000 means the sizing is wrong, and a gross exposure above
+# HK$120,000 means a third holding (top_n is 2).
+risk:
+  max_order_notional: 60000
+  max_position_notional: 60000
+  max_gross_notional: 120000
+  price_band_pct: 0.03        # a limit more than 3% from the latest price is a fat finger
+  require_session_open: true  # no order outside 09:30-12:00 and 13:00-16:00 HKT or on a holiday
+
+# Orders left unfilled (midfreq.trading.oms.UnfilledOrderPolicy). A first order at the last price
+# fills only when the last trade was on the far side; otherwise after 20 s it is cancelled and sent
+# again for what is left 0.3% through the latest price (2-3 ticks on these stocks: marketable),
+# twice, before the rest is cancelled with the reason logged.
+oms:
+  unfilled_order:
+    enabled: true
+    wait_s: 20
+    max_reprices: 2
+    quote_offset_bps: 0
+    last_offset_bps: 30
+    cancel_timeout_s: 15
+    max_cancel_retries: 3
+
+marketdata:
+  min_cross_section_share: 0.9  # all six must report (ceil(0.9 x 6) = 6), or the cross-section is a gap
+  finality_grace_s: 30
+
+journal:
+  fsync: true                 # every order record on disk before the next step
+
+shadow:
+  fill_mode: none             # for `midfreq-node run --mode shadow` (node_startup_check.sh)

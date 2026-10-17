@@ -5,8 +5,8 @@ from midfreq.core.model.enums import (
     OrderType, PriceType, TimeInForce,
 )
 from midfreq.core.model.events import (
-    OrderAccepted, OrderCanceled, OrderDenied, OrderEvent, OrderFilled, OrderRejected,
-    OrderSubmitted,
+    OrderAccepted, OrderCanceled, OrderCancelRejected, OrderDenied, OrderEvent, OrderFilled,
+    OrderRejected, OrderSubmitted,
 )
 from midfreq.core.model.fees import FeeModel, MakerTakerFeeModel, PercentFeeModel
 from midfreq.core.model.identifiers import (
@@ -20,8 +20,8 @@ __all__ = [
     "AccountId", "AggregationSource", "AssetClass", "Bar", "BarAggregation", "BarSpecification",
     "BarType", "ClientId", "ClientOrderId", "CurrencyPair", "Equity", "FeeModel", "Instrument",
     "InstrumentId", "LiquiditySide", "MakerTakerFeeModel", "Order", "OrderAccepted",
-    "OrderCanceled", "OrderDenied", "OrderEvent", "OrderFactory", "OrderFilled", "OrderRejected",
-    "OrderSide", "OrderStatus", "OrderSubmitted", "OrderType", "PercentFeeModel", "PriceType",
+    "OrderCancelRejected", "OrderCanceled", "OrderDenied", "OrderEvent", "OrderFactory",
+    "OrderFilled", "OrderRejected", "OrderSide", "OrderStatus", "OrderSubmitted", "OrderType", "PercentFeeModel", "PriceType",
     "Signal", "StrategyId", "Symbol", "TimeInForce", "TradeId", "Venue", "bars_to_frame",
     "frame_to_bars",
 ]

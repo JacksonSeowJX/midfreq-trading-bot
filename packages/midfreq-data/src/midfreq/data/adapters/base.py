@@ -10,8 +10,12 @@ symbols. It exposes two clients:
 - a `DataClient` whose `request_bars(bar_type, start, end)` returns bars with `ts_event` = bar
   close in true UTC, whatever the source's own clock convention.
 
-An `ExecutionClient` slot is defined for symmetry with Nautilus but no connector implements it in
-this version: live orders still go through midfreq.live.order_gateway.
+Connectors that trade also provide an `ExecutionClient` (orders, cancels, fills pushed back as
+events) and stream live data through their `DataClient` (`subscribe_bars`, `subscribe_quotes`).
+The live trading node (midfreq.trading) talks to venues only through these; no other package
+imports a venue's SDK (import-linter, pyproject.toml). The original live engine
+(midfreq.live.live_engine / order_gateway) still calls the Moomoo SDK directly until it is
+retired: docs/LIVE_ARCHITECTURE.md.
 
 Everything source-specific (symbology, interval names, pagination, rate limiting, quotas, time
 conversion) lives inside the connector, so the rest of the framework only ever sees InstrumentIds
@@ -32,16 +36,18 @@ import pandas as pd
 
 from midfreq.core.common.retry import RateLimitError, RetryPolicy, Throttle
 from midfreq.core.common.timestamps import TimeLike, to_utc_timestamp
-from midfreq.core.model.data import Bar, BarSpecification, BarType
-from midfreq.core.model.identifiers import ClientId, InstrumentId, Venue, as_instrument_id, as_venue
+from midfreq.core.model.data import Bar, BarSpecification, BarType, QuoteTick
+from midfreq.core.model.events import OrderEvent
+from midfreq.core.model.identifiers import AccountId, ClientId, InstrumentId, Venue, as_instrument_id, as_venue
 from midfreq.core.model.instruments import Instrument
+from midfreq.core.model.orders import Order
 from midfreq.core.venues.spec import VenueRegistry, VenueSpec, default_venues
 
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "Connector", "ConnectorCapabilities", "ConnectorConfig", "ConnectorError", "DataClient",
-    "ExecutionClient", "InstrumentProvider", "QuotaExceededError", "RateLimitError",
+    "BarUpdate", "Connector", "ConnectorCapabilities", "ConnectorConfig", "ConnectorError", "DataClient",
+    "ExecutionClient", "FillReport", "InstrumentProvider", "StreamStatus", "QuotaExceededError", "RateLimitError",
     "UnsupportedIntervalError", "UnsupportedVenueError", "bars_from_frame",
 ]
 
@@ -190,8 +196,55 @@ class DataClient(ABC):
     def request_quotes(self, instrument_id, start, end=None):
         raise NotImplementedError(f"{self.connector.name} does not provide historical quotes")
 
-    def subscribe_bars(self, bar_type, handler):
-        raise NotImplementedError("live data subscriptions are reserved for a later version")
+    # ── live data (connectors whose capabilities say live_data=True) ──────────────────────────
+    # Handlers may be called on the connector's own threads (a venue SDK's push thread, a
+    # websocket task). They must return quickly and must not touch strategy state: the trading
+    # node's MarketDataService only puts what it receives on the node's event queue.
+
+    def subscribe_bars(self, bar_type: BarType, handler: Callable[["BarUpdate"], None]) -> None:
+        """Stream `bar_type`: every push of the forming bar and of the bar just closed, as
+        BarUpdate(bar, closed, ts_received), with bar.ts_event the bar's scheduled close in true
+        UTC. `closed` is True only when the venue itself marks the bar final; deciding finality
+        from newer pushes or the clock is the MarketDataService's job, not the connector's."""
+        raise NotImplementedError(f"{self.connector.name} has no live bar stream")
+
+    def unsubscribe_bars(self, bar_type: BarType) -> None:
+        raise NotImplementedError(f"{self.connector.name} has no live bar stream")
+
+    def subscribe_bars_many(self, bar_types: Iterable[BarType], handler: Callable[["BarUpdate"], None]) -> None:
+        """Several bar types at once. A connector whose venue takes a list in one request (Moomoo)
+        makes it one request; by default, one subscribe_bars each."""
+        for bt in bar_types:
+            self.subscribe_bars(bt, handler)
+
+    def unsubscribe_bars_many(self, bar_types: Iterable[BarType]) -> None:
+        for bt in bar_types:
+            self.unsubscribe_bars(bt)
+
+    def subscribe_quotes(self, instrument_id: InstrumentId, handler: Callable[[QuoteTick], None]) -> None:
+        """Stream top-of-book quotes (best bid and ask) for one instrument."""
+        raise NotImplementedError(f"{self.connector.name} has no live quote stream")
+
+    def unsubscribe_quotes(self, instrument_id: InstrumentId) -> None:
+        raise NotImplementedError(f"{self.connector.name} has no live quote stream")
+
+    def subscription_limit(self) -> Optional[int]:
+        """How many subscriptions this account may hold at once, or None if the venue sets no
+        limit the connector knows of. A subscription is one instrument and one data type (its bars
+        of one interval, or its quotes), as Moomoo charges its quote quota: 98 instruments' hourly
+        bars are 98 subscriptions, and their quotes 98 more. A connector whose venue counts
+        differently converts to this unit. The MarketDataService counts in the same unit."""
+        return None
+
+    def set_stream_status_handler(self, handler: Callable[["StreamStatus"], None]) -> None:
+        """Called on connection-state changes of the live stream: connected, disconnected,
+        reconnected (with every subscription restored), error."""
+        self._stream_status_handler = handler
+
+    def _stream_status(self, state: str, detail: str = "") -> None:
+        handler = getattr(self, "_stream_status_handler", None)
+        if handler is not None:
+            handler(StreamStatus(state, detail, self._now_ns()))
 
     @abstractmethod
     def _request_bars(self, bar_type: BarType, venue: VenueSpec,
@@ -207,17 +260,132 @@ class DataClient(ABC):
         return [by_ts[t] for t in sorted(by_ts)]
 
 
+@dataclass(frozen=True)
+class BarUpdate:
+    """One push of a live bar: the forming bar or the one just closed."""
+    bar: Bar
+    closed: bool                          # the venue itself marked the bar final
+    ts_received: int                      # local receive time, UTC ns
+
+
+@dataclass(frozen=True)
+class StreamStatus:
+    """A change in a live stream's connection: 'connected', 'disconnected', 'reconnected', 'error'."""
+    state: str
+    detail: str
+    ts: int                               # UTC ns
+
+
 class ExecutionClient(ABC):
-    """Reserved: order routing to a live venue. Not implemented by any connector in this version;
-    live trading stays on midfreq.live.live_engine / midfreq.live.order_gateway until the forward test ends."""
+    """
+    Order routing to one account at one venue: the only place a venue's trading API is called.
 
+    The contract (every connector's client must pass the execution contract tests):
+
+    - `submit_order(order)` returns at once and never waits for a fill. When the venue returns
+      its own order id the client records it in `order.tags["venue_order_id"]`.
+    - Everything the venue says afterwards reaches the handler given to `set_event_handler`, as
+      midfreq.core.model.events: OrderAccepted; OrderRejected(reason); one OrderFilled per
+      execution (partial fills included; `tags["venue_order_id"]`); OrderCanceled(reason);
+      OrderCancelRejected(reason) when the venue refuses a cancel (the order had filled or
+      ended, or is being matched; whatever the venue then says about the order follows as its
+      own events). The venue's own status words and messages go in `reason`.
+    - OrderFilled: `trade_id` is the venue's execution id. A fill is identified by (venue, the
+      venue's order id, or the client order id where the venue gives none, trade id): venues
+      number executions per instrument or per order, not per account (OKX trade ids are unique
+      per instrument only), so a trade id alone is not a key. A repeated push is not repeated as
+      an event (at most one OrderFilled per such key).
+    - OrderFilled.commission is the venue's fee for that execution and `currency` the currency
+      the fee was charged in (the instrument's quote currency on equity venues; OKX charges a
+      spot buy's fee in the base asset). A venue that reports no fee sets commission 0 and
+      `tags["commission_unknown"] = True`; the PositionKeeper then books its fee model's
+      estimate. A reported 0 (no tag) is a real zero fee and is booked as 0. A fee charged in
+      another currency than the quote currency is converted by the PositionKeeper at the fill
+      price; the event always carries the venue's own amount and currency.
+    - The handler may be called on the client's own threads; the OMS queues what it receives.
+    - `set_status_handler` (optional, a no-op unless a client reports it) receives a
+      StreamStatus when the client's connection to the venue drops ('disconnected') or returns
+      ('reconnected', after the client has caught up on what it missed); the node then
+      reconciles the OMS with the venue.
+    - `open_orders()` and `fills(since)` let the OMS reconcile its journal with the venue at
+      start-up and after a reconnect. A client that keeps looking for an order whose submit
+      outcome is unknown says for how long in `unconfirmed_window_s`; the OMS does not settle
+      such an order from the venue's silence before that.
+    - `environment` is "paper", "live" or "sim" and comes from configuration; a client must
+      refuse to start in "live" unless its configuration says so explicitly.
+    """
+
+    def __init__(self, connector: "Connector", options: Optional[Dict[str, Any]] = None):
+        self.connector = connector
+        self.options: Dict[str, Any] = dict(options or {})
+        self._handler: Optional[Callable[[OrderEvent], None]] = None
+        self._status_handler: Optional[Callable[["StreamStatus"], None]] = None
+
+    @property
+    def client_id(self) -> ClientId:
+        return ClientId(self.connector.name)
+
+    unconfirmed_window_s: float = 0.0     # how long the client looks for an order with an unknown outcome
+
+    def set_event_handler(self, handler: Callable[[OrderEvent], None]) -> None:
+        self._handler = handler
+
+    def _emit(self, event: OrderEvent) -> None:
+        if self._handler is not None:
+            self._handler(event)
+
+    def set_status_handler(self, handler: Optional[Callable[["StreamStatus"], None]]) -> None:
+        """Receive the client's connection changes as StreamStatus ('disconnected',
+        'reconnected', 'error'). Optional: a client that never reports them is still valid."""
+        self._status_handler = handler
+
+    def _status(self, state: str, detail: str = "", ts: Optional[int] = None) -> None:
+        handler = getattr(self, "_status_handler", None)
+        if handler is not None:
+            handler(StreamStatus(state, detail, int(ts) if ts is not None else time.time_ns()))
+
+    @property
     @abstractmethod
-    def submit_order(self, order):
+    def environment(self) -> str:
+        """'paper', 'live' or 'sim'."""
+
+    @property
+    @abstractmethod
+    def account_id(self) -> AccountId:
         ...
 
     @abstractmethod
-    def cancel_order(self, order):
+    def connect(self) -> None:
         ...
+
+    @abstractmethod
+    def disconnect(self) -> None:
+        ...
+
+    @abstractmethod
+    def submit_order(self, order: Order) -> None:
+        ...
+
+    @abstractmethod
+    def cancel_order(self, order: Order) -> None:
+        """Ask the venue to cancel what is left of `order`; the outcome arrives as an event
+        (OrderCanceled; OrderFilled if the fill won the race; OrderCancelRejected if the venue
+        refused the cancel). Returns at once; raises only if the request could not be made."""
+
+    def modify_order(self, order: Order, quantity: Optional[float] = None, price: Optional[float] = None) -> None:
+        raise NotImplementedError(f"{self.connector.name} cannot modify orders")
+
+    @abstractmethod
+    def query_order(self, order: Order) -> Optional["OrderReport"]:
+        """The venue's current view of one order, or None if it does not know it."""
+
+    @abstractmethod
+    def open_orders(self) -> List["OrderReport"]:
+        ...
+
+    @abstractmethod
+    def fills(self, since: pd.Timestamp) -> List["FillReport"]:
+        """Executions in this account since `since` (UTC), oldest first."""
 
 
 @dataclass(frozen=True)
@@ -256,6 +424,28 @@ class OrderReport:
     status: str
     created: pd.Timestamp                 # UTC
     updated: Optional[pd.Timestamp] = None
+    client_order_id: Optional[str] = None # ours, where the venue echoes it back (remark, clOrdId)
+    remark: Optional[str] = None          # the venue's message on the order (e.g. why it failed)
+
+
+@dataclass(frozen=True)
+class FillReport:
+    """One execution as the venue reports it. A venue that cannot list executions (Moomoo paper
+    accounts without deal queries) reports an order's fills as one cumulative figure instead:
+    `cumulative` True, `quantity` everything filled so far at the average `price`; the OMS books
+    only what such a report adds to what it already has."""
+    trade_id: str                         # the venue's execution (deal) id
+    order_id: str                         # the venue's order id
+    symbol: str
+    side: str                             # BUY or SELL
+    quantity: float
+    price: float
+    ts: pd.Timestamp                      # UTC
+    commission: Optional[float] = None    # None: the venue reports no fee (see ExecutionClient)
+    currency: str = ""                    # the fee's currency
+    client_order_id: Optional[str] = None
+    instrument_id: Optional[str] = None
+    cumulative: bool = False              # quantity is the order's total filled so far, not one execution
 
 
 class AccountUnavailableError(ConnectorError):
@@ -364,10 +554,11 @@ class Connector(ABC):
             self._data_client = self._create_data_client()
         return self._data_client
 
-    @property
-    def execution_client(self) -> Optional[ExecutionClient]:
-        """Always None in this version (see ExecutionClient)."""
-        return None
+    def execution_client(self, **options: Any) -> ExecutionClient:
+        """An ExecutionClient for one account at this venue. `options` are the connector's own
+        (Moomoo: market='US', trading_env from config/connections.yaml; ccxt: exchange='okx',
+        sandbox=True). Connectors that cannot trade raise ConnectorError."""
+        raise ConnectorError(f"connector {self.name!r} cannot trade")
 
     def account_client(self, **options: Any) -> AccountClient:
         """A read-only AccountClient for one account at this source. `options` are the

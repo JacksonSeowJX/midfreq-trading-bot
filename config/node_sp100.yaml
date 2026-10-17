@@ -1,0 +1,108 @@
+# The trading node configured as the S&P 100 forward test (docs/LIVE_ARCHITECTURE.md).
+#
+# Reproduces what ops/run_sp100_forward_test.sh runs on the original engine:
+#   midfreq.live.run_live --strategy "Cross-Sectional Reversal" --symbols <98 symbols>
+#     --timeframe 1h --sizing equal-dollar --basket-size <top_n> --capital <capital>
+#     --stop-loss 0 --max-drawdown 15 --params lookback=.. top_n=.. rebalance_every=..
+# with the symbols, parameters and capital read from config/sp100_forward_test.json, as the
+# launcher reads them, so the two cannot drift apart. US commission 0.005% per side. Orders are
+# marketable DAY limits 1% through the last price; an order still unfilled after 30 s is
+# re-priced (see `oms` below).
+#
+# Mode is `shadow` here on purpose: the forward test trades on the original engine until it ends
+# (about 13 November 2026) and its state file must have one writer. A shadow node writes to
+# live_sessions/shadow/ (starting from the live state, read only) and never sends an order.
+# It must not run while the forward test runs: both subscribing to the same 98 symbols would
+# exceed the account's 100-instrument quote quota. Check it with:
+#   midfreq-node check-config --config config/node_sp100.yaml
+
+node:
+  name: sp100
+  mode: shadow
+  timeframe: 1h
+  heartbeat_s: 300
+  reconcile_s: 300            # the original engine's sync_with_broker interval
+  stall_factor: 1.25          # no closed bar for 75 minutes: resubscribe once, then stop
+  stop_order_wait_s: 30
+  console_tz: Asia/Singapore
+  console_tz_label: SGT
+  market_tz: America/New_York
+  market_tz_label: ET
+
+connectors:
+  moomoo: {}                  # OpenD host and port from config/connections.yaml
+
+data:
+  connector: moomoo
+  quotes: false               # bars only, as the original engine (quotes would cost quote quota)
+
+accounts:
+  moomoo-us:
+    connector: moomoo
+    options: {market: US}     # trading_env (paper) comes from config/connections.yaml
+    environment: paper
+
+strategies:
+  - id: sp100-xsr
+    class: Cross-Sectional Reversal
+    from: config/sp100_forward_test.json      # params, symbols and capital
+    account: moomoo-us
+    timeframe: 1h
+    # The forward test's own state file, named explicitly: in shadow mode it is only read (the
+    # shadow node writes live_sessions/shadow/); in paper or live the node continues it, so it
+    # must never run in those modes while the original engine trades this strategy.
+    state_name: crosssectionalreversal
+    commission_rate: 0.00005
+    risk_manager:
+      stop_loss_pct: 0        # none: the validated studies ran without a per-position stop
+      take_profit_pct: 0
+      max_drawdown_pct: 0.15  # the account drawdown halt, a safety net only
+      sizing: equal-dollar    # basket size: the strategy's top_n
+    pricing:
+      rule: last              # the latest pushed price, 1% through it (place_and_confirm's slip)
+      slip: 0.01
+      time_in_force: DAY
+    warmup_bars: 60
+    confirm_fills: true       # wait for each order's outcome, as the original engine did
+    confirm_timeout_s: 150    # at least the unfilled-order policy's 3 x 30 s + 30 s (check-config checks)
+
+# Pre-trade risk (midfreq.trading.risk.RiskLimits). At US$100,000 over 3 names each holding is
+# ~US$33,300.
+risk:
+  max_order_notional: 50000
+  max_position_notional: 50000
+  price_band_pct: 0.05        # a limit more than 5% from the last price is a fat finger
+  require_session_open: true  # no order while the venue's session (calendar, holidays) is closed
+  strategies:
+    sp100-xsr:
+      # The candle strategy sizes its own buys against its own cash, exactly as the original
+      # engine did (price x 1.01 x (1 + commission), unrounded), and sends the limit rounded to
+      # the cent. Risk's cash check prices the buy at the rounded limit, so when the rounding goes
+      # up and the cash left is under a cent a share it would deny a buy the original engine sent
+      # (e.g. cash 33,334.00, 330 shares, 101.006 rounded to 101.01). Off for this strategy, which
+      # keeps the original sizing; the strategy's own cash check is the cash check.
+      check_cash: false
+
+# Orders left unfilled (midfreq.trading.oms.UnfilledOrderPolicy). The original engine waited 30 s,
+# cancelled, and waited up to 30 s more for the final status, with no retry; that is the preset
+# `unfilled_order: original_engine`, which `midfreq-node replay` uses to reproduce its decisions.
+oms:
+  unfilled_order:
+    wait_s: 30                # an order may work this long without filling completely
+    # Two re-prices: the fix for the Lam Research buy of 15 October 2026, which sat unfilled for
+    # 30 s and was cancelled with no retry. The order is cancelled and sent again for what is
+    # left at the latest price 1% through (ask/bid when quotes are on), twice, before the rest is
+    # cancelled. It takes effect only when the node trades this strategy (after the forward test
+    # ends, about 13 November 2026); until then the node runs in shadow mode and sends nothing.
+    max_reprices: 2
+    quote_offset_bps: 0       # buy at the ask, sell at the bid (with quotes)
+    last_offset_bps: 100      # without quotes: 1% through the last price, as the original's slip
+    cancel_timeout_s: 30      # a cancel not confirmed by then is checked with the venue and re-sent
+    max_cancel_retries: 3
+
+marketdata:
+  min_cross_section_share: 0.9
+  finality_grace_s: 30
+
+shadow:
+  fill_mode: none             # `quote`: simulated fills at the quote, in the shadow records only

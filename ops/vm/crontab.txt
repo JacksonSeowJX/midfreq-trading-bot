@@ -10,8 +10,11 @@ PATH=/usr/local/bin:/usr/bin:/bin:/snap/bin
 
 # S&P 100 forward test. Fires at 21:35 and 22:35 because the US open moves with daylight
 # saving (09:30 ET = 21:30 SGT under EDT, 22:30 SGT under EST); the launcher only proceeds
-# within 30 minutes after the open, so exactly one of the two runs.
-35 21,22 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime $HOME/midfreq/current/ops/run_sp100_forward_test.sh --scheduled >> $HOME/midfreq/logs/cron_sp100.log 2>&1
+# within 30 minutes after the open, so exactly one of the two runs. The trading node runs it
+# (config/node_sp100.yaml, paper account); to go back to the session runner, comment the node's
+# line and remove the leading "#ROLLBACK " from the next one (docs/NODE_RUNBOOK.md).
+35 21,22 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime NODE_CONFIG=config/node_sp100.yaml NODE_MODE=paper $HOME/midfreq/current/ops/run_node.sh --scheduled >> $HOME/midfreq/logs/cron_sp100.log 2>&1
+#ROLLBACK 35 21,22 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime $HOME/midfreq/current/ops/run_sp100_forward_test.sh --scheduled >> $HOME/midfreq/logs/cron_sp100.log 2>&1
 
 # Hong Kong roster: paused while the S&P 100 test runs (the two exceed the account's
 # 100-symbol subscription quota). To resume, remove the leading "#PAUSED ".

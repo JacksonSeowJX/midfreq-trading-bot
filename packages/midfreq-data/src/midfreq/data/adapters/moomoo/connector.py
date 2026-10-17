@@ -17,21 +17,30 @@ OpenD quote context are reused as they are. The connector owns what the provider
   asked for 4-hour ones; this connector refuses 4-HOUR with UnsupportedIntervalError.
 - Accounts: `account_client(market='US')` is a read-only view of the trade account through OpenD
   (see midfreq.data.adapters.moomoo.account).
+- Trading: `execution_client(market='US')` places and cancels orders and reports fills as events
+  (midfreq.data.adapters.moomoo.execution); paper unless trading_env is `real`.
+- Live data: `data_client.subscribe_bars` / `subscribe_quotes` stream K-line and order-book pushes
+  (midfreq.data.adapters.moomoo.streaming), on a quote context of their own.
+
+`sdk` (the moomoo module, imported on first use by default) and `probe` (the TCP check of OpenD's
+port) are how the live side reaches OpenD; tests pass tests/support/fake_moomoo's fakes.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence
 
 import pandas as pd
 
 from midfreq.data.adapters.base import (
-    Connector, ConnectorCapabilities, ConnectorConfig, ConnectorError, DataClient,
+    BarUpdate, Connector, ConnectorCapabilities, ConnectorConfig, ConnectorError, DataClient,
     InstrumentProvider, QuotaExceededError, RateLimitError, bars_from_frame,
 )
 from midfreq.data.adapters.moomoo.account import MoomooAccountClient, OpenDTransport
+from midfreq.data.adapters.moomoo.execution import MoomooExecutionClient
+from midfreq.data.adapters.moomoo.streaming import MoomooStreams
 from midfreq.data.connection_settings import connection_settings
-from midfreq.core.model.data import Bar, BarType
+from midfreq.core.model.data import Bar, BarType, QuoteTick
 from midfreq.core.model.identifiers import InstrumentId, as_instrument_id, as_venue
 from midfreq.core.model.instruments import Equity, Instrument
 from midfreq.core.venues.spec import VenueSpec
@@ -73,17 +82,26 @@ class MoomooConnector(Connector):
     config_class = MoomooConnectorConfig
 
     def __init__(self, config=None, venues=None, provider: Any = None,
-                 trade_transport: Optional[OpenDTransport] = None, **kwargs):
+                 trade_transport: Optional[OpenDTransport] = None, sdk: Any = None,
+                 probe: Optional[Callable[[str, int, float], str]] = None,
+                 timer: Optional[Callable[[float, Callable[[], None]], Any]] = None, **kwargs):
         """`provider` defaults to a MoomooProvider for the configured host/port; tests pass a fake
         exposing the same `_get_context()`, `get_lot_sizes()` and `close()`. `trade_transport`
-        is how account clients reach OpenD (an OpenDTransport by default; tests pass a fake)."""
+        is how account clients reach OpenD (an OpenDTransport by default; tests pass a fake).
+        `sdk`, `probe` and `timer` are how the live side (execution client, streams) reaches
+        OpenD: the moomoo module, a TCP probe of OpenD's port, and a timer for deferred
+        unsubscribes; tests pass fakes."""
         super().__init__(config, venues, **kwargs)
         self._provider = provider
         self._trade_transport = trade_transport
+        self._sdk = sdk
+        self._probe = probe
+        self._timer = timer
 
     @property
     def capabilities(self) -> ConnectorCapabilities:
-        return ConnectorCapabilities(intervals=tuple(KLTYPES), max_bars_per_request=self.config.max_count)
+        return ConnectorCapabilities(intervals=tuple(KLTYPES), max_bars_per_request=self.config.max_count,
+                                     live_data=True, execution=True)
 
     @property
     def provider(self):
@@ -101,6 +119,13 @@ class MoomooConnector(Connector):
     def _close(self) -> None:
         if self._provider is not None:
             self._provider.close()
+
+    def close(self) -> None:
+        """Close the history session and, if live streams were opened, their quote context
+        (streams open lazily, without connect())."""
+        super().close()
+        if self._data_client is not None:
+            self._data_client.close_streams()
 
     def to_native(self, instrument_id) -> str:
         iid = as_instrument_id(instrument_id)
@@ -162,9 +187,55 @@ class MoomooConnector(Connector):
             transport=self._trade_transport, instrument_id=lambda code: str(self.from_native(code)),
             now_ns=self._now_ns)
 
+    def execution_client(self, market: str = "US", trading_env: Optional[str] = None,
+                         **options: Any) -> MoomooExecutionClient:
+        """
+        Orders for the trade account of one market ('US', 'HK') on the configured OpenD. Paper
+        (TrdEnv.SIMULATE) unless `trading_env`, or else the `moomoo` connection's trading_env, is
+        `real`. Other options: see MoomooExecutionClient. Call connect() before submitting.
+        """
+        return MoomooExecutionClient(self, {"market": market, "trading_env": trading_env, **options},
+                                     sdk=self._sdk, probe=self._probe)
+
 
 class MoomooDataClient(DataClient):
     connector: MoomooConnector
+    _streams: Optional[MoomooStreams] = None
+
+    # ── live data (midfreq.data.adapters.moomoo.streaming) ───────────
+
+    @property
+    def streams(self) -> MoomooStreams:
+        if self._streams is None:
+            conn = self.connector
+            self._streams = MoomooStreams(self, sdk=conn._sdk, probe=conn._probe, timer=conn._timer)
+        return self._streams
+
+    def subscribe_bars(self, bar_type: BarType, handler: Callable[[BarUpdate], None]) -> None:
+        self.streams.subscribe_bars(bar_type, handler)
+
+    def unsubscribe_bars(self, bar_type: BarType) -> None:
+        self.streams.unsubscribe_bars(bar_type)
+
+    def subscribe_bars_many(self, bar_types, handler: Callable[[BarUpdate], None]) -> None:
+        self.streams.subscribe_bars_many(list(bar_types), handler)
+
+    def unsubscribe_bars_many(self, bar_types) -> None:
+        self.streams.unsubscribe_bars_many(list(bar_types))
+
+    def subscribe_quotes(self, instrument_id: InstrumentId, handler: Callable[[QuoteTick], None]) -> None:
+        self.streams.subscribe_quotes(instrument_id, handler)
+
+    def unsubscribe_quotes(self, instrument_id: InstrumentId) -> None:
+        self.streams.unsubscribe_quotes(instrument_id)
+
+    def subscription_limit(self) -> Optional[int]:
+        return self.streams.subscription_limit()
+
+    def close_streams(self) -> None:
+        if self._streams is not None:
+            self._streams.close()
+            self._streams = None
 
     def _request_bars(self, bar_type: BarType, venue: VenueSpec,
                       start: pd.Timestamp, end: pd.Timestamp) -> List[Bar]:

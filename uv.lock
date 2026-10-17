@@ -18,6 +18,7 @@ members = [
     "midfreq-live",
     "midfreq-research",
     "midfreq-strategies",
+    "midfreq-trading",
     "midfreq-trading-bot",
 ]
 constraints = [
@@ -2043,6 +2044,25 @@ requires-dist = [
 provides-extras = ["hmm"]
 
 [[package]]
+name = "midfreq-trading"
+version = "0.1.1"
+source = { editable = "packages/midfreq-trading" }
+dependencies = [
+    { name = "midfreq-core" },
+    { name = "midfreq-data" },
+    { name = "midfreq-strategies" },
+    { name = "pandas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "midfreq-core", editable = "packages/midfreq-core" },
+    { name = "midfreq-data", editable = "packages/midfreq-data" },
+    { name = "midfreq-strategies", editable = "packages/midfreq-strategies" },
+    { name = "pandas", specifier = ">=2.1" },
+]
+
+[[package]]
 name = "midfreq-trading-bot"
 version = "0.1.1"
 source = { virtual = "." }
@@ -2056,6 +2076,7 @@ dependencies = [
     { name = "midfreq-live" },
     { name = "midfreq-research" },
     { name = "midfreq-strategies", extra = ["hmm"] },
+    { name = "midfreq-trading" },
     { name = "plotly" },
     { name = "streamlit" },
 ]
@@ -2082,6 +2103,7 @@ requires-dist = [
     { name = "midfreq-research", editable = "packages/midfreq-research" },
     { name = "midfreq-strategies", editable = "packages/midfreq-strategies" },
     { name = "midfreq-strategies", extras = ["hmm"], editable = "packages/midfreq-strategies" },
+    { name = "midfreq-trading", editable = "packages/midfreq-trading" },
     { name = "plotly" },
     { name = "streamlit" },
 ]

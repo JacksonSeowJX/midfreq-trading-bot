@@ -86,6 +86,7 @@ class MoomooAccountClient(AccountClient):
         self.market = str(market).upper()
         self.host, self.port = str(host), int(port)
         self.trd_env = TRADING_ENVS[env]
+        self.environment = "live" if self.trd_env == "REAL" else "paper"   # as the execution client says it
         self.security_firm = str(security_firm).upper()
         self.currency = currency
         self.timezone = timezone

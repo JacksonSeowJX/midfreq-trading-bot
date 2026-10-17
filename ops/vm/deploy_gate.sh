@@ -63,7 +63,7 @@ case "$ACTION" in
         for a in "${ARGS[@]:2}"; do
             case "$a" in --stage) STAGE=--stage ;; --force) FORCE=1 ;; *) deny "unknown option $a" ;; esac
         done
-        if [ "$FORCE" = 0 ] && pgrep -f '[r]un_live' >/dev/null; then
+        if [ "$FORCE" = 0 ] && pgrep -f '[r]un_live|[m]idfreq\.trading\.cli run|[m]idfreq-node run' >/dev/null; then
             say "a session is running; deploy after it ends, or use force"; exit 1
         fi
         TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
