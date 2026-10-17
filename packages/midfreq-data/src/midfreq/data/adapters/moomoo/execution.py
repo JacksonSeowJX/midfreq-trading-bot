@@ -314,6 +314,7 @@ class MoomooExecutionClient(ExecutionClient):
         self.poll_interval = float(opts["poll_interval"] or 0.0)
         self.fill_grace_ns = int(float(opts["fill_grace"]) * 1e9)
         self.unconfirmed_grace_ns = int(float(opts["unconfirmed_grace"]) * 1e9)
+        self.unconfirmed_window_s = float(opts["unconfirmed_grace"])
         self.probe_timeout = float(opts["probe_timeout"])
         self.connect_timeout = float(opts["connect_timeout"])
         self.query_timeout = float(opts["query_timeout"])

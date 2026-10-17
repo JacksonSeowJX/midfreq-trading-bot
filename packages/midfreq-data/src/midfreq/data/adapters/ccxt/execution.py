@@ -244,6 +244,7 @@ class CcxtExecutionClient(ExecutionClient):
         self._reconnect_delay = float(o["reconnect_delay"])
         self._max_reconnect_delay = float(o["max_reconnect_delay"])
         self._unconfirmed_timeout = float(o["unconfirmed_timeout"])
+        self.unconfirmed_window_s = self._unconfirmed_timeout
         self._timeout_ms = int(o["timeout_ms"])
         self._symbols = [str(s) for s in (o["symbols"] or ())]
         self._page_limit = int(o["trades_page_limit"])

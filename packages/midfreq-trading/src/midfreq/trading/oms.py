@@ -359,7 +359,11 @@ class OrderManagementSystem:
         self._lot_size = lot_size
         self._tick_size = tick_size
         self._reconcile_lookback_ns = int(reconcile_lookback_s * _NS)
-        self._reconcile_grace_ns = int(reconcile_grace_s * _NS)
+        # An order the venue does not list yet is left alone at least as long as its client keeps
+        # looking for it (a lost place reply: Moomoo and ccxt look for 30 s), plus a margin.
+        windows = [float(getattr(c, "unconfirmed_window_s", 0.0) or 0.0) for c in self._clients.values()]
+        grace_s = max([float(reconcile_grace_s)] + [w + 5.0 for w in windows if w > 0])
+        self._reconcile_grace_ns = int(grace_s * _NS)
 
         self._orders: Dict[ClientOrderId, Order] = {}
         self._open: Dict[ClientOrderId, Order] = {}

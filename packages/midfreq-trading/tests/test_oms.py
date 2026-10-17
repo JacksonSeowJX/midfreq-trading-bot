@@ -878,3 +878,22 @@ def test_h6_reconciling_positions_skips_instruments_with_orders_in_flight(node):
     assert node.ledger.position(S1, AAPL) == 0                 # flat, not short
     node.ledger.reconcile(XNAS, [])
     assert node.ledger.position(S1, AAPL) == 0
+
+
+def test_m1_reconciliation_waits_out_the_clients_window_for_an_unconfirmed_order(tmp_path):
+    """M1: a client looks for an order whose place reply was lost for 30 s (its
+    unconfirmed_window_s); reconciliation must not mark such an order cancelled in the meantime
+    because the venue does not list it yet."""
+    clock = TestClock(T0)
+    venue = FakeVenue(clock)
+    venue.unconfirmed_window_s = 30.0
+    node = Node(tmp_path, quotes={AAPL: quote(149.9, 150.1)}, clock=clock, venue=venue)
+    order = node.limit()
+    venue.forget.add(order.tags["venue_order_id"])           # the venue does not show it (yet)
+    venue.book.pop(order.tags["venue_order_id"])
+    node.advance(15)
+    node.oms.reconcile()
+    assert order.is_open, "still within the client's 30 s"
+    node.advance(30)
+    node.oms.reconcile()
+    assert order.status is OrderStatus.CANCELED              # now the venue's silence counts

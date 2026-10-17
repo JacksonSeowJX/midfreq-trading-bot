@@ -298,7 +298,9 @@ class ExecutionClient(ABC):
       ('reconnected', after the client has caught up on what it missed); the node then
       reconciles the OMS with the venue.
     - `open_orders()` and `fills(since)` let the OMS reconcile its journal with the venue at
-      start-up and after a reconnect.
+      start-up and after a reconnect. A client that keeps looking for an order whose submit
+      outcome is unknown says for how long in `unconfirmed_window_s`; the OMS does not settle
+      such an order from the venue's silence before that.
     - `environment` is "paper", "live" or "sim" and comes from configuration; a client must
       refuse to start in "live" unless its configuration says so explicitly.
     """
@@ -312,6 +314,8 @@ class ExecutionClient(ABC):
     @property
     def client_id(self) -> ClientId:
         return ClientId(self.connector.name)
+
+    unconfirmed_window_s: float = 0.0     # how long the client looks for an order with an unknown outcome
 
     def set_event_handler(self, handler: Callable[[OrderEvent], None]) -> None:
         self._handler = handler

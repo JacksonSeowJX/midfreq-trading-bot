@@ -195,6 +195,7 @@ def make_risk(ctx: "NodeContext", settings: Mapping[str, Any]):
 # ── OMS ───────────────────────────────────────────────────────────────────────────────────────
 
 OMS_SETTINGS = ("unfilled_order", "reconcile_lookback_s", "reconcile_grace_s", "journal_lookback_days")
+# reconcile_grace_s is raised by the OMS to cover its clients' unconfirmed_window_s
 
 
 def make_oms(ctx: "NodeContext", settings: Mapping[str, Any]):
