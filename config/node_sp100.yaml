@@ -6,7 +6,8 @@
 #     --stop-loss 0 --max-drawdown 15 --params lookback=.. top_n=.. rebalance_every=..
 # with the symbols, parameters and capital read from config/sp100_forward_test.json, as the
 # launcher reads them, so the two cannot drift apart. US commission 0.005% per side. Orders are
-# marketable limits 1% through the last price, cancelled if not filled within 30 s.
+# marketable DAY limits 1% through the last price; an order still unfilled after 30 s is
+# re-priced (see `oms` below).
 #
 # Mode is `shadow` here on purpose: the forward test trades on the original engine until it ends
 # (about 13 November 2026) and its state file must have one writer. A shadow node writes to
@@ -59,23 +60,32 @@ strategies:
       time_in_force: DAY
     warmup_bars: 60
     confirm_fills: true       # wait for each order's outcome, as the original engine did
-    confirm_timeout_s: 75
+    confirm_timeout_s: 150    # at least the unfilled-order policy's 3 x 30 s + 30 s (check-config checks)
 
-# Pre-trade risk (midfreq.trading.risk). At US$100,000 over 3 names each holding is ~US$33,300.
+# Pre-trade risk (midfreq.trading.risk.RiskLimits). At US$100,000 over 3 names each holding is
+# ~US$33,300. The cash check prices a buy at its limit plus the strategy's commission_rate.
 risk:
-  max_order_value: 50000
-  max_position_value: 50000
+  max_order_notional: 50000
+  max_position_notional: 50000
   price_band_pct: 0.05        # a limit more than 5% from the last price is a fat finger
-  require_session_open: true
+  require_session_open: true  # no order while the venue's session (calendar, holidays) is closed
 
-# Orders left unfilled (midfreq.trading.oms): the original engine waited 30 s, cancelled, and
-# waited up to 30 s more for the final status, with no retry.
+# Orders left unfilled (midfreq.trading.oms.UnfilledOrderPolicy). The original engine waited 30 s,
+# cancelled, and waited up to 30 s more for the final status, with no retry; that is the preset
+# `unfilled_order: original_engine`, which `midfreq-node replay` uses to reproduce its decisions.
 oms:
   unfilled_order:
-    wait_s: 30
-    reprice_attempts: 0
-    reprice_from: quote
-    cancel_wait_s: 30
+    wait_s: 30                # an order may work this long without filling completely
+    # Two re-prices: the fix for the Lam Research buy of 15 October 2026, which sat unfilled for
+    # 30 s and was cancelled with no retry. The order is cancelled and sent again for what is
+    # left at the latest price 1% through (ask/bid when quotes are on), twice, before the rest is
+    # cancelled. It takes effect only when the node trades this strategy (after the forward test
+    # ends, about 13 November 2026); until then the node runs in shadow mode and sends nothing.
+    max_reprices: 2
+    quote_offset_bps: 0       # buy at the ask, sell at the bid (with quotes)
+    last_offset_bps: 100      # without quotes: 1% through the last price, as the original's slip
+    cancel_timeout_s: 30      # a cancel not confirmed by then is checked with the venue and re-sent
+    max_cancel_retries: 3
 
 marketdata:
   min_cross_section_share: 0.9

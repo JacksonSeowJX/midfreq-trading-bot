@@ -29,9 +29,12 @@ limits, the policy for orders left unfilled and the capital cap.
         commission_rate: 0.00005
         risk_manager: {stop_loss_pct: 0, max_drawdown_pct: 0.15, sizing: equal-dollar}
         pricing: {rule: last, slip: 0.01}
-    risk: {...}                    # passed to the pre-trade risk engine
-    oms: {unfilled_order: {...}}   # passed to the OMS
-    components: {oms: "midfreq.trading.oms:OrderManagementSystem", ...}   # overrides
+    risk: {...}                    # midfreq.trading.risk.RiskLimits fields, require_session_open, strategies
+    oms: {unfilled_order: {...}}   # midfreq.trading.oms.UnfilledOrderPolicy fields, or 'original_engine'
+    marketdata: {...}              # min_cross_section_share, finality_grace_s, limit_unit, persist
+    components: {oms: "package.module:factory_or_class", ...}   # overrides of the defaults
+
+Each section is checked against what its component accepts (midfreq.trading.components).
 
 Paths in the file are relative to the runtime root (MIDFREQ_ROOT, see midfreq.core.paths).
 `load_config` reads and checks a file; `validate` returns every problem found, without touching a
@@ -472,6 +475,9 @@ def validate(cfg: NodeConfig, venues: Optional[VenueRegistry] = None) -> List[st
             problems.append(f"{where}: pricing.slip {s.pricing.slip} is outside [0, 0.2)")
         if s.pricing.time_in_force not in ("DAY", "GTC", "IOC"):
             problems.append(f"{where}: pricing.time_in_force must be DAY, GTC or IOC")
+        elif s.kind == "legacy" and s.pricing.time_in_force != "DAY":
+            problems.append(f"{where}: a candle strategy's orders are DAY orders (a Moomoo GTC order would outlive "
+                            f"the session), not {s.pricing.time_in_force}")
         rm = s.risk_manager
         if rm is not None and rm.sizing not in (None, "fixed", "equal-dollar"):
             problems.append(f"{where}: risk_manager.sizing must be 'fixed' or 'equal-dollar'")
@@ -481,4 +487,7 @@ def validate(cfg: NodeConfig, venues: Optional[VenueRegistry] = None) -> List[st
         from midfreq.data.adapters.registry import ConnectorRegistry
         if ConnectorRegistry.canonical(cfg.data.connector) not in ConnectorRegistry(venues).names():
             problems.append(f"data.connector {cfg.data.connector!r} is not a registered connector")
+    # The components' own sections (risk limits, the OMS's unfilled-order policy, ...).
+    from midfreq.trading.components import check_settings
+    problems += check_settings(cfg)
     return problems

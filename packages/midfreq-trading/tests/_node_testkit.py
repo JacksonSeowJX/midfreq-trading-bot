@@ -1,7 +1,9 @@
 """
-Minimal stand-ins for the components other parts of the build own (A: OMS, risk, positions;
-C: market data, reference data), written against midfreq.trading.interfaces so the node can be
-tested before those branches merge. They do the least the node needs and nothing clever:
+Minimal stand-ins for the node's components (A: OMS, risk, positions; C: market data, reference
+data), written against midfreq.trading.interfaces under the protocols' own method names, so the
+node's own logic (lifecycle, queue, timers, records) is tested in isolation. The real components
+are tested on their own and, together, by the real-components replay equivalence test. They do
+the least the node needs and nothing clever:
 
 - StandInOMS: risk check, route by venue, apply venue events to the Order, publish them on
   events.order.<strategy> (and fills on events.fills); cancels orders left open `wait_s`.
@@ -33,7 +35,7 @@ from midfreq.core.model.orders import Order
 from midfreq.core.venues.spec import default_venues
 from midfreq.data.adapters.base import DataClient, ExecutionClient, OrderReport, FillReport
 from midfreq.trading.interfaces import (
-    TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_FILLS, TOPIC_ORDER_EVENTS, CrossSection, ReconcileReport,
+    TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_FILLS, TOPIC_ORDER_EVENTS, TOPIC_QUOTE, CrossSection, ReconcileReport,
 )
 
 
@@ -83,23 +85,32 @@ class StandInPositions:
     def cash(self, strategy_id) -> float:
         return self._cash[strategy_id]
 
-    def restore(self, strategy_id, positions, cash) -> None:
+    def avg_price(self, strategy_id, instrument_id):
+        return None
+
+    def restore(self, strategy_id, cash, positions, capital=None, realized_pnl=0.0, commissions=0.0,
+                dividends=0.0, corporate_actions=()) -> None:
         self.restored[strategy_id] = (dict(positions), cash)
+        self.qty[strategy_id].clear()
         for iid, (q, _px) in positions.items():
             self.qty[strategy_id][iid] = q
         self._cash[strategy_id] = cash
 
-    def reconcile(self, venue, broker) -> ReconcileReport:
+    def snapshot(self, strategy_id):
+        return {"cash": self._cash[strategy_id], "positions": dict(self.qty[strategy_id])}
+
+    def reconcile(self, venue, broker, strategy_ids=None) -> ReconcileReport:
         self.reconciled.append((venue, list(broker)))
         return ReconcileReport("positions", 0, len(broker))
 
 
 class StandInOMS:
-    def __init__(self, msgbus, clock, execution_clients, risk, config: Optional[Mapping[str, Any]] = None):
+    def __init__(self, msgbus, clock, execution_clients, risk, positions, config: Optional[Mapping[str, Any]] = None):
         self.msgbus = msgbus
         self.clock = clock
         self.clients = execution_clients
         self.risk = risk
+        self.positions = positions
         policy = dict((config or {}).get("unfilled_order", {}))
         self.wait_ns = int(float(policy.get("wait_s", 30)) * 1e9)
         self.orders: Dict[Any, Order] = {}
@@ -146,6 +157,7 @@ class StandInOMS:
             o.avg_px = ((o.avg_px or 0.0) * o.filled_qty + event.last_px * event.last_qty) / filled
             o.filled_qty = filled
             o.status = OrderStatus.FILLED if filled >= o.quantity - 1e-12 else OrderStatus.PARTIALLY_FILLED
+            self.positions.on_fill(event)                       # the OMS books what it applies
         elif isinstance(event, OrderAccepted):
             if o.status is OrderStatus.SUBMITTED:
                 o.status = OrderStatus.ACCEPTED
@@ -159,6 +171,14 @@ class StandInOMS:
 
     def order(self, client_order_id) -> Optional[Order]:
         return self.orders.get(client_order_id)
+
+    def family(self, client_order_id) -> List[Order]:
+        o = self.orders.get(client_order_id)
+        return [o] if o is not None else []
+
+    def family_done(self, client_order_id) -> bool:
+        o = self.orders.get(client_order_id)
+        return o is not None and o.is_closed
 
     def open_orders(self, strategy_id=None) -> List[Order]:
         return [o for o in self.orders.values() if o.is_open and (strategy_id is None or o.strategy_id == strategy_id)]
@@ -186,6 +206,13 @@ class StandInRefData:
             import dataclasses
             inst = dataclasses.replace(inst, lot_size=lot)
         return inst
+
+    def instruments(self, instrument_ids):
+        return [self.instrument(i) for i in instrument_ids]
+
+    def calendar(self, venue):
+        from midfreq.trading.calendar import VenueCalendar
+        return VenueCalendar.for_venue(venue, self.venues)
 
     def corporate_actions(self, instrument_id, start, end):
         return []
@@ -217,6 +244,8 @@ class StandInMarketData:
         self.calls: List[str] = []
         self.started = self.stopped = False
         self.resubscribed = 0
+        self.quotes: Dict[InstrumentId, Any] = {}
+        self.fatal_stall = False
 
     def subscribe_bars(self, bar_type: BarType, universe: Optional[str] = None) -> None:
         self.calls.append("subscribe_bars")
@@ -229,13 +258,34 @@ class StandInMarketData:
         if client is not None:
             client.subscribe_bars(bar_type, self.queue.put)
 
-    def resubscribe(self) -> None:
+    def resubscribe(self) -> int:
         self.resubscribed += 1
+        return len(self.bar_types)
 
     def subscribe_quotes(self, instrument_id) -> None:
         self.calls.append("subscribe_quotes")
 
-    def handle_bar_update(self, update) -> None:
+    def dispatch(self, item) -> bool:
+        from midfreq.core.model.data import QuoteTick
+        from midfreq.data.adapters.base import BarUpdate, StreamStatus
+        if isinstance(item, BarUpdate):
+            self.on_bar_update(item)
+        elif isinstance(item, QuoteTick):
+            self.on_quote(item)
+        elif isinstance(item, StreamStatus):
+            self.on_stream_status(item)
+        else:
+            return False
+        return True
+
+    def on_quote(self, quote) -> None:
+        self.quotes[quote.instrument_id] = quote
+        self.msgbus.publish(TOPIC_QUOTE.format(instrument_id=quote.instrument_id), quote)
+
+    def on_stream_status(self, status) -> None:
+        self.calls.append(f"stream:{status.state}")
+
+    def on_bar_update(self, update) -> None:
         bar = update.bar
         bt = bar.bar_type
         if bar.ts_event <= self.final_ts.get(bt, -1):
@@ -255,7 +305,7 @@ class StandInMarketData:
             return
         self.final_ts[bt] = bar.ts_event
         self.session_bars[bt].append(bar)
-        self.msgbus.publish(TOPIC_BAR.format(instrument_id=bt.instrument_id), bar)
+        self.msgbus.publish(TOPIC_BAR.format(bar_type=bt), bar)
         u = self.universe_of.get(bt.instrument_id)
         if u is None or bar.ts_event in self.published[u]:
             return

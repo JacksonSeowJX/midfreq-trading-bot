@@ -8,14 +8,21 @@ Connectors call back on their own threads (a venue SDK's push thread, a websocke
 callbacks only `put` on the node's `NodeEventQueue` (a queue.Queue). One loop, on the thread that
 called `run()`, takes the items in order and dispatches them:
 
-    BarUpdate     -> MarketDataService (bar finality, cross-sections, published on the bus)
-    QuoteTick     -> the cache, then the MarketDataService (or the bus when it takes no quotes)
-    OrderEvent    -> OMS.handle_event (which journals it, applies it and publishes it; the
-                     PositionKeeper books the fills it publishes)
-    StreamStatus  -> MarketDataService and the ops log (a reconnect triggers a reconciliation)
-    TimerEvent    -> bar finality and OMS policies (every `timer_s`), the stall check,
-                     reconciliation with the venues (every `reconcile_s`, 300 s), a heartbeat
-                     (every `heartbeat_s`, 300 s)
+    BarUpdate     -> MarketDataService.dispatch (bar finality, cross-sections, on the bus)
+    QuoteTick     -> the cache, then MarketDataService.dispatch (TOPIC_QUOTE)
+    StreamStatus  -> MarketDataService.dispatch and the ops log (a data stream's reconnect
+                     triggers a reconciliation)
+    OrderEvent    -> OMS.handle_event (which journals it, applies it, books fills in the
+                     PositionKeeper and publishes it)
+    ExecutionStatus -> the ops log; 'reconnected' (an execution client caught up after a
+                     drop) triggers a reconciliation of orders and positions
+    TimerEvent    -> bar finality, cross-sections and stall detection (MarketDataService.on_timer)
+                     and the OMS's unfilled-order policy (every `timer_s`), reconciliation with
+                     the venues (every `reconcile_s`, 300 s), a heartbeat (every `heartbeat_s`)
+
+Stalls are detected by the MarketDataService (no bar update for `stall_factor` intervals of
+session time: resubscribe once, then `fatal_stall`); the node writes each StreamEvent('stall')
+to the session logs, as the original engine did, and stops cleanly on a fatal one.
 
 Timers are queue items too: the loop puts each due timer on the queue and dispatches it in turn.
 With a LiveClock time is the wall clock; with a TestClock (replays, tests) nothing moves until
@@ -41,12 +48,16 @@ says `environment: live` and the execution client reports 'live' itself.
 
 Components
 ----------
-Built by a factory from import paths (`DEFAULT_COMPONENTS`, overridden by the configuration's
-`components:` section or the `components=` argument, which also takes classes, factories or
-ready instances). A class may define `from_node(ctx, settings)`; otherwise its constructor is
-called with the keyword arguments it names out of those `NodeContext.offered()` provides (clock,
-msgbus, queue, cache, venues, refdata, journal, risk, positions, oms, execution clients, data
-clients, its own `config` section, ...).
+The defaults (`DEFAULT_COMPONENTS`) are the factories of midfreq.trading.components, which build
+the real classes (ReferenceDataService, OrderJournal, PositionLedger, PreTradeRiskEngine,
+OrderManagementSystem, LiveMarketDataService, the simulated venue) with their real constructor
+arguments from the configuration's sections. The configuration's `components:` section or the
+`components=` argument override them with import paths, classes, factories or ready instances
+(tests use stand-ins). A class may define `from_node(ctx, settings)`; otherwise a constructor or
+factory is called with the keyword arguments it names out of those `NodeContext.offered()`
+provides (ctx, clock, msgbus, queue, cache, venues, refdata, journal, risk, positions, oms,
+execution clients, data clients, its own `settings` section, ...). Every component must offer
+the methods of its protocol in midfreq.trading.interfaces, under those names.
 """
 from __future__ import annotations
 
@@ -71,7 +82,7 @@ from midfreq.core.cache import Cache
 from midfreq.core.common.clock import Clock, LiveClock, TestClock
 from midfreq.core.common.msgbus import MessageBus
 from midfreq.core.model.data import Bar, BarSpecification, BarType, QuoteTick
-from midfreq.core.model.events import OrderDenied, OrderEvent, OrderFilled
+from midfreq.core.model.events import OrderDenied, OrderEvent
 from midfreq.core.model.identifiers import ClientOrderId, InstrumentId, StrategyId, Venue, as_instrument_id
 from midfreq.core.model.instruments import Instrument
 from midfreq.core.model.orders import Order
@@ -82,8 +93,8 @@ from midfreq.trading.config import (
     NodeConfig, StrategySettings, TIMEFRAMES, instrument_for_symbol, resolve_strategy_class, strategy_params,
 )
 from midfreq.trading.interfaces import (
-    TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_FILLS, TOPIC_HEARTBEAT, TOPIC_ORDER_EVENTS, TOPIC_QUOTE,
-    Heartbeat, ReconcileReport,
+    TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_HEARTBEAT, TOPIC_ORDER_EVENTS, TOPIC_STREAM, Heartbeat,
+    ReconcileReport, StreamEvent,
 )
 from midfreq.trading.ops import (
     OpsLogging, OpsSettings, describe_heartbeat, get_logger, log_context, quiet_venue_sdk_loggers,
@@ -97,14 +108,25 @@ from midfreq.trading.strategy_host import (
 log = get_logger("node")
 
 DEFAULT_COMPONENTS: Dict[str, str] = {
-    "refdata": "midfreq.trading.refdata:ReferenceDataService",
-    "journal": "midfreq.trading.journal:OrderJournal",
-    "risk": "midfreq.trading.risk:PreTradeRiskEngine",
-    "positions": "midfreq.trading.positions:PositionLedger",
-    "oms": "midfreq.trading.oms:OrderManagementSystem",
-    "marketdata": "midfreq.trading.marketdata:LiveMarketDataService",
-    "sim_execution": "midfreq.trading.testing.sim_venue:SimulatedExecutionClient",
-    "sim_data": "midfreq.trading.testing.sim_venue:SimulatedDataClient",
+    "refdata": "midfreq.trading.components:make_refdata",
+    "journal": "midfreq.trading.components:make_journal",
+    "positions": "midfreq.trading.components:make_positions",
+    "risk": "midfreq.trading.components:make_risk",
+    "oms": "midfreq.trading.components:make_oms",
+    "marketdata": "midfreq.trading.components:make_marketdata",
+    "sim_execution": "midfreq.trading.components:make_sim_execution",
+    "sim_data": "midfreq.trading.components:make_sim_data",
+}
+
+# What each component must offer (midfreq.trading.interfaces), checked when the node is built.
+REQUIRED_METHODS: Dict[str, Tuple[str, ...]] = {
+    "oms": ("submit", "cancel", "handle_event", "order", "family", "family_done", "open_orders", "on_timer",
+            "reconcile"),
+    "marketdata": ("dispatch", "subscribe_bars", "subscribe_quotes", "resubscribe", "warm_up", "start", "stop",
+                   "on_timer"),
+    "risk": ("check", "halt", "resume"),
+    "positions": ("on_fill", "position", "positions", "cash", "restore", "snapshot", "reconcile"),
+    "refdata": ("instrument", "instruments", "calendar"),
 }
 
 NANOS = 1_000_000_000
@@ -125,6 +147,14 @@ class TimerEvent:
 @dataclass(frozen=True)
 class StopRequest:
     reason: str = "requested"
+
+
+@dataclass(frozen=True)
+class ExecutionStatus:
+    """A change in an execution client's connection (ExecutionClient.set_status_handler),
+    tagged with the account it serves."""
+    account_id: str
+    status: StreamStatus
 
 
 class NodeEventQueue:
@@ -188,11 +218,14 @@ class NodeContext:
     oms: Any = None
     marketdata: Any = None
     alert: Callable[[str, str], None] = lambda subject, body: None
+    node: Any = None                                    # the TradingNode (prices, instruments, hours)
+    sim_scheduler: Any = None                           # sim mode: the simulated venue's scheduler
 
     def offered(self, settings: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
         """The keyword arguments a component's constructor may ask for, by name."""
         data_client = next(iter(self.data_clients.values()), None) if len(set(map(id, self.data_clients.values()))) == 1 else None
         out = {
+            "ctx": self, "node_context": self,
             "clock": self.clock, "msgbus": self.msgbus, "bus": self.msgbus, "queue": self.queue,
             "event_queue": self.queue, "cache": self.cache, "venues": self.venues,
             "venue_registry": self.venues, "node_config": self.config, "mode": self.mode,
@@ -251,40 +284,6 @@ def build_component(spec: Any, ctx: NodeContext, name: str, settings: Optional[M
     return obj(**kwargs)
 
 
-def _handler(obj: Any, *names: str) -> Optional[Callable]:
-    for n in names:
-        fn = getattr(obj, n, None)
-        if callable(fn):
-            return fn
-    return None
-
-
-class _FillOnce:
-    """Wraps the PositionKeeper so each fill is booked once, whether the OMS calls on_fill
-    itself, the node does it from the bus, or both."""
-
-    def __init__(self, keeper: Any):
-        self._keeper = keeper
-        self._seen: set = set()
-
-    def on_fill(self, fill: OrderFilled) -> None:
-        key = (str(fill.client_order_id),
-               str(fill.trade_id) if fill.trade_id is not None else f"{fill.ts_event}:{fill.last_qty}:{fill.last_px}")
-        if key in self._seen:
-            return
-        self._seen.add(key)
-        self._keeper.on_fill(fill)
-
-    def on_order_event(self, event: Any) -> None:
-        if isinstance(event, OrderFilled):
-            self.on_fill(event)
-
-    def __getattr__(self, name: str) -> Any:
-        if name.startswith("__") or name in ("_keeper", "_seen"):
-            raise AttributeError(name)
-        return getattr(self._keeper, name)
-
-
 # ── the node ──────────────────────────────────────────────────────────────────────────────────
 
 class TradingNode:
@@ -335,7 +334,7 @@ class TradingNode:
         self._last_push: Dict[InstrumentId, Tuple[int, float]] = {}
         self._last_bar_at: Optional[int] = None          # clock time a closed bar last arrived
         self._last_bar_ts: Optional[int] = None          # that bar's ts_event
-        self._resubscribed = False
+        self._stalls = 0                                 # StreamEvent('stall') seen this session
         self.instruments: Dict[InstrumentId, Instrument] = {}
         self.bar_types: Dict[BarType, Optional[str]] = {}    # bar type -> universe
         self.dispatched = collections.Counter()
@@ -502,9 +501,7 @@ class TradingNode:
             clocks.update(host.save_states())
 
         def persist():
-            fn = _handler(self.marketdata, "stop")
-            if fn is not None:
-                fn()
+            self.marketdata.stop()
             self._drain_data()
             host.finalize()
             if host.clocks() != clocks:
@@ -580,7 +577,7 @@ class TradingNode:
         self.records_dir.mkdir(parents=True, exist_ok=True)
         self.ctx = ctx = NodeContext(cfg, self.mode, self.clock, self.msgbus, self.queue, self.cache, self.venues,
                                      self.records_dir, self.store_dir, self.session_id, self.persist_bars,
-                                     alert=self.alert)
+                                     alert=self.alert, node=self)
         comps = self._components
         # Which venues each account trades, from its strategies' universes.
         venues_of: Dict[str, set] = collections.defaultdict(set)
@@ -605,57 +602,36 @@ class TradingNode:
         for v in sorted(all_venues, key=str):
             ctx.data_clients[v] = self._make_data_client(v)
 
-        # The components, in dependency order.
-        self.refdata = ctx.refdata = self._optional_component("refdata", cfg.refdata)
-        self.journal = ctx.journal = self._optional_component("journal", cfg.journal)
+        # The components, in dependency order: risk needs the books, the OMS needs both and the
+        # journal, the market data service the reference data's calendars.
+        self.refdata = ctx.refdata = build_component(comps["refdata"], ctx, "refdata", cfg.refdata)
+        self.journal = ctx.journal = build_component(comps["journal"], ctx, "journal", cfg.journal)
+        self.positions = ctx.positions = build_component(comps["positions"], ctx, "positions", cfg.positions)
         self.risk = ctx.risk = build_component(comps["risk"], ctx, "risk", cfg.risk)
-        raw_positions = build_component(comps["positions"], ctx, "positions", cfg.positions)
-        self.positions = ctx.positions = _FillOnce(raw_positions)
         self.oms = ctx.oms = build_component(comps["oms"], ctx, "oms", cfg.oms)
         md_settings = {"persist": self.persist_bars, **cfg.marketdata}
         self.marketdata = ctx.marketdata = build_component(comps["marketdata"], ctx, "marketdata", md_settings)
-        for name, obj, needs in (("oms", self.oms, ("submit", "cancel", "handle_event", "on_timer", "reconcile",
-                                                     "open_orders")),
-                                 ("marketdata", self.marketdata, ("subscribe_bars", "warm_up", "start", "stop", "on_timer")),
-                                 ("risk", self.risk, ("check",)), ("positions", raw_positions, ("on_fill",))):
-            absent = [m for m in needs if not callable(getattr(obj, m, None))]
+        for name, obj in (("refdata", self.refdata), ("positions", self.positions), ("risk", self.risk),
+                          ("oms", self.oms), ("marketdata", self.marketdata)):
+            absent = [m for m in REQUIRED_METHODS[name] if not callable(getattr(obj, m, None))]
             if absent:
                 raise NodeError(f"component {name} ({type(obj).__name__}) lacks {absent} "
                                 "(midfreq.trading.interfaces)")
-        self._md_bar = _handler(self.marketdata, "handle_bar_update", "on_bar_update", "handle_bar", "on_bar")
-        self._md_quote = _handler(self.marketdata, "handle_quote", "handle_quote_tick", "on_quote", "on_quote_tick")
-        self._md_status = _handler(self.marketdata, "handle_stream_status", "on_stream_status")
-        if self._md_bar is None:
-            raise NodeError(f"marketdata ({type(self.marketdata).__name__}) has no handler for BarUpdate "
-                            "(handle_bar_update / on_bar_update)")
-        for what, fn in (("QuoteTick", self._md_quote), ("StreamStatus", self._md_status)):
-            if fn is None:
-                self.integration_notes.append(f"marketdata has no {what} handler; the node handles {what} itself")
-        # The PositionKeeper books every fill the OMS publishes (at most once each).
-        self.msgbus.subscribe(TOPIC_FILLS, self.positions.on_fill)
-        self.msgbus.subscribe(TOPIC_ORDER_EVENTS.format(strategy_id="*"), self.positions.on_order_event)
-        # Closed bars: into the cache, and the stall clock (exact topics: the native strategies'
-        # bridge republishes under data.bars.<bar type>, which a wildcard would also catch).
+        # Closed bars: into the cache, and the heartbeat's stream lag. Stall events: the session logs.
         for bt in self.bar_types:
-            self.msgbus.subscribe(TOPIC_BAR.format(instrument_id=bt.instrument_id), self._on_closed_bar)
+            self.msgbus.subscribe(TOPIC_BAR.format(bar_type=bt), self._on_closed_bar)
         self.msgbus.subscribe(TOPIC_CROSS_SECTION.format(universe="*"), self._on_cross_section_seen)
+        self.msgbus.subscribe(TOPIC_STREAM, self._on_stream_event)
 
         services = NodeServices(
             clock=self.clock, msgbus=self.msgbus, cache=self.cache, venues=self.venues,
             submit=self._submit, cancel=self._cancel, wait_until=self.wait_until,
             latest_price=self.latest_price, quote=self.cache.quote, instrument=self.instrument,
             local_now=self.local_now, warm_up=self._warm_up_bars, order_prefix=self.order_prefix,
-            alert=self.alert, market_open=self.market_open)
+            alert=self.alert, market_open=self.market_open, order=self.oms.order,
+            family_done=self.oms.family_done)
         self.host = StrategyHost(services)
         self._services = services
-
-    def _optional_component(self, name: str, settings: Mapping[str, Any]) -> Any:
-        try:
-            return build_component(self._components[name], self.ctx, name, settings)
-        except (ImportError, AttributeError) as exc:
-            self.integration_notes.append(f"{name}: {exc}")
-            log.warning("%s unavailable (%s); continuing without it", name, exc)
-            return None
 
     def _make_execution_client(self, aid: str) -> ExecutionClient:
         acc = self.config.accounts[aid]
@@ -713,8 +689,7 @@ class TradingNode:
         else:
             name = self.config.data.connector or self.venues.get(venue).default_connector
             client = self._connector(name).data_client
-        if callable(getattr(client, "set_stream_status_handler", None)):
-            client.set_stream_status_handler(self.queue.put)
+        # The MarketDataService gives each data client its stream handlers (they only enqueue).
         return client
 
     def _connect(self) -> None:
@@ -723,26 +698,25 @@ class TradingNode:
             conn.connect()
         for aid, client in self.ctx.execution_clients.items():
             client.set_event_handler(self.queue.put)
+            set_status = getattr(client, "set_status_handler", None)
+            if callable(set_status):
+                set_status(lambda status, aid=aid: self.queue.put(ExecutionStatus(aid, status)))
             client.connect()
             log.info("account %s: %s execution (%s)", aid, getattr(client, "environment", "?"), type(client).__name__)
         quiet_venue_sdk_loggers()
 
     def _load_reference_data(self) -> None:
         ids = sorted({bt.instrument_id for bt in self.bar_types}, key=str)
-        loader = _handler(self.refdata, "load", "load_instruments") if self.refdata is not None else None
-        if loader is not None:
-            try:
-                loader(ids)
-            except Exception as exc:
-                log.warning("reference data: bulk load failed (%s); loading one by one", exc)
+        try:
+            self.refdata.instruments(ids)                 # one provider call per venue
+        except Exception as exc:
+            log.warning("reference data: bulk load failed (%s); loading one by one", exc)
         failed = []
         for iid in ids:
-            inst = None
-            if self.refdata is not None:
-                try:
-                    inst = self.refdata.instrument(iid)
-                except Exception:
-                    inst = None
+            try:
+                inst = self.refdata.instrument(iid)
+            except Exception:
+                inst = None
             if inst is None:
                 failed.append(str(iid))
                 inst = self.venues.get(iid.venue).default_instrument(str(iid.symbol))
@@ -804,17 +778,21 @@ class TradingNode:
         self.host.add_native(runner, universe=s.universe)
 
     def _seed_position_keeper(self, adapter: LiveLegacyAdapter) -> None:
-        """Give the PositionKeeper the strategy's resumed claims and cash, where it can take them."""
-        fn = _handler(self.positions, "restore", "seed", "set_strategy")
-        if fn is None:
-            self.integration_notes.append("positions keeper has no restore(strategy_id, positions, cash); it starts empty")
-            return
+        """Make the PositionKeeper's book of a candle strategy what its own portfolio holds (the
+        strategy's book under the original engine's rules: resumed shrink-only, cash bounded by
+        the broker's under the cap), keeping the book's running totals. Called at start-up and
+        after each reconciliation of the strategy; between them both book the same fills."""
         positions = {adapter.instrument_for[sym]: (p["qty"], p["entry_price"])
                      for sym, p in adapter.portfolio.positions.items()}
-        try:
-            fn(adapter.id, positions, adapter.portfolio.cash)
-        except Exception as exc:
-            log.warning("could not seed the position keeper for %s: %s", adapter.id, exc)
+        cash = adapter.portfolio.cash
+        mine = self.positions.positions(adapter.id)
+        if self.positions.cash(adapter.id) == cash and mine == {i: q for i, (q, _) in positions.items()}:
+            return
+        snap = self.positions.snapshot(adapter.id)
+        self.positions.restore(adapter.id, cash, positions, capital=adapter.capital_cap,
+                               realized_pnl=snap.get("realized_pnl", 0.0), commissions=snap.get("commissions", 0.0),
+                               dividends=snap.get("dividends", 0.0),
+                               corporate_actions=snap.get("corporate_actions", ()))
 
     def _start_sessions(self) -> None:
         for a in self.host.legacy:
@@ -892,6 +870,8 @@ class TradingNode:
                 self._on_order_event(item)
             elif isinstance(item, StreamStatus):
                 self._on_stream_status(item)
+            elif isinstance(item, ExecutionStatus):
+                self._on_execution_status(item)
             elif isinstance(item, TimerEvent):
                 self._on_timer(item)
             elif isinstance(item, StopRequest):
@@ -905,7 +885,7 @@ class TradingNode:
             log.exception("handling %s failed", kind)
 
     def _on_bar_update(self, update: BarUpdate) -> None:
-        self._md_bar(update)
+        self.marketdata.dispatch(update)
         # The latest pushed price is updated after the MarketDataService has seen the push, as
         # the original engine updated its forming candle after finalising the previous one.
         bar = update.bar
@@ -915,10 +895,7 @@ class TradingNode:
 
     def _on_quote(self, quote: QuoteTick) -> None:
         self.cache.add_quote(quote)
-        if self._md_quote is not None:
-            self._md_quote(quote)
-        else:
-            self.msgbus.publish(TOPIC_QUOTE.format(instrument_id=quote.instrument_id), quote)
+        self.marketdata.dispatch(quote)
         for client in self.ctx.execution_clients.values():
             if isinstance(client, ShadowExecutionClient):
                 client.on_quote(quote.instrument_id)
@@ -928,12 +905,22 @@ class TradingNode:
             self.oms.handle_event(event)
 
     def _on_stream_status(self, status: StreamStatus) -> None:
-        if self._md_status is not None:
-            self._md_status(status)
+        """A data stream's connection changed (the MarketDataService publishes it on TOPIC_STREAM).
+        After a reconnect the venue may have filled or cancelled orders unseen: reconcile."""
+        self.marketdata.dispatch(status)
         level = {"connected": 20, "reconnected": 30, "disconnected": 40, "error": 40}.get(status.state, 30)
         log.log(level, "stream %s: %s", status.state, status.detail)
         if status.state == "reconnected":
             self._reconcile(reason="reconnected")
+
+    def _on_execution_status(self, item: ExecutionStatus) -> None:
+        """An execution client's connection changed. 'reconnected' comes once it has caught up on
+        what it missed; the OMS and the books are then reconciled with the venue."""
+        st = item.status
+        level = {"connected": 20, "reconnected": 30, "disconnected": 40, "error": 40}.get(st.state, 30)
+        log.log(level, "account %s execution %s: %s", item.account_id, st.state, st.detail)
+        if st.state == "reconnected":
+            self._reconcile(reason=f"account {item.account_id} reconnected")
 
     def _on_timer(self, timer: TimerEvent) -> None:
         now = self.now_ns()
@@ -942,8 +929,10 @@ class TradingNode:
                 self.marketdata.on_timer(now)
                 self.host.on_timer()
             self.oms.on_timer(now)
-            if self.state == "running":
-                self._check_stall(now)
+            if self.state == "running" and self.config.node.stall_check and getattr(self.marketdata, "fatal_stall", False):
+                if not self._stop_flag:
+                    log.error("STALL: the market data stream stalled again after resubscribing — stopping cleanly")
+                self._stop_flag = self._stop_flag or "stall"
         elif timer.name == "reconcile":
             self._reconcile(reason="periodic")
         elif timer.name == "heartbeat":
@@ -958,6 +947,30 @@ class TradingNode:
 
     def _on_cross_section_seen(self, xs: Any) -> None:
         self._last_bar_at = self.now_ns()
+
+    def _on_stream_event(self, event: StreamEvent) -> None:
+        """The MarketDataService's stall reports, written to each candle strategy's session log as
+        the original engine wrote them (minutes since the last closed bar, and whether the stream
+        had been resubscribed before)."""
+        if not isinstance(event, StreamEvent) or event.kind != "stall" or self.state != "running":
+            return
+        since = self._last_bar_at if self._last_bar_at is not None else event.ts_event
+        silent = round(max(0, self.now_ns() - since) / NANOS / 60, 1)
+        resubscribed_before = self._stalls > 0
+        self._stalls += 1
+        for a in self.host.legacy:
+            if a.session_log is not None:
+                a.session_log.stall(silent, resubscribed_before, self.local_now())
+        if event.detail == "fatal" and self.config.node.stall_check:
+            log.error("STALL: no closed bar for %.0f min after resubscribing — stopping cleanly", silent)
+            self._stop_flag = self._stop_flag or "stall"
+        else:
+            log.warning("STALL: no closed bar for %.0f min — %s", silent, event.detail)
+
+    def price_snapshot(self, instrument_id: InstrumentId) -> Dict[str, Optional[float]]:
+        """{'bid', 'ask', 'last'} for re-pricing an order (the OMS's price source)."""
+        q = self.cache.quote(instrument_id)
+        return {"bid": q.bid if q else None, "ask": q.ask if q else None, "last": self.latest_price(instrument_id)}
 
     def latest_price(self, instrument_id: InstrumentId) -> Optional[float]:
         """The latest pushed price (the forming bar's close), as the original engine priced orders."""
@@ -1201,6 +1214,10 @@ class TradingNode:
             return None
 
     def _reconcile(self, reason: str = "periodic") -> None:
+        """The OMS against the venues' orders and fills; then, per account, each candle strategy
+        against the broker (the original engine's shrink-only sync_with_broker, which also bounds
+        its cash), its PositionKeeper book made the same, and the other strategies' books
+        reconciled shrink-only by the PositionKeeper."""
         if self.oms is None:
             return
         try:
@@ -1208,6 +1225,8 @@ class TradingNode:
             self._log_report(report, reason)
         except Exception as exc:
             log.error("order reconciliation failed (%s): %s", reason, exc)
+        legacy_ids = {str(a.id) for a in self.host.legacy}
+        others = [s.id for s in self.config.strategies if s.id not in legacy_ids]
         for aid in self.ctx.execution_clients:
             account = self.account_snapshot(aid) if reason != "start-up" else self.accounts_at_start.get(aid)
             legacy, reports = self.broker_positions(aid, attempts=1)
@@ -1216,7 +1235,9 @@ class TradingNode:
                     if a.settings.account == aid:
                         with log_context(strategy=str(a.id)):
                             a.reconcile(account, legacy)
-            if reports is None:
+                        self._seed_position_keeper(a)
+            mine = [sid for sid in others if self.config.strategy(sid).account == aid]
+            if reports is None or not mine:
                 continue
             by_venue: Dict[Venue, List[PositionReport]] = collections.defaultdict(list)
             for r in reports:
@@ -1227,7 +1248,7 @@ class TradingNode:
                 if self.ctx.execution_by_venue.get(v) is not self.ctx.execution_clients[aid]:
                     continue
                 try:
-                    self._log_report(self.positions.reconcile(v, by_venue.get(v, [])), reason)
+                    self._log_report(self.positions.reconcile(v, by_venue.get(v, []), strategy_ids=mine), reason)
                 except Exception as exc:
                     log.error("position reconciliation for %s failed (%s): %s", v, reason, exc)
 
@@ -1288,45 +1309,6 @@ class TradingNode:
         if in_session and close_utc is not None and ts >= close_utc + grace:
             return False
         return in_session
-
-    def _any_market_open(self, now: int, grace_s: float = 0.0) -> bool:
-        return any(self.market_open(v, now, grace_s) for v in {bt.instrument_id.venue for bt in self.bar_types})
-
-    def _stall_timeout_ns(self) -> int:
-        spec = min((bt.spec for bt in self.bar_types), key=lambda s: s.nanos, default=None)
-        seconds = (spec.nanos / NANOS) if spec is not None else 3600
-        return int(seconds * float(self.config.node.stall_factor) * NANOS)
-
-    def _check_stall(self, now: int) -> None:
-        if not self.config.node.stall_check or self._last_bar_at is None:
-            return
-        if not self._any_market_open(now, grace_s=300):
-            # Silence while every market is closed (lunch, after the close) is not a stall.
-            self._last_bar_at = now
-            return
-        silent_ns = now - self._last_bar_at
-        if silent_ns <= self._stall_timeout_ns():
-            return
-        silent = round(silent_ns / NANOS / 60, 1)
-        for a in self.host.legacy:
-            if a.session_log is not None:
-                a.session_log.stall(silent, self._resubscribed, self.local_now())
-        if not self._resubscribed:
-            log.warning("STALL: no closed bar for %.0f min — resubscribing once", silent)
-            try:
-                fn = _handler(self.marketdata, "resubscribe")
-                if fn is not None:
-                    fn()
-                else:
-                    for bt, universe in self.bar_types.items():
-                        self.marketdata.subscribe_bars(bt, universe)
-                self._resubscribed = True
-                self._last_bar_at = now
-                return
-            except Exception as exc:
-                log.error("resubscribe failed: %s", exc)
-        log.error("STALL: no closed bar for %.0f min — stopping cleanly", silent)
-        self._stop_flag = "stall"
 
     # ── signals ──────────────────────────────────────────────────────────────────────────────
     def _install_signal_handlers(self) -> None:

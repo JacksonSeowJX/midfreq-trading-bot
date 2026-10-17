@@ -11,10 +11,12 @@ data/ cache and tests never read or write the real one. The recorded sessions ar
 temporary folder first; live_sessions/ is only read.
 
 The original engine is driven exactly as the harness drives it (its FakeBroker, FakeProvider and
-ReplayClock are imported from the script). The node runs on minimal stand-ins for the OMS, risk,
-positions, market data and reference data (tests/_node_testkit.py) until parts A and C merge;
-`test_replay_equivalence_with_the_real_components` runs the same comparison on theirs and is
-skipped until they exist.
+ReplayClock are imported from the script). Most tests run the node on minimal stand-ins for the
+OMS, risk, positions, market data and reference data (tests/_node_testkit.py), which isolate the
+node's own logic; `test_replay_equivalence_with_the_real_components` runs the same comparisons
+on the components the node builds by default (midfreq.trading.components: A's OMS, pre-trade risk
+and position ledger, the order journal, C's market data and reference data), with the forward
+test's configuration (its risk limits included) and the original engine's unfilled-order policy.
 """
 from __future__ import annotations
 
@@ -151,6 +153,8 @@ def _sessions(recorded_dir, copies):
 
 
 def _compare(tmp_path, recorded_dir, sp100, copies=1, broker_kwargs=None, crash_session=None, components=None):
+    """components: None runs the node on the stand-ins; a mapping (even empty) on the node's
+    defaults with those overrides."""
     cfg, s = sp100
     sessions = _sessions(recorded_dir, copies)
     orig_data, node_data = tmp_path / "orig_data", tmp_path / "node_data"
@@ -163,7 +167,7 @@ def _compare(tmp_path, recorded_dir, sp100, copies=1, broker_kwargs=None, crash_
         crash_session=crash_session)
     report = replay_sessions(cfg, sessions, records_dir=tmp_path / "node_logs", store_dir=node_data,
                              strategy_id=s.id, broker_kwargs=kw, crash_session=crash_session,
-                             components=components or standin_components())
+                             components=standin_components() if components is None else components)
     return sessions, orig_trades, orig_clocks, orig_broker, report
 
 
@@ -265,17 +269,30 @@ def test_replay_reads_the_recorded_trades_decision_by_decision(recorded_sessions
     assert compare_decisions(recorded, recorded[:-1]) != []
 
 
-def test_replay_equivalence_with_the_real_components(tmp_path, recorded_sessions, sp100):
-    """The same comparison on parts A and C's OMS, risk, positions, market data and reference
-    data. Skipped until their branches are merged."""
-    for module in ("midfreq.trading.oms", "midfreq.trading.risk", "midfreq.trading.positions",
-                   "midfreq.trading.marketdata", "midfreq.trading.refdata"):
-        pytest.importorskip(module)
+@pytest.mark.parametrize("name,copies,kwargs,crash", [
+    ("clean broker", 2, {}, None),
+    ("every 4th order not filled", 1, {"reject_every": 4}, None),
+    ("partial fills", 1, {"partial": True}, None),
+    ("a crash mid-session", 1, {}, 2),
+])
+def test_replay_equivalence_with_the_real_components(tmp_path, recorded_sessions, sp100, name, copies, kwargs, crash):
+    """The node on its real components (no stand-in anywhere: the default factories build the
+    OMS, risk, positions, journal, market data and reference data from config/node_sp100.yaml)
+    makes the original engine's decisions on the recorded sessions: the same orders, at the same
+    quantities and prices, on the same candles; the same rebalance clock; the same broker
+    holdings and cash; and the PositionKeeper's book equals the strategy's own."""
     sessions, orig_trades, orig_clocks, orig_broker, report = _compare(
-        tmp_path, recorded_sessions, sp100, components={"journal": "midfreq.trading.journal:OrderJournal"})
+        tmp_path, recorded_sessions, sp100, copies=copies, broker_kwargs=kwargs, crash_session=crash, components={})
     assert report.ok, report.fails
-    assert compare_decisions(orig_trades, report.trades) == []
+    assert compare_decisions(orig_trades, report.trades, with_qty=True) == []
+    assert _trade_rows(report.trades) == _trade_rows(orig_trades)
     assert [(r.xs_start, r.xs_end) for r in report.sessions] == orig_clocks
+    assert report.sessions[-1].broker_held == {s: p["qty"] for s, p in orig_broker.pos.items()}
+    assert abs(report.sessions[-1].cash_broker - orig_broker.cash) < 1e-6
+    if not kwargs and crash is None:
+        assert len(orig_trades) >= 12 and report.rebalances >= 4
+    journal = sorted((tmp_path / "node_logs").glob("orders_*.jsonl"))
+    assert journal, "the OMS journaled its orders"
 
 
 def test_without_confirming_fills_the_baskets_differ_but_the_books_hold(tmp_path, recorded_sessions, sp100):

@@ -176,14 +176,22 @@ def test_timers_reconcile_and_heartbeat(tmp_path):
 
 
 def test_stall_resubscribes_once_then_stops(tmp_path):
-    node, _, _ = make_node(tmp_path)
+    """The real MarketDataService detects the stall (75 minutes of session time without a bar
+    update), resubscribes once, then reports it fatal; the node logs both and stops."""
+    cfg = config_from_dict(tiny_config_dict(symbols=SYMS))
+    data = FakeDataClient()
+    node = TradingNode(cfg, mode="sim", clock=TestClock(START), records_dir=tmp_path / "rec",
+                       store_dir=tmp_path / "data", records_tz="America/New_York",
+                       components=standin_components(**{"execution_client:acct": ScriptedVenue(), "data_client": data,
+                                                        "marketdata": "midfreq.trading.components:make_marketdata"}))
     node.start()
+    assert len(data.subscribed) == len(SYMS)
     node.advance_to(START + 74 * 60 * SEC)
     assert node._stop_flag is None
     node.advance_to(START + 76 * 60 * SEC)
-    assert node.marketdata.resubscribed == 1 and node._stop_flag is None
+    assert len(data.subscribed) == 2 * len(SYMS) and node._stop_flag is None       # resubscribed once
     node.advance_to(START + 152 * 60 * SEC)
-    assert node._stop_flag == "stall"
+    assert node._stop_flag == "stall" and node.marketdata.fatal_stall
     stalls = [e for e in read_events(node.host.legacy[0].session_log.path) if e["type"] == "stall"]
     assert [s["resubscribed_before"] for s in stalls] == [False, True]
     assert stalls[0]["silent_min"] == pytest.approx(76.0)

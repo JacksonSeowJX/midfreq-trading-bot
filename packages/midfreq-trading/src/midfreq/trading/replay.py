@@ -41,7 +41,7 @@ import pandas as pd
 from midfreq.core.common.clock import TestClock
 from midfreq.core.model.data import Bar, BarType
 from midfreq.core.model.enums import OrderSide
-from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderFilled, OrderRejected
+from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderCancelRejected, OrderFilled, OrderRejected
 from midfreq.core.model.identifiers import AccountId, InstrumentId, TradeId
 from midfreq.core.model.orders import Order
 from midfreq.core.venues.spec import VenueRegistry, default_venues
@@ -241,7 +241,8 @@ class ReplayBroker(ExecutionClient):
             self._event(OrderCanceled, order, reason="FILLED_PART: remainder cancelled")
 
     def cancel_order(self, order: Order) -> None:
-        pass                                            # every order is final when submit returns
+        # Every order is final when submit returns, so a cancel always comes too late.
+        self._event(OrderCancelRejected, order, reason="already final")
 
     def query_order(self, order: Order) -> Optional[OrderReport]:
         return None
@@ -381,8 +382,12 @@ class _ErrorCollector(logging.Handler):
         self.records.append(record.getMessage())
 
 
-def replay_config(config: NodeConfig, strategy: StrategySettings, symbols: Sequence[str]) -> NodeConfig:
-    """The configuration a replay runs: this one strategy, on the recorded universe, in sim mode."""
+def replay_config(config: NodeConfig, strategy: StrategySettings, symbols: Sequence[str],
+                  unfilled_order: Any = "original_engine") -> NodeConfig:
+    """The configuration a replay runs: this one strategy, on the recorded universe, in sim mode,
+    with the original engine's unfilled-order behaviour (wait 30 s, no re-price, cancel) unless
+    `unfilled_order` says otherwise (None: the configuration's own policy), so the replay
+    reproduces what the original engine decided."""
     cfg = copy.deepcopy(config)
     s = copy.deepcopy(strategy)
     universe = f"{s.universe or s.id}-replay"
@@ -392,6 +397,8 @@ def replay_config(config: NodeConfig, strategy: StrategySettings, symbols: Seque
     cfg.accounts = {s.account: cfg.accounts[s.account]} if s.account in cfg.accounts else cfg.accounts
     cfg.node.mode = "sim"
     cfg.data.persist_bars = True
+    if unfilled_order is not None:
+        cfg.oms = {**cfg.oms, "unfilled_order": unfilled_order}
     return cfg
 
 
@@ -400,7 +407,8 @@ def replay_sessions(config: NodeConfig, sessions: Sequence[RecordedSession], *, 
                     broker_kwargs: Optional[Mapping[str, Any]] = None, components: Optional[Mapping[str, Any]] = None,
                     crash_session: Optional[int] = None, venues: Optional[VenueRegistry] = None,
                     start_time: Tuple[int, int] = (9, 35), stop_time: Tuple[int, int] = (16, 2),
-                    check: bool = True, print_lines: bool = False) -> ReplayReport:
+                    check: bool = True, print_lines: bool = False,
+                    unfilled_order: Any = "original_engine") -> ReplayReport:
     """Replay `sessions` through a fresh TradingNode per session (sim mode, TestClock), against
     one ReplayBroker kept across sessions. `components` are passed to the node (the OMS, risk,
     positions, market data and reference data to use; the defaults are the real ones)."""
@@ -409,7 +417,7 @@ def replay_sessions(config: NodeConfig, sessions: Sequence[RecordedSession], *, 
     venues = venues or default_venues()
     strategy = config.strategy(strategy_id) if strategy_id else config.strategies[0]
     symbols = sessions[0].symbols if sessions and sessions[0].symbols else config.universes[strategy.universe].symbols
-    cfg = replay_config(config, strategy, symbols)
+    cfg = replay_config(config, strategy, symbols, unfilled_order)
     s = cfg.strategies[0]
     iids = {sym: instrument_for_symbol(sym, venues) for sym in symbols}
     sym_of = {iid: sym for sym, iid in iids.items()}
@@ -575,6 +583,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--query-fail-rate", type=float, default=0.0)
     ap.add_argument("--crash-session", type=int, default=None)
     ap.add_argument("--compare-recorded", action="store_true")
+    ap.add_argument("--unfilled-order", default="original_engine",
+                    help="the OMS's unfilled-order policy: original_engine (default, reproduces the original "
+                         "engine) or configured (the configuration's own)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config, mode="sim")
@@ -597,8 +608,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"[!] no bar cache under {args.data_dir or data_dir()}; warm-up will be empty")
     kwargs = {"reject_every": args.reject_every, "partial": args.partial, "query_fail_rate": args.query_fail_rate}
     try:
+        policy = None if args.unfilled_order == "configured" else args.unfilled_order
         report = replay_sessions(cfg, sessions, records_dir=out, store_dir=store, strategy_id=s.id,
-                                 broker_kwargs=kwargs, crash_session=args.crash_session, print_lines=True)
+                                 broker_kwargs=kwargs, crash_session=args.crash_session, print_lines=True,
+                                 unfilled_order=policy)
     finally:
         if not args.out:
             shutil.rmtree(tmp, ignore_errors=True)

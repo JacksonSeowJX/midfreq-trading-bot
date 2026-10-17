@@ -18,8 +18,9 @@ timestamp)` and reads `portfolio.cash` and `portfolio.positions` directly. The a
    through the last price, as the original engine did; `quote`: through the bid or ask);
 4. trims a buy to what the strategy's cash can pay at the worst case (the limit plus
    commission), and a sell to what the strategy holds;
-5. sends one LIMIT order to the OMS with `reference_price` = the decision candle's close the
-   strategy passed, and the decision candle's timestamp and exit reason in its tags.
+5. sends one LIMIT DAY order to the OMS (a Moomoo GTC order would outlive the session) with
+   `reference_price` = the decision candle's close the strategy passed, and the decision
+   candle's timestamp and exit reason in its tags.
 
 The strategy's portfolio is booked only when fills arrive (OrderFilled on the strategy's order
 topic), by the original Portfolio bookkeeping, one booking per fill, never on submission. Each
@@ -27,7 +28,13 @@ booked fill is written to the session log as a `trade` event and the state file 
 
 By default (`confirm_fills`) `execute_trade` then waits for that order's outcome before it
 returns, processing only order events (and the OMS's timers) meanwhile on the node's thread. The
-original engine did the same (place, confirm, then book), and a candle strategy depends on it:
+outcome is the outcome of the order's family: when the OMS re-prices an unfilled order it
+cancels it and sends a child order with a new id (tags parent, root, attempt), and the wait
+follows the family (`OrderManager.family_done`) until no order of it is working and none is to
+come; the fills of every child are booked as the strategy's trade. The OMS may also give the
+order a new client order id when it accepts it (its `<strategy>-<date>-<seq>` format); the
+adapter finds its order by the object the OMS updated in place. The original engine did the
+same (place, confirm, then book), and a candle strategy depends on it:
 CrossSectionalReversal sizes its buys on the cash its sells just raised and stops buying once it
 holds `top_n` names, so if a sell were still open when the buys are sized, the basket would
 come out different (or, when the sell then fails, larger than top_n). Bars arriving meanwhile
@@ -111,6 +118,8 @@ class NodeServices:
     order_prefix: str = "N"
     alert: Callable[[str, str], None] = lambda subject, body: None
     market_open: Callable[[Any], bool] = lambda venue: True               # venue in session now
+    order: Optional[Callable[[ClientOrderId], Optional[Order]]] = None    # OMS.order
+    family_done: Optional[Callable[[ClientOrderId], bool]] = None         # OMS.family_done
 
 
 # ── strategy output into the ops log ──────────────────────────────────────────────────────────
@@ -262,7 +271,8 @@ class LiveLegacyAdapter:
         self.phase = "created"                  # created -> warmup -> live -> stopping -> stopped
         self.candles_processed = 0
         self.orders_sent = 0
-        self._orders: Dict[ClientOrderId, _OrderMeta] = {}
+        self._orders: Dict[ClientOrderId, _OrderMeta] = {}    # by every id its orders had or have
+        self._by_object: Dict[int, _OrderMeta] = {}             # id(order) -> its meta
         self._booked: Set[tuple] = set()
         self._buffer: Dict[int, Dict[InstrumentId, Bar]] = {}
         self._published: Set[int] = set()       # buffered cross-sections the MarketDataService published
@@ -596,11 +606,13 @@ class LiveLegacyAdapter:
         tags = {"decision_ts": str(timestamp), "legacy_symbol": symbol}
         if exit_reason:
             tags["exit_reason"] = exit_reason
+        # DAY: a Moomoo GTC order would outlive the session (config.validate refuses anything else).
         order = self.order_factory.limit(iid, OrderSide.BUY if is_buy else OrderSide.SELL, qty, limit,
-                                         TimeInForce(self.settings.pricing.time_in_force), tags)
+                                         TimeInForce.DAY, tags)
         order.reference_price = float(price)
         meta = _OrderMeta(order, symbol, is_buy, timestamp, exit_reason)
         self._orders[order.client_order_id] = meta
+        self._by_object[id(order)] = meta
         self.orders_sent += 1
         with log_context(client_order_id=str(order.client_order_id), strategy=str(self.id)):
             self.log.info("[%s] %s %g %s limit %s (live %s, decided at %s)", timestamp, side, qty, symbol,
@@ -608,9 +620,10 @@ class LiveLegacyAdapter:
             if self.on_order_sent is not None:
                 self.on_order_sent(order)
             self.services.submit(order)
+            self._orders[order.client_order_id] = meta      # the id the OMS gave it, if it gave a new one
             if not self.settings.confirm_fills:
                 return
-            done = self.services.wait_until(lambda: meta.resolved, self.settings.confirm_timeout_s,
+            done = self.services.wait_until(lambda: self._resolved(meta), self.settings.confirm_timeout_s,
                                             lambda: self._give_up(meta))
             if not done:
                 self.log.warning("[%s] %s %s %s still open after %.0fs; its fills will be booked when they arrive",
@@ -622,9 +635,40 @@ class LiveLegacyAdapter:
                 self.log.warning("[%s] PARTIAL %s: %g of %g filled, remainder cancelled", timestamp, symbol,
                                  meta.filled, qty)
 
+    def _resolved(self, meta: _OrderMeta) -> bool:
+        """Whether the order's intent has its outcome: its family done at the OMS (every order of
+        it closed, no re-priced child still to come); without an OMS that reports families, the
+        order's own terminal event or complete fill."""
+        if meta.resolved:
+            return True
+        family_done = self.services.family_done
+        if family_done is not None:
+            try:
+                meta.resolved = bool(family_done(meta.order.client_order_id))
+            except Exception as exc:
+                self.log.error("cannot ask the OMS about %s: %s", meta.order.client_order_id, exc)
+        return meta.resolved
+
+    def _meta_for(self, client_order_id: ClientOrderId) -> Optional[_OrderMeta]:
+        """The intent an order event belongs to: the order itself (under its own id, or the id
+        the OMS gave it), or the order its family started from (a re-priced child)."""
+        meta = self._orders.get(client_order_id)
+        if meta is not None or self.services.order is None:
+            return meta
+        order = self.services.order(client_order_id)
+        if order is None:
+            return None
+        meta = self._by_object.get(id(order))
+        if meta is None and order.tags.get("root"):
+            root = self.services.order(ClientOrderId(str(order.tags["root"])))
+            meta = self._by_object.get(id(root)) if root is not None else None
+        if meta is not None:
+            self._orders[client_order_id] = meta
+        return meta
+
     def _give_up(self, meta: _OrderMeta) -> None:
         """The confirm wait ran out: ask the OMS to cancel what is left."""
-        if not meta.resolved:
+        if not self._resolved(meta):
             self.log.warning("order %s not resolved in time: cancelling the remainder", meta.order.client_order_id)
             try:
                 self.services.cancel(meta.order.client_order_id)
@@ -633,13 +677,14 @@ class LiveLegacyAdapter:
 
     # ── fills -> the strategy's book ─────────────────────────────────────────────────────────
     def _on_order_event(self, event: OrderEvent) -> None:
-        meta = self._orders.get(event.client_order_id)
+        meta = self._meta_for(event.client_order_id)
         if isinstance(event, OrderFilled):
             self._book_fill(event, meta)
         elif isinstance(event, _TERMINAL):
             if meta is not None:
-                meta.resolved = True
                 meta.reason = getattr(event, "reason", "") or type(event).__name__
+                if self.services.family_done is None:
+                    meta.resolved = True
             level = logging.WARNING if isinstance(event, (OrderRejected, OrderDenied)) else logging.INFO
             with log_context(client_order_id=str(event.client_order_id), strategy=str(self.id)):
                 self.log.log(level, "%s %s: %s", type(event).__name__, event.client_order_id,
@@ -675,7 +720,7 @@ class LiveLegacyAdapter:
                 self.services.alert(f"{self.id}: fill not booked", msg)
             if meta is not None:
                 meta.filled += qty
-                if meta.filled >= meta.order.quantity - 1e-12:
+                if self.services.family_done is None and meta.filled >= meta.order.quantity - 1e-12:
                     meta.resolved = True
             order_id = fill.tags.get("venue_order_id") or (meta.order.tags.get("venue_order_id") if meta else None) \
                 or str(fill.client_order_id)
@@ -718,7 +763,7 @@ class LiveLegacyAdapter:
         the strategy has not booked yet, and shrinking the claim then would refuse that fill."""
         def shrunk(sym, local, broker):
             self.log.warning("[sync] %s: claimed %s but broker holds %s — shrinking claim", sym, local, broker)
-        in_flight = {m.symbol for m in self._orders.values() if not m.resolved}
+        in_flight = {m.symbol for m in self._by_object.values() if not self._resolved(m)}
         if broker_positions is not None and in_flight:
             view = {s: dict(p) for s, p in broker_positions.items()}
             for sym in in_flight:
@@ -738,7 +783,7 @@ class LiveLegacyAdapter:
         self.phase = "stopped"
 
     def open_orders(self) -> List[Order]:
-        return [m.order for m in self._orders.values() if not m.resolved]
+        return [m.order for m in self._by_object.values() if not self._resolved(m)]
 
     def positions(self) -> Dict[str, float]:
         return {s: p["qty"] for s, p in (self.portfolio.positions if self.portfolio else {}).items()}
