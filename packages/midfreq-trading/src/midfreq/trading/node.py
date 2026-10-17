@@ -1132,6 +1132,14 @@ class TradingNode:
                 if predicate():
                     return True
                 now = self.now_ns()
+                if self._stop_flag and not gave_up and on_timeout is not None:
+                    # A stop was requested (SIGTERM): cancel what is left now, and wait only a
+                    # few seconds for the cancel's outcome.
+                    log.warning("stop requested (%s) while waiting for an order: cancelling it", self._stop_flag)
+                    on_timeout()
+                    gave_up = True
+                    deadline = min(deadline, now + 5 * NANOS)
+                    continue
                 if now >= deadline:
                     if gave_up or on_timeout is None:
                         return predicate()

@@ -85,8 +85,9 @@ def render_state(payload: Mapping[str, Any]) -> str:
 
 
 def write_state(path: "str | Path", payload: Mapping[str, Any]) -> None:
-    """Write atomically (a temporary file in the same folder, then a rename), so a crash while
-    saving leaves the previous state rather than half a file. The bytes are the original's."""
+    """Write atomically (a temporary file in the same folder, synced to disk, then a rename), so
+    a crash or a power cut while saving leaves the previous state rather than half a file. The
+    bytes are the original's; the file is 0644 as the original's (mkstemp makes 0600)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = render_state(payload)
@@ -94,7 +95,18 @@ def write_state(path: "str | Path", payload: Mapping[str, Any]) -> None:
     try:
         with os.fdopen(fd, "w") as f:
             f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, 0o644)
         os.replace(tmp, path)
+        try:                                            # the rename itself, on disk
+            dfd = os.open(str(path.parent), os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+        except OSError:
+            pass
     except BaseException:
         try:
             os.unlink(tmp)

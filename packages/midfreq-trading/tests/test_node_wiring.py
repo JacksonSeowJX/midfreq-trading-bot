@@ -663,3 +663,23 @@ def test_m3_a_fill_made_while_the_node_was_down_reaches_the_strategys_book(tmp_p
     assert b.portfolio.get_position_qty("US.AAPL") == 10
     trades = [e for e in read_events(b.session_log.path) if e["type"] == "trade"] if b.session_log else []
     again.stop()
+
+
+def test_m10_a_stop_request_ends_the_wait_for_a_fill(tmp_path):
+    """M10: SIGTERM (a stop request) arrives while a candle strategy waits for its order: the
+    wait cancels what is left and returns within seconds, not after the confirm timeout."""
+    class SignalOnSubmit(ScriptedVenue):
+        def submit_order(self, order):
+            super().submit_order(order)
+            node.request_stop("signal SIGTERM")
+    venue = SignalOnSubmit()
+    node, _ = make(tmp_path, venue=venue, oms={"unfilled_order": "original_engine"})
+    node.start()
+    push_prices(node, (100.0, 200.0, 300.0, 400.0))
+    t0 = node.now_ns()
+    node.host.legacy[0].portfolio.execute_trade("US.AAPL", True, 10, 100.0,
+                                                pd.Timestamp("2026-10-14 10:30", tz="UTC"))
+    assert node.now_ns() - t0 < 10 * SEC
+    assert venue.cancels == venue.submitted
+    assert node._stop_flag == "signal SIGTERM"
+    node.stop()

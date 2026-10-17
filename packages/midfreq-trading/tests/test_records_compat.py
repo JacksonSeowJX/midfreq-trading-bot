@@ -267,3 +267,19 @@ def test_forward_test_reads_a_node_session(tmp_path):
     assert list(d["holdings"]["Stock"]) == ["US.MSFT"]
     assert d["holdings"]["Shares"].iloc[0] == broker.held()["US.MSFT"]
     assert len(d["equity"]) == 2                     # start and end, from the broker's account total
+
+
+def test_m9_the_state_file_is_world_readable_and_synced_before_the_rename(tmp_path, monkeypatch):
+    """M9 (safety review): the state file is written 0644 like the original engine's (mkstemp
+    makes 0600, which the dashboard's user cannot read), and synced to disk before it replaces
+    the old one."""
+    import os
+    import stat
+    from midfreq.trading import state as state_mod
+    synced = []
+    real_fsync = os.fsync
+    monkeypatch.setattr(state_mod.os, "fsync", lambda fd: (synced.append(fd), real_fsync(fd)))
+    path = tmp_path / "state_x.json"
+    state_mod.write_state(path, {"positions": {}})
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+    assert synced, "fsync before the rename"

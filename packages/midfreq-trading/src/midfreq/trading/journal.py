@@ -184,7 +184,15 @@ class OrderJournal:
         if self._file is None or day != self._file_day:
             self.close()
             self.directory.mkdir(parents=True, exist_ok=True)
-            self._file = open(self.path_for(day), "a", encoding="utf-8")
+            path = self.path_for(day)
+            torn = False
+            if path.exists() and path.stat().st_size > 0:
+                with open(path, "rb") as f:
+                    f.seek(-1, os.SEEK_END)
+                    torn = f.read(1) != b"\n"
+            self._file = open(path, "a", encoding="utf-8")
+            if torn:                                   # a crash mid-write: end that line first
+                self._file.write("\n")
             self._file_day = day
         return self._file
 

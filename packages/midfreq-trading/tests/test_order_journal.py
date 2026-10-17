@@ -142,3 +142,22 @@ def test_a_write_that_fails_raises(tmp_path):
     journal = OrderJournal(blocker / "journal")
     with pytest.raises(OSError):
         journal.record_order(make_order(), 1)
+
+
+def test_m11_a_torn_last_line_does_not_swallow_the_next_record(tmp_path):
+    """M11 (safety review): after a crash mid-write the file ends without a newline; the next
+    record starts on a line of its own, so only the torn line is lost."""
+    journal = OrderJournal(tmp_path, wall_clock=WallClock(datetime(2026, 10, 15, 14, tzinfo=timezone.utc)))
+    a = make_order(1)
+    journal.record_order(a, 1)
+    journal.close()
+    path = journal.path_for("20261015")
+    with open(path, "a") as f:
+        f.write('{"kind": "event", "time": "torn')                  # the crash
+    again = OrderJournal(tmp_path, wall_clock=WallClock(datetime(2026, 10, 15, 14, 5, tzinfo=timezone.utc)))
+    b = make_order(2)
+    again.record_order(b, 2)
+    again.close()
+    state = OrderJournal(tmp_path).load(lookback_days=None)
+    assert list(state.orders) == [a.client_order_id, b.client_order_id]
+    assert state.bad_lines == 1
