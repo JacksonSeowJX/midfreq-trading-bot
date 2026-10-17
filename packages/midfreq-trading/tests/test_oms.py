@@ -13,8 +13,9 @@ import pytest
 from midfreq.core.common.clock import TestClock
 from midfreq.core.common.msgbus import MessageBus
 from midfreq.core.model import (
-    AccountId, ClientOrderId, InstrumentId, Order, OrderAccepted, OrderCanceled, OrderDenied, OrderFactory,
-    OrderFilled, OrderRejected, OrderSide, OrderStatus, OrderSubmitted, OrderType, StrategyId, TradeId, Venue,
+    AccountId, ClientOrderId, InstrumentId, Order, OrderAccepted, OrderCanceled, OrderCancelRejected, OrderDenied,
+    OrderFactory, OrderFilled, OrderRejected, OrderSide, OrderStatus, OrderSubmitted, OrderType, StrategyId, TradeId,
+    Venue,
 )
 from midfreq.core.model.data import QuoteTick
 from midfreq.data.adapters.base import ExecutionClient, FillReport, OrderReport
@@ -119,6 +120,9 @@ class FakeVenue(ExecutionClient):
         state["status"] = "CANCELLED_PART" if state["filled"] else "CANCELLED_ALL"
         if push:
             self._emit(self._ev(OrderCanceled, order, reason=state["status"]))
+
+    def refuse_cancel(self, order, reason="cancel refused: the order is being matched"):
+        self._emit(self._ev(OrderCancelRejected, order, reason=reason))
 
     def reject(self, order, reason="FAILED: insufficient buying power"):
         self.book[order.tags["venue_order_id"]]["status"] = "FAILED"
@@ -722,3 +726,135 @@ def test_reconcile_survives_a_venue_that_cannot_answer(node):
     node.venue.open_orders = broken
     report = node.oms.reconcile()
     assert order.is_open and len(report.unexplained) == 2 and "gateway down" in report.unexplained[0]
+
+
+# ── refused cancels (OrderCancelRejected), the fill key, families ────────────────────────────
+
+def test_a_refused_cancel_changes_nothing_on_a_closed_order(node):
+    S = OrderStatus
+    for status in (S.SUBMITTED, S.ACCEPTED, S.PARTIALLY_FILLED):
+        assert transition(status, OrderCancelRejected(None, S1, AAPL, 0)) is Outcome.APPLY
+    for status in (S.FILLED, S.CANCELED, S.REJECTED, S.DENIED):
+        assert transition(status, OrderCancelRejected(None, S1, AAPL, 0)) is Outcome.STALE
+    order = node.limit()
+    node.venue.fill(order, 100, 150.0)
+    node.venue.refuse_cancel(order, "already filled")
+    node.pump()
+    assert order.status is OrderStatus.FILLED and node.events_of(OrderCancelRejected) == []
+
+
+def test_a_refused_reprice_cancel_keeps_the_order_working_then_tries_again(node):
+    """The venue refuses the re-price's cancel and still has the order working: the OMS asks it
+    (fills, then the order), keeps the order as it is, and tries again a full wait later."""
+    order = node.limit()
+    node.advance(31)                                          # re-price: cancel sent
+    assert node.venue.cancels == [order.client_order_id]
+    node.venue.refuse_cancel(order)
+    node.pump()
+    assert order.status is OrderStatus.ACCEPTED or order.is_open
+    assert node.venue.queries == [order.client_order_id]     # asked the venue
+    assert [type(e).__name__ for e in node.events_of(OrderCancelRejected)] == ["OrderCancelRejected"]
+    node.advance(29)
+    assert len(node.venue.cancels) == 1                       # no cancel storm: the wait starts again
+    node.advance(2)
+    assert len(node.venue.cancels) == 2                       # the next attempt
+    node.venue.cancel_ack(order)
+    node.pump()
+    child = node.venue.submitted[-1]
+    assert child is not order and child.tags["root"] == str(order.client_order_id)
+    assert not node.oms.family_done(order.client_order_id)
+    node.venue.fill(child, 100, 150.1)
+    node.pump()
+    assert node.oms.family_done(order.client_order_id) and node.oms.family_done(child.client_order_id)
+
+
+def test_a_refused_cancel_of_an_order_that_filled_unseen_applies_the_fill(node):
+    """Moomoo, 5 October: the cancel is refused because the order has filled, whose push never
+    came. The OMS's query after the refusal finds the fill and the family is done."""
+    order = node.limit()
+    node.advance(31)
+    node.venue.fill(order, 100, 150.05, push=False)
+    node.venue.refuse_cancel(order, "cannot cancel: FILLED_ALL")
+    node.pump()
+    assert order.status is OrderStatus.FILLED and order.filled_qty == 100
+    assert node.ledger.position(S1, AAPL) == 100
+    assert node.oms.family_done(order.client_order_id)
+    node.advance(120)
+    assert len(node.venue.submitted) == 1
+
+
+def test_repeated_refusals_stop_the_policy_and_leave_the_order_working(tmp_path, caplog):
+    node = Node(tmp_path, quotes={AAPL: quote(149.9, 150.1)}, policy=UnfilledOrderPolicy(max_cancel_retries=1))
+    order = node.limit()
+    for _ in range(2):
+        node.advance(31)
+        node.venue.refuse_cancel(order)
+        node.pump()
+    assert "refused 2 cancels" in caplog.text
+    node.advance(300)
+    assert len(node.venue.cancels) == 2 and order.is_open    # left to the strategy and reconciliation
+
+
+def test_a_strategy_cancel_that_is_refused_is_checked_and_sent_again(node):
+    order = node.limit()
+    node.oms.cancel(order.client_order_id)
+    node.venue.refuse_cancel(order)
+    node.pump()
+    assert order.is_open and len(node.venue.cancels) == 1
+    node.advance(31)                                          # the cancel timeout: checked, re-sent
+    assert len(node.venue.cancels) == 2 and node.venue.queries.count(order.client_order_id) == 2
+    node.venue.cancel_ack(order)
+    node.pump()
+    assert order.status is OrderStatus.CANCELED and len(node.venue.submitted) == 1
+
+
+def test_the_same_trade_id_on_two_orders_is_two_fills(node):
+    """OKX numbers trades per instrument: two of our orders can each have a trade 1. The fill key
+    is (venue, venue order id, trade id), so both are applied, and a repeat of either is not."""
+    a = node.limit(qty=10)
+    b = node.limit(qty=10)
+    node.venue.fill(a, 10, 150.0, trade_id="1")
+    node.venue.fill(b, 10, 150.0, trade_id="1")
+    node.pump()
+    assert a.status is OrderStatus.FILLED and b.status is OrderStatus.FILLED
+    assert node.ledger.position(S1, AAPL) == 20
+    node.venue._emit(node.venue._ev(OrderFilled, a, trade_id=TradeId("1"), side=a.side, last_qty=10.0,
+                                    last_px=150.0, tags={"venue_order_id": a.tags["venue_order_id"]}))
+    node.pump()
+    assert node.ledger.position(S1, AAPL) == 20
+    assert node.oms.fill_key(a, "1") == ("XNAS", a.tags["venue_order_id"], "1")
+
+
+def test_fill_keys_survive_a_restart(tmp_path):
+    first = Node(tmp_path, quotes={AAPL: quote(149.9, 150.1)})
+    a = first.limit(qty=10)
+    first.venue.fill(a, 4, 150.0, trade_id="1")
+    first.pump()
+    second = Node(tmp_path, quotes={AAPL: quote(149.9, 150.1)}, venue=first.venue)
+    second.venue.queue.clear()
+    restored = second.oms.order(a.client_order_id)
+    second.oms.handle_event(OrderFilled(a.client_order_id, S1, AAPL, T0, trade_id=TradeId("1"), side=OrderSide.BUY,
+                                        last_qty=4.0, last_px=150.0, tags={"venue_order_id": a.tags["venue_order_id"]}))
+    assert restored.filled_qty == 4.0                         # the repeat after the restart is ignored
+
+
+def test_a_fill_report_without_a_fee_is_marked_commission_unknown(node):
+    order = node.limit(qty=10)
+    node.venue.fill(order, 10, 150.0, push=False)
+    node.venue.trades[-1] = FillReport(node.venue.trades[-1].trade_id, order.tags["venue_order_id"], "US.AAPL",
+                                       "BUY", 10.0, 150.0, node.venue.trades[-1].ts, None, "",
+                                       str(order.client_order_id))
+    node.oms.reconcile()
+    fill = node.events_of(OrderFilled)[-1]
+    assert fill.tags["commission_unknown"] is True and fill.tags["source"] == "reconcile"
+
+
+def test_policy_presets_and_settings():
+    assert UnfilledOrderPolicy.from_config("original_engine") == UnfilledOrderPolicy(max_reprices=0, max_cancel_retries=0)
+    assert UnfilledOrderPolicy.from_config({"max_reprices": 2}).max_reprices == 2
+    assert UnfilledOrderPolicy.from_config(None) == UnfilledOrderPolicy()
+    assert UnfilledOrderPolicy(max_reprices=2).budget_s() == 120.0
+    with pytest.raises(ValueError, match="reprice_attempts"):
+        UnfilledOrderPolicy.from_config({"reprice_attempts": 2})
+    with pytest.raises(ValueError, match="preset"):
+        UnfilledOrderPolicy.from_config("orignal_engine")

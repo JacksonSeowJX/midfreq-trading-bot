@@ -88,7 +88,9 @@ def test_load_rebuilds_orders_from_their_last_snapshot_trade_ids_and_sequences(t
     assert state.orders[a.client_order_id].status is OrderStatus.FILLED
     assert state.orders[a.client_order_id].filled_qty == 100.0
     assert state.orders[b.client_order_id].reason == "unfilled after 3 attempts"
-    assert state.trade_ids == {("XNAS", "T1")}            # the fill not applied is not remembered
+    # (venue, the order's key, trade id): no venue order id here, so the client order id; the
+    # fill not applied is not remembered
+    assert state.trade_ids == {("XNAS", str(a.client_order_id), "T1")}
     assert state.sequences == {("XSReversal-001", "20261015"): 2}
     assert state.open_orders() == []
     assert state.records == 5 and state.bad_lines == 0

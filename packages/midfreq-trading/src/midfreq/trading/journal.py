@@ -138,7 +138,9 @@ def event_to_dict(event: OrderEvent) -> Dict[str, Any]:
 class JournalState:
     """Everything the OMS needs back at start-up."""
     orders: Dict[ClientOrderId, Order] = field(default_factory=dict)   # in the order first seen
-    trade_ids: Set[Tuple[str, str]] = field(default_factory=set)       # (venue, trade id) of applied fills
+    # (venue, venue order id or else client order id, trade id) of every applied fill: the OMS's
+    # fill key (OrderManagementSystem.fill_key)
+    trade_ids: Set[Tuple[str, str, str]] = field(default_factory=set)
     sequences: Dict[Tuple[str, str], int] = field(default_factory=dict)  # (strategy, day) -> highest seq
     records: int = 0
     bad_lines: int = 0
@@ -293,4 +295,6 @@ class OrderJournal:
         if (record.get("kind") == "event" and record.get("applied") and isinstance(event, dict)
                 and event.get("event") == OrderFilled.__name__ and event.get("trade_id")):
             venue = InstrumentId.from_str(event["instrument_id"]).venue.value
-            state.trade_ids.add((venue, str(event["trade_id"])))
+            order_key = (record.get("venue_order_id") or (event.get("tags") or {}).get("venue_order_id")
+                         or event.get("client_order_id"))
+            state.trade_ids.add((venue, str(order_key), str(event["trade_id"])))

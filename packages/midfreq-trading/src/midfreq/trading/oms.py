@@ -31,7 +31,17 @@ The state machine (TRANSITIONS below), for each (current status, event) pair:
              cancel confirmation): nothing changes (INFO)
     illegal  anything else (a fill on a FILLED, REJECTED or DENIED order, a venue event on an
              order never sent): ERROR, ignored; reconciliation reports what remains
-A fill is applied at most once per (venue, trade id); a repeated push is ignored.
+A fill is applied at most once per (venue, the venue's order id or else the client order id,
+trade id): venues number executions per instrument or per order, not per account (OKX), so the
+trade id alone is not a key. A repeated push is ignored.
+
+OrderCancelRejected (the venue refused a cancel) changes nothing in the order: the OMS stops
+waiting for that cancel, asks the venue for the order's fills and state, and applies what the
+venue says (a fill that won the race, a cancel or rejection the push never brought). If the
+order is still working, the policy goes on from there: a re-price waits `wait_s` again before it
+tries again, a cancel is checked and re-sent after `cancel_timeout_s`; after more than
+`max_cancel_retries` refusals the policy stops for the family and leaves the order working (the
+strategy's own wait and reconciliation see it).
 
 The unfilled-order policy (UnfilledOrderPolicy) is the fix for the Lam Research buy of 15 October
 2026 that sat unfilled for 30 s and was cancelled with no retry and no reason recorded. Each
@@ -68,7 +78,8 @@ from midfreq.core.common.clock import Clock
 from midfreq.core.common.msgbus import MessageBus
 from midfreq.core.model.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from midfreq.core.model.events import (
-    OrderAccepted, OrderCanceled, OrderDenied, OrderEvent, OrderFilled, OrderRejected, OrderSubmitted,
+    OrderAccepted, OrderCanceled, OrderCancelRejected, OrderDenied, OrderEvent, OrderFilled, OrderRejected,
+    OrderSubmitted,
 )
 from midfreq.core.model.identifiers import ClientOrderId, InstrumentId, StrategyId, TradeId, Venue
 from midfreq.core.model.orders import Order
@@ -131,6 +142,16 @@ TRANSITIONS: Dict[Tuple[OrderStatus, type], Outcome] = {
     (_S.REJECTED, OrderSubmitted): Outcome.STALE,
 
     (_S.DENIED, OrderDenied): Outcome.STALE,
+
+    # A refused cancel changes no state: applied (journaled, published, acted on) while the order
+    # works, a late answer once it has closed.
+    (_S.SUBMITTED, OrderCancelRejected): Outcome.APPLY,
+    (_S.ACCEPTED, OrderCancelRejected): Outcome.APPLY,
+    (_S.PARTIALLY_FILLED, OrderCancelRejected): Outcome.APPLY,
+    (_S.FILLED, OrderCancelRejected): Outcome.STALE,
+    (_S.CANCELED, OrderCancelRejected): Outcome.STALE,
+    (_S.REJECTED, OrderCancelRejected): Outcome.STALE,
+    (_S.DENIED, OrderCancelRejected): Outcome.STALE,
 }
 
 
@@ -173,6 +194,8 @@ def _apply(order: Order, event: OrderEvent) -> None:
         order.status, order.reason = OrderStatus.REJECTED, event.reason
     elif isinstance(event, OrderCanceled):
         order.status = OrderStatus.CANCELED
+    elif isinstance(event, OrderCancelRejected):
+        pass                                       # the order is as it was; the OMS asks the venue
     elif isinstance(event, OrderFilled):
         if order.filled_qty == 0 or order.avg_px is None:
             order.avg_px = event.last_px
@@ -203,6 +226,44 @@ class UnfilledOrderPolicy:
     cancel_market_orders: bool = True   # cancel a MARKET order unfilled after wait_s
     confirm_before_reprice: bool = True  # ask the venue for the cancelled order's fills first
 
+    PRESETS = ("original_engine",)
+
+    @classmethod
+    def original_engine(cls) -> "UnfilledOrderPolicy":
+        """What midfreq.live.order_gateway.place_and_confirm did: wait 30 s, no re-price,
+        cancel, wait up to 30 s more for the cancel's outcome, no retry."""
+        return cls(wait_s=30.0, max_reprices=0, cancel_timeout_s=30.0, max_cancel_retries=0)
+
+    @classmethod
+    def from_config(cls, value: Any) -> "UnfilledOrderPolicy":
+        """A policy from configuration: None (the defaults), a preset's name
+        ('original_engine'), or a mapping of this class's fields (anything else is refused)."""
+        if value is None:
+            return cls()
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, str):
+            if value not in cls.PRESETS:
+                raise ValueError(f"unknown unfilled-order preset {value!r}; presets: {list(cls.PRESETS)}")
+            return getattr(cls, value)()
+        if not isinstance(value, Mapping):
+            raise ValueError(f"unfilled_order must be a mapping or a preset name, not {type(value).__name__}")
+        names = {f.name for f in dataclasses.fields(cls)}
+        unknown = set(value) - names
+        if unknown:
+            raise ValueError(f"unknown unfilled_order settings {sorted(unknown)}; allowed: {sorted(names)}")
+        policy = cls(**dict(value))
+        if policy.wait_s <= 0 or policy.cancel_timeout_s <= 0 or policy.max_reprices < 0 \
+                or policy.max_cancel_retries < 0:
+            raise ValueError("unfilled_order: wait_s and cancel_timeout_s must be positive, max_reprices and "
+                             "max_cancel_retries not negative")
+        return policy
+
+    def budget_s(self) -> float:
+        """The longest a family can take to reach its outcome when the venue answers: every
+        attempt's wait, plus the last cancel's timeout."""
+        return (self.max_reprices + 1) * self.wait_s + self.cancel_timeout_s
+
 
 @dataclass
 class _Family:
@@ -215,6 +276,7 @@ class _Family:
     state: str = "working"              # working | repricing | cancelling | done
     cancel_sent_ns: Optional[int] = None
     cancel_retries: int = 0
+    refusals: int = 0                   # cancels the venue refused (OrderCancelRejected)
     resizing: bool = False              # the pending re-price replaces a child after a late fill
 
 
@@ -300,7 +362,7 @@ class OrderManagementSystem:
         self._orders: Dict[ClientOrderId, Order] = {}
         self._open: Dict[ClientOrderId, Order] = {}
         self._by_venue_id: Dict[Tuple[Venue, str], ClientOrderId] = {}
-        self._trade_ids: Set[Tuple[str, str]] = set()
+        self._trade_ids: Set[Tuple[str, str, str]] = set()   # fill keys (see fill_key)
         self._seq: Dict[Tuple[str, str], int] = {}
         self._families: Dict[ClientOrderId, _Family] = {}     # root -> family, every family
         self._family_of: Dict[ClientOrderId, _Family] = {}    # any member -> its family
@@ -477,6 +539,22 @@ class OrderManagementSystem:
     def open_orders(self, strategy_id: Optional[StrategyId] = None) -> List[Order]:
         return [o for o in self._open.values() if strategy_id is None or o.strategy_id == strategy_id]
 
+    @staticmethod
+    def fill_key(order: Order, trade_id: Any, venue_order_id: Any = None) -> Tuple[str, str, str]:
+        """(venue, the venue's order id or else the client order id, trade id): what makes a fill
+        unique (a trade id alone is not: OKX numbers trades per instrument)."""
+        voi = order.tags.get("venue_order_id") or venue_order_id
+        return order.venue.value, str(voi) if voi else str(order.client_order_id), str(trade_id)
+
+    def family_done(self, client_order_id: ClientOrderId) -> bool:
+        """Whether the family of this order has reached its outcome: every member closed and the
+        unfilled-order policy finished with it (no child order still to come)."""
+        orders = self.family(client_order_id)
+        if not orders or any(o.is_open for o in orders):
+            return False
+        fam = self._family_of.get(client_order_id)
+        return fam is None or fam.state == "done" or fam.root not in self._working
+
     def family(self, client_order_id: ClientOrderId) -> List[Order]:
         """The order with every order that replaced it or that it replaced, oldest first."""
         fam = self._family_of.get(client_order_id)
@@ -514,7 +592,7 @@ class OrderManagementSystem:
         key = None
         if isinstance(event, OrderFilled):
             if event.trade_id is not None:
-                key = (order.venue.value, str(event.trade_id))
+                key = self.fill_key(order, event.trade_id, event.tags.get("venue_order_id"))
                 if key in self._trade_ids:
                     log.info("duplicate fill %s on %s ignored", event.trade_id, order.client_order_id,
                              extra=self._extra(order))
@@ -551,6 +629,8 @@ class OrderManagementSystem:
                         event.last_qty, event.last_px, extra=self._extra(order))
 
         _apply(order, event)
+        if isinstance(event, OrderCancelRejected):
+            self._cancel_reason.pop(order.client_order_id, None)     # that cancel is over
         if isinstance(event, OrderCanceled):
             ours = self._cancel_reason.pop(order.client_order_id, None)
             if ours:
@@ -645,6 +725,9 @@ class OrderManagementSystem:
             self._journal_safe("venue_reply", now, order, call="cancel_order", error=str(exc))
 
     def _after_event(self, order: Order, event: OrderEvent) -> None:
+        if isinstance(event, OrderCancelRejected):
+            self._cancel_refused(order, event)
+            return
         fam = self._family_of.get(order.client_order_id)
         if fam is None or fam.state == "done":
             return
@@ -686,6 +769,53 @@ class OrderManagementSystem:
             log.log(level, "%s %s (%s); the policy stops for family %s", order.client_order_id,
                     order.status.value, order.reason, fam.root, extra=self._extra(order))
             self._finish(fam, f"{order.client_order_id} {order.status.value}: {order.reason}")
+
+    def _cancel_refused(self, order: Order, event: OrderCancelRejected) -> None:
+        """The venue refused a cancel: stop waiting for it, ask the venue what the order really
+        is (its fills, then its state), apply that, and let the policy go on from there."""
+        now = self._clock.timestamp_ns()
+        cid = order.client_order_id
+        log.warning("cancel of %s refused by the venue (%s); asking the venue for its state", cid,
+                    event.reason, extra=self._extra(order))
+        self._confirm_fills(order)
+        if order.is_open:
+            client = self._clients.get(order.venue)
+            report: Optional[OrderReport] = None
+            error = None
+            try:
+                report = client.query_order(order) if client is not None else None
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+            self._journal_report(order, now, "query_order", report, error)
+            if report is not None:
+                if report.filled_quantity > order.filled_qty + _QTY_EPS:
+                    self._venue_filled[cid] = float(report.filled_quantity)
+                final = venue_status(report.status)
+                if final in (OrderStatus.CANCELED, OrderStatus.REJECTED) and order.is_open:
+                    cls = OrderCanceled if final is OrderStatus.CANCELED else OrderRejected
+                    self._process(cls(cid, order.strategy_id, order.instrument_id, now,
+                                      reason=f"venue status {report.status}" +
+                                             (f": {report.remark}" if report.remark else "")))
+        fam = self._family_of.get(cid)
+        if fam is None or fam.state == "done" or fam.active != cid or order.is_closed:
+            return
+        if fam.state not in ("repricing", "cancelling"):
+            return
+        fam.refusals += 1
+        if fam.refusals > self.policy.max_cancel_retries:
+            log.error("%s: the venue refused %d cancels (%s); the policy stops and leaves the order working",
+                      cid, fam.refusals, event.reason, extra=self._extra(order))
+            self._finish(fam, f"cancel refused {fam.refusals} times; left working ({event.reason})")
+            return
+        if fam.state == "repricing":
+            # The order keeps working at its price: wait again before the next attempt.
+            fam.state = "working"
+            fam.resizing = False
+            fam.since_ns = now
+            fam.cancel_sent_ns = None
+        else:
+            # Still to be cancelled: checked with the venue and sent again after the timeout.
+            fam.cancel_sent_ns = now
 
     def _spawn_child(self, fam: _Family, parent: Order) -> None:
         if self.policy.confirm_before_reprice:
@@ -821,11 +951,14 @@ class OrderManagementSystem:
             log.error("venue fill %s for %s is a %s, the order a %s; not applied", report.trade_id,
                       order.client_order_id, side.value, order.side.value)
             return Outcome.ILLEGAL
+        tags: Dict[str, Any] = {"venue_order_id": str(report.order_id), "source": source}
+        if report.commission is None:
+            tags["commission_unknown"] = True
         fill = OrderFilled(order.client_order_id, order.strategy_id, order.instrument_id,
                            int(pd.Timestamp(report.ts).value), trade_id=trade_id,
                            side=side, last_qty=float(report.quantity), last_px=float(report.price),
                            commission=float(report.commission or 0.0), currency=report.currency,
-                           tags={"venue_order_id": str(report.order_id), "source": source})
+                           tags=tags)
         return self._process(fill)
 
     def _reprice_price(self, order: Order) -> Optional[float]:
@@ -886,8 +1019,7 @@ class OrderManagementSystem:
                     unexplained.append(f"{venue}: fill {r.trade_id} on venue order {r.order_id} ({r.side} "
                                        f"{r.quantity:g} {r.symbol} @ {r.price:g}) is not one of ours")
                     continue
-                key = (venue.value, str(r.trade_id))
-                if key in self._trade_ids:
+                if self.fill_key(order, r.trade_id, r.order_id) in self._trade_ids:
                     matched += 1
                     continue
                 outcome = self._apply_fill_report(order, r, "reconcile")
@@ -1037,6 +1169,9 @@ class OrderManagementSystem:
         elif isinstance(event, (OrderDenied, OrderRejected, OrderCanceled)):
             log.warning("%s %s: %s", order.client_order_id, order.status.value, order.reason,
                         extra=self._extra(order))
+        elif isinstance(event, OrderCancelRejected):
+            log.warning("%s: cancel refused (%s); the order is %s", order.client_order_id, event.reason,
+                        order.status.value, extra=self._extra(order))
         else:
             log.info("%s %s -> %s", order.client_order_id, previous.value, order.status.value,
                      extra=self._extra(order))
