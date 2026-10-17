@@ -334,6 +334,7 @@ class TradingNode:
         self._last_push: Dict[InstrumentId, Tuple[int, float]] = {}
         self._last_bar_at: Optional[int] = None          # clock time a closed bar last arrived
         self._last_bar_ts: Optional[int] = None          # that bar's ts_event
+        self._last_update_at: Optional[int] = None       # clock time a bar push last arrived
         self._stalls = 0                                 # StreamEvent('stall') seen this session
         self.instruments: Dict[InstrumentId, Instrument] = {}
         self.bar_types: Dict[BarType, Optional[str]] = {}    # bar type -> universe
@@ -822,7 +823,7 @@ class TradingNode:
             for iid in sorted({bt.instrument_id for bt in self.bar_types}, key=str):
                 md.subscribe_quotes(iid)
         md.start()
-        self._last_bar_at = self.now_ns()                # the stall clock starts now, not at the first bar
+        self._last_bar_at = self._last_update_at = self.now_ns()   # the stream's clocks start now
 
     def _arm_timers(self) -> None:
         n, now = self.config.node, self.now_ns()
@@ -885,6 +886,7 @@ class TradingNode:
             log.exception("handling %s failed", kind)
 
     def _on_bar_update(self, update: BarUpdate) -> None:
+        self._last_update_at = self.now_ns()
         self.marketdata.dispatch(update)
         # The latest pushed price is updated after the MarketDataService has seen the push, as
         # the original engine updated its forming candle after finalising the previous one.
@@ -950,11 +952,12 @@ class TradingNode:
 
     def _on_stream_event(self, event: StreamEvent) -> None:
         """The MarketDataService's stall reports, written to each candle strategy's session log as
-        the original engine wrote them (minutes since the last closed bar, and whether the stream
-        had been resubscribed before)."""
+        the original engine wrote them (minutes since the stream last delivered a bar, and whether
+        it had been resubscribed before). The minutes are wall-clock time since the last push; the
+        service's own count, in the event's detail, leaves out the hours the market is shut."""
         if not isinstance(event, StreamEvent) or event.kind != "stall" or self.state != "running":
             return
-        since = self._last_bar_at if self._last_bar_at is not None else event.ts_event
+        since = self._last_update_at if self._last_update_at is not None else event.ts_event
         silent = round(max(0, self.now_ns() - since) / NANOS / 60, 1)
         resubscribed_before = self._stalls > 0
         self._stalls += 1
@@ -962,10 +965,10 @@ class TradingNode:
             if a.session_log is not None:
                 a.session_log.stall(silent, resubscribed_before, self.local_now())
         if event.detail == "fatal" and self.config.node.stall_check:
-            log.error("STALL: no closed bar for %.0f min after resubscribing — stopping cleanly", silent)
+            log.error("STALL: no bar for %.0f min after resubscribing — stopping cleanly", silent)
             self._stop_flag = self._stop_flag or "stall"
         else:
-            log.warning("STALL: no closed bar for %.0f min — %s", silent, event.detail)
+            log.warning("STALL: no bar for %.0f min — %s", silent, event.detail)
 
     def price_snapshot(self, instrument_id: InstrumentId) -> Dict[str, Optional[float]]:
         """{'bid', 'ask', 'last'} for re-pricing an order (the OMS's price source)."""
