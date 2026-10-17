@@ -39,6 +39,7 @@ def order(qty=10.0, price=100.0, side=OrderSide.BUY, iid=AAPL, order_type=OrderT
 
 
 def setup(**options):
+    options.setdefault("connect", True)
     client, venue = make_moomoo_execution_client(**options)
     events = []
     client.set_event_handler(events.append)
@@ -186,7 +187,7 @@ def test_opend_down_refuses_to_connect():
     venue = FakeMoomoo()
     venue.opend_up = False
     with pytest.raises(ConnectorError, match="not reachable"):
-        make_moomoo_execution_client(venue=venue)
+        make_moomoo_execution_client(venue=venue, connect=True)
 
 
 # ── fills ────────────────────────────────────────────────────────────
@@ -319,8 +320,10 @@ def test_a_refused_cancel_is_followed_by_a_fresh_query():
     venue.fill(oid, 10, 100.5, trade_id="D-7")   # filled at the broker; we heard nothing
     venue.refuse_cancel(oid, "This order cannot be cancelled: it has been filled")
     client.cancel_order(o)
-    assert kinds(events) == ["OrderAccepted", "OrderFilled"]
+    # what the fresh query found first, then the refusal itself
+    assert kinds(events) == ["OrderAccepted", "OrderFilled", "OrderCancelRejected"]
     assert (str(events[1].trade_id), events[1].last_qty, events[1].last_px) == ("D-7", 10.0, 100.5)
+    assert "it has been filled" in events[2].reason
     calls = venue.methods_called()
     assert "order_list_query" in calls[calls.index("modify_order") + 1:]
 
@@ -340,8 +343,8 @@ def test_us_paper_status_lag_without_deals():
     assert kinds(events) == ["OrderAccepted"]
     venue.refuse_cancel(oid)
     client.cancel_order(o)
-    assert kinds(events) == ["OrderAccepted", "OrderFilled"]
-    f = events[-1]
+    assert kinds(events) == ["OrderAccepted", "OrderFilled", "OrderCancelRejected"]
+    f = events[1]
     assert (f.last_qty, f.last_px, str(f.trade_id)) == (10.0, 100.25, f"{oid}#10")
     assert f.tags["synthetic_fill"] is True
 
@@ -510,9 +513,17 @@ def test_live_only_when_the_connection_says_real(monkeypatch):
     assert venue.submitted()[-1]["trd_env"] == "REAL"
 
 
-def test_live_without_a_real_account_does_not_start():
+def test_live_without_a_real_account_does_not_start(monkeypatch):
+    monkeypatch.setenv("MIDFREQ_MOOMOO_TRADING_ENV", "real")
     with pytest.raises(ConnectorError, match="no REAL account"):
         setup(trading_env="real")
+
+
+def test_real_money_in_the_options_alone_is_refused():
+    """The connection (connections.yaml) says simulate: an option asking for real is refused at
+    construction, even where OpenD has a real account."""
+    with pytest.raises(ConnectorError, match="refusing to trade real money"):
+        make_moomoo_execution_client(venue=FakeMoomoo(real_account=True), trading_env="real")
 
 
 def test_unknown_options_are_refused():

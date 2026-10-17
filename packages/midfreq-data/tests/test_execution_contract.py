@@ -3,16 +3,18 @@ The execution contract: every ExecutionClient must pass these, each against a fa
 played through the VenueDriver of tests/support/venue_driver.py (no network, no gateway).
 
 Factories, one per venue (tests/support):
-    make_moomoo_execution_client   fake_moomoo.py   (skipped until that module exists)
+    make_moomoo_execution_client   fake_moomoo.py   (Moomoo OpenD, US market)
     make_ccxt_execution_client     fake_ccxt.py     (OKX; run twice: websocket updates and polling)
     make_sim_execution_client      fake_sim.py      (the simulated venue, midfreq.trading.testing)
 
 Scenarios: accept then full fill; partial fills summing to the order; rejection with the venue's
 reason; cancel acknowledged; cancel racing a fill (the fill first, then the cancel of the rest);
-a refused cancel; a repeated push producing no second event; a disconnect mid-order, after which
-open_orders() and fills(since) reconcile the order and the stream works again; the venue's order id
-recorded; paper (or sim) by default and live refused without explicit configuration; events
-reaching the handler only, the order itself left to the OMS.
+a refused cancel, reported as OrderCancelRejected with the venue's reason, the order still
+working; a repeated push producing no second event; a disconnect mid-order, after which
+open_orders() and fills(since) reconcile the order and the stream works again; the disconnect and
+the reconnect reported to the status handler; the venue's order id recorded; paper (or sim) by
+default and live refused without explicit configuration; events reaching the handler only, the
+order itself left to the OMS.
 
 Events may arrive on the client's own threads, so the suite waits for them (WAIT) and, to show
 that nothing more comes, waits for a quiet spell (QUIET).
@@ -33,10 +35,12 @@ import pandas as pd
 import pytest
 
 from midfreq.core.model.enums import OrderSide, OrderStatus
-from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderEvent, OrderFilled, OrderRejected
+from midfreq.core.model.events import (
+    OrderAccepted, OrderCanceled, OrderCancelRejected, OrderEvent, OrderFilled, OrderRejected,
+)
 from midfreq.core.model.identifiers import InstrumentId, StrategyId
 from midfreq.core.model.orders import Order, OrderFactory
-from midfreq.data.adapters.base import ConnectorError, ExecutionClient
+from midfreq.data.adapters.base import ConnectorError, ExecutionClient, StreamStatus
 
 WAIT = 5.0                 # seconds an expected event may take
 QUIET = 0.25               # seconds without events that count as "nothing more comes"
@@ -60,8 +64,7 @@ OKX = Market("BTC-USDT.OKX", 0.5, (0.125, 0.375), 60000.0)
 
 
 def _moomoo():
-    module = pytest.importorskip("fake_moomoo", reason="tests/support/fake_moomoo.py not merged yet")
-    return module.make_moomoo_execution_client, {}
+    return importlib.import_module("fake_moomoo").make_moomoo_execution_client, {}
 
 
 def _ccxt(updates: str):
@@ -272,17 +275,21 @@ def test_cancel_racing_a_fill_reports_the_fill_then_the_cancel(venue):
     assert str(events[1].trade_id) == "T-RACE-1" and events[1].last_qty == pytest.approx(m.parts[0])
 
 
-def test_refused_cancel_leaves_the_order_working(venue):
+def test_refused_cancel_is_reported_and_leaves_the_order_working(venue):
     v, m = venue, venue.market
     order, vid = v.submit_accepted()
     v.driver.refuse_cancel(vid, "order is being matched")
     assert v.client.cancel_order(order) is None              # no exception: the outcome is events
+    v.rec.wait_count(OrderCancelRejected, 1)
     v.rec.settle()
     assert not v.rec.of(OrderCanceled, OrderRejected)
+    refusal = v.rec.of(OrderCancelRejected)[0]
+    _about(order, [refusal])
+    assert "order is being matched" in refusal.reason
     v.driver.fill(vid, m.quantity, m.price, "T-AFTER-REFUSAL")
     v.rec.wait_count(OrderFilled, 1)
     v.rec.settle()
-    assert _kinds(v.rec.snapshot()) == ["OrderAccepted", "OrderFilled"]
+    assert _kinds(v.rec.snapshot()) == ["OrderAccepted", "OrderCancelRejected", "OrderFilled"]
 
 
 def test_repeated_push_produces_no_duplicate_event(venue):
@@ -335,6 +342,23 @@ def test_disconnect_mid_order_then_reconcile_after_reconnect(venue):
     assert set(trade_ids) <= {"T-DARK-1", "T-LIGHT-2"} and "T-LIGHT-2" in trade_ids
     assert not v.rec.of(OrderCanceled, OrderRejected)
     assert not [r for r in v.client.open_orders() if r.order_id == vid], "filled orders are not open"
+
+
+def test_disconnect_and_reconnect_reach_the_status_handler(venue):
+    """ExecutionClient.set_status_handler: the client says when it loses the venue and, once it
+    has caught up, when it has it back (the node then reconciles)."""
+    v = venue
+    statuses = Recorder()
+    v.client.set_status_handler(statuses)
+    v.submit_accepted()                                      # an order working, as when it matters
+    v.driver.disconnect()
+    statuses.wait_for(lambda ev: any(s.state == "disconnected" for s in ev), "a 'disconnected' status")
+    v.driver.reconnect()
+    statuses.wait_for(lambda ev: any(s.state == "reconnected" for s in ev), "a 'reconnected' status")
+    got = statuses.snapshot()
+    assert all(isinstance(s, StreamStatus) and s.detail and s.ts > 0 for s in got)
+    states = [s.state for s in got]
+    assert states.index("disconnected") < states.index("reconnected")
 
 
 def test_venue_order_id_is_recorded(venue):

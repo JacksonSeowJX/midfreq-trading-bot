@@ -738,14 +738,25 @@ def make_moomoo_connector(venue: FakeMoomoo, **config):
                            timer=venue.timer, now_ns=venue.clock)
 
 
-def make_moomoo_execution_client(*, venue: Optional[FakeMoomoo] = None, connect: bool = True, **options):
+_ENVIRONMENTS = {"paper": "simulate", "live": "real"}
+
+
+def make_moomoo_execution_client(*, venue: Optional[FakeMoomoo] = None, connect: bool = False,
+                                 environment: Optional[str] = None, **options):
     """
     (MoomooExecutionClient, FakeMoomoo) for the execution contract suite: a real client on a fake
-    OpenD, connected. `options` go to MoomooConnector.execution_client (market, trading_env, ...);
-    the safety-net poll thread is off unless poll_interval is given, so events come only from the
-    driver's pushes, synchronously (polls can be run with client.poll_now()).
+    OpenD, not connected unless `connect` (the suite sets the handler, then connects). `options`
+    go to MoomooConnector.execution_client (market, trading_env, ...); `environment` ('paper' or
+    'live', the suite's word) is the client's trading_env. For 'live' the fake OpenD has a REAL
+    account, so a refusal can only come from the client's own rule (live only when the moomoo
+    connection says real). The safety-net poll thread is off unless poll_interval is given, so
+    events come only from the driver's pushes, synchronously (client.poll_now() runs a poll).
     """
-    venue = venue or FakeMoomoo(market=str(options.get("market", "US")))
+    if environment is not None:
+        if environment not in _ENVIRONMENTS:
+            raise ValueError(f"environment must be one of {sorted(_ENVIRONMENTS)}, got {environment!r}")
+        options["trading_env"] = _ENVIRONMENTS[environment]
+    venue = venue or FakeMoomoo(market=str(options.get("market", "US")), real_account=environment == "live")
     options.setdefault("poll_interval", 0)
     client = make_moomoo_connector(venue).execution_client(**options)
     if connect:
