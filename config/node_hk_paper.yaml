@@ -22,9 +22,11 @@
 #
 # Stocks: Alibaba, Meituan, Xiaomi, AIA, CCB, ICBC: among the most traded on HKEX, all in
 # config/symbols.json's Hong Kong list with data/HK_<code>/5m.parquet in the store, and each
-# board lot (HK$5,500-15,100 at the store's last prices) fits three or more times into one
-# basket slot (HK$49,800), so lot rounding never skips a buy. Tencent (HK$45,500 a lot), HSBC
-# (HK$64,300) and China Mobile (HK$39,800) would round to one lot or none and are left out, as
+# board lot (HK$5,500-15,100 at the store's last prices, with lots of 100, 100, 200, 200, 1000
+# and 1000 shares; the node reads the real lots from OpenD at start-up and logs them) fits three
+# or more times into one basket slot (HK$49,800), so lot rounding never skips a buy. Tencent
+# (HK$45,500 a lot), HSBC (HK$64,300) and China Mobile (HK$39,800) would round to one lot or
+# none and are left out, as
 # are 00700 and 09888, which the paused Hong Kong roster traded in this account (any leftover
 # holding stays the roster's: the node never adopts a broker surplus).
 #
