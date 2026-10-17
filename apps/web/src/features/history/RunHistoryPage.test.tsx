@@ -123,7 +123,7 @@ describe('Run history: a saved run', () => {
     expect(screen.getByRole('group', { name: 'Final value' })).toHaveTextContent('USD 105,430')
     expect(screen.getByRole('img', { name: 'Equity curve of the backtest' })).toBeInTheDocument()
     expect(rowsOf(screen.getByRole('table', { name: 'Backtest trades' }))).toHaveLength(3)
-    expect(screen.getByText(/The price chart is not saved with a run/)).toBeInTheDocument()
+    expect(screen.getByText(/The price and buy-and-hold charts are not saved with a run/)).toBeInTheDocument()
     expect(screen.getByTestId('run-id')).toHaveTextContent(savedIds.backtest)
     expect(screen.getByText(/from the dashboard/)).toBeInTheDocument()
     const settings = screen.getByRole('heading', { name: 'How it was run' }).closest('[data-slot="card"]') as HTMLElement

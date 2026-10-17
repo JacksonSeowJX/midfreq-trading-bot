@@ -6,6 +6,7 @@ import {
   checkCompare,
   checkNumber,
   checkOptimize,
+  compareSelection,
   defaultForm,
   formKey,
   gridSize,
@@ -13,6 +14,7 @@ import {
   isIntegerParam,
   loadForm,
   resolveChoice,
+  resolveCompareOn,
   saveForm,
   serverFieldErrors,
   type FormContext,
@@ -119,12 +121,31 @@ describe('checkBacktest', () => {
     })
   })
 
-  it('adds the pair for pairs trading and the universe for a basket strategy', () => {
+  it('adds the pair for pairs trading, and for a basket strategy the universe in place of the symbol', () => {
     const pairs = checkBacktest(form({ strategy: 'Pairs Trading' }), us)
-    expect(pairs.ok && pairs.request.pair_symbol).toBe('US.JPM')
+    expect(pairs.ok && pairs.request).toMatchObject({ symbol: 'US.AAPL', pair_symbol: 'US.JPM', universe: null })
     const basket = checkBacktest(form({ strategy: 'Cross-Sectional Reversal' }), us)
-    expect(basket.ok && basket.request.universe).toBe('us_15')
-    expect(basket.ok && basket.request.pair_symbol).toBeNull()
+    expect(basket.ok && basket.request).toMatchObject({ symbol: null, pair_symbol: null, universe: 'us_15' })
+  })
+
+  it('needs a universe with more stocks than the basket holds', () => {
+    const small = (withData: number): FormContext => ({
+      ...us,
+      caps: { ...us.caps, universes: [{ name: 'tiny', label: 'Tiny', symbols: 5, withData, description: '' }] },
+    })
+    const reversal = (topN: string) => form({ strategy: 'Cross-Sectional Reversal', params: { 'Cross-Sectional Reversal': { top_n: topN } } })
+    const r = checkBacktest(reversal('3'), small(3))
+    expect(!r.ok && r.errors).toEqual({ universe: 'A basket of 3 needs more than 3 stocks with data to rank; this universe has 3' })
+    expect(checkBacktest(reversal('2'), small(3)).ok).toBe(true)
+    // a search tries every basket size up to the registry's maximum, 4
+    const search = checkOptimize(reversal('1'), small(4))
+    expect(!search.ok && search.errors.universe).toBe(
+      'The search tries baskets of up to 4, so it needs more than 4 stocks with data to rank; this universe has 4',
+    )
+    expect(checkOptimize(reversal('1'), small(5)).ok).toBe(true)
+    // a top_n that is not a number yet is reported beside itself, not against the universe
+    const typing = checkBacktest(reversal('x'), small(3))
+    expect(!typing.ok && typing.errors).toEqual({ 'params.top_n': 'Not a number' })
   })
 })
 
@@ -144,6 +165,26 @@ describe('checkCompare and checkOptimize', () => {
     expect(r.ok && r.request.strategies.map((s) => s.strategy)).toEqual(['SMA Crossover', 'Bollinger Bands', 'Z-Score Mean Reversion'])
   })
 
+  it('compares on one stock or on one universe, never both', () => {
+    // a selection remembered from before keeps only the strategies that run on a stock
+    const stock = checkCompare(form({ compare: ['SMA Crossover', 'Cross-Sectional Reversal', 'Bollinger Bands'] }), us)
+    expect(stock.ok && stock.request).toMatchObject({ symbol: 'US.AAPL', universe: null })
+    expect(stock.ok && stock.request.strategies.map((s) => s.strategy)).toEqual(['SMA Crossover', 'Bollinger Bands'])
+    // on a universe: every cross-sectional strategy by default, and no symbol
+    const universe = checkCompare(form({ compareOn: 'universe', compare: ['SMA Crossover', 'Bollinger Bands'] }), us)
+    expect(universe.ok && universe.request).toMatchObject({ symbol: null, pair_symbol: null, universe: 'us_15' })
+    expect(universe.ok && universe.request.strategies.map((s) => s.strategy)).toEqual([
+      'Cross-Sectional Reversal',
+      'Cross-Sectional Momentum',
+    ])
+    const one = checkCompare(form({ compareOn: 'universe', compareBaskets: ['Cross-Sectional Momentum', 'SMA Crossover'] }), us)
+    expect(!one.ok && one.errors.strategies).toBe('Pick 2 to 8 strategies (1 picked)')
+    // a registry without cross-sectional strategies has nothing to compare on a universe
+    const plain = { ...us, strategies: strategies.filter((s) => !isBasket(s.name)) }
+    expect(resolveCompareOn(form({ compareOn: 'universe' }), plain.strategies)).toBe('stock')
+    expect(compareSelection(form({ compareOn: 'universe' }), plain.strategies)).toEqual(['SMA Crossover', 'Bollinger Bands', 'Z-Score Mean Reversion'])
+  })
+
   it('sends only the chosen method’s settings', () => {
     const wf = checkOptimize(form({ nSplits: '5', trainPct: '70' }), us)
     expect(wf.ok && wf.request).toMatchObject({ method: 'walk_forward', n_splits: 5, objective: 'sharpe_ratio' })
@@ -158,16 +199,27 @@ describe('remembered inputs', () => {
     saveForm('backtest', form({ capital: '250000', strategy: 'SMA Crossover' }))
     expect(loadForm('backtest', TODAY)).toMatchObject({ capital: '250000', strategy: 'SMA Crossover' })
     expect(loadForm('compare', TODAY).capital).toBe('100000')
+    saveForm('compare', form({ compareOn: 'universe', compare: ['RSI', 'MACD'], compareBaskets: ['Cross-Sectional Reversal'] }))
+    expect(loadForm('compare', TODAY)).toMatchObject({
+      compareOn: 'universe',
+      compare: ['RSI', 'MACD'],
+      compareBaskets: ['Cross-Sectional Reversal'],
+    })
   })
 
   it('falls back to the defaults for anything unreadable', () => {
     window.localStorage.setItem(formKey('backtest'), '{not json')
     expect(loadForm('backtest', TODAY)).toEqual(defaultForm(TODAY))
-    window.localStorage.setItem(formKey('backtest'), JSON.stringify({ capital: 5, timeframe: '4h', risk: { sizing: 'martingale' } }))
+    window.localStorage.setItem(
+      formKey('backtest'),
+      JSON.stringify({ capital: 5, timeframe: '4h', risk: { sizing: 'martingale' }, compareOn: 'both', compareBaskets: 'all' }),
+    )
     const f = loadForm('backtest', TODAY)
     expect(f.capital).toBe('100000')
     expect(f.timeframe).toBe('1h')
     expect(f.risk.sizing).toBe('fixed_quantity')
+    expect(f.compareOn).toBe('stock')
+    expect(f.compareBaskets).toBeNull()
   })
 
   it('drops a stored symbol that no longer has data', () => {
@@ -213,5 +265,15 @@ describe('detailFieldErrors', () => {
     })
     expect(detailFieldErrors('no cached 1d candles for US.AAPL', sent)).toEqual({ symbol: 'no cached 1d candles for US.AAPL' })
     expect(detailFieldErrors("unknown param 'x' for RSI", sent)).toEqual({ '': "unknown param 'x' for RSI" })
+  })
+
+  it('places the basket checks beside the universe and the strategies', () => {
+    const basket = { strategies: ['Cross-Sectional Reversal'], compare: false, symbol: null, pairSymbol: null }
+    expect(
+      detailFieldErrors('universe: Cross-Sectional Reversal holds 3 of the stocks it ranks, so it needs more than 3 to rank; x has 2', basket),
+    ).toEqual({ universe: 'Cross-Sectional Reversal holds 3 of the stocks it ranks, so it needs more than 3 to rank; x has 2' })
+    expect(detailFieldErrors('strategies: cross-sectional strategies (A) rank a universe', { ...basket, compare: true })).toEqual({
+      strategies: 'cross-sectional strategies (A) rank a universe',
+    })
   })
 })

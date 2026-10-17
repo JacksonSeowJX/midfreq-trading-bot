@@ -74,7 +74,7 @@ class Plan:
     kind: str
     data_dir: str
     market: str
-    symbol: str                   # the symbol charted (and, for single-stock strategies, traded)
+    symbol: Optional[str]         # the stock single-stock strategies trade (and charted); None for baskets
     timeframe: str
     start: date
     end: date
@@ -225,13 +225,37 @@ def _label(runs: List[Tuple[str, Dict[str, Any]]], i: int) -> str:
     return name if len(same) == 1 else f"{name} #{same.index(i) + 1}"
 
 
+def _names(names: List[str]) -> str:
+    unique = list(dict.fromkeys(names))
+    return unique[0] if len(unique) == 1 else ", ".join(unique[:-1]) + " and " + unique[-1]
+
+
+def _check_ranking(kind: str, name: str, params: Dict[str, Any], universe: str, symbols: List[str],
+                   timeframe: str) -> None:
+    """A basket strategy holds top_n of the stocks it ranks, so it needs more than top_n to rank:
+    with top_n or fewer it would only ever hold them all. A search is checked at the largest
+    basket its grid tries."""
+    spec = STRATEGY_REGISTRY[name]["params"].get("top_n")
+    held = 1 if spec is None else int(spec["max"] if kind == "optimize" else params["top_n"])
+    if len(symbols) > held:
+        return
+    what = (f"the search tries {name} with baskets of up to {held}" if kind == "optimize"
+            else f"{name} holds {held} of the stocks it ranks")
+    raise RunError(f"universe: {what}, so it needs more than {held} to rank; {universe} has "
+                   f"{len(symbols)} with cached {timeframe} candles")
+
+
 def plan(kind: str, req: s.RunSettings, settings: Settings) -> Plan:
     """The run `req` asks for, checked against the registry and the candle cache. RunError
-    names what is wrong."""
+    names what is wrong.
+
+    A cross-sectional strategy ranks a universe, so it takes `universe` and no `symbol`, and the
+    universe must hold more stocks than its basket. A comparison is of single-stock strategies
+    on one stock or of cross-sectional ones on one universe, never both: the two kinds trade
+    different stocks, size their positions differently and are measured against different
+    buy-and-hold benchmarks, so their rows are not like-for-like. (app.py allowed the mix.)"""
     _check_numbers(req)
     market, timeframe = req.market, req.timeframe
-    symbol = _symbol(req.symbol, market, "symbol")
-    pair = _symbol(req.pair_symbol, market, "pair_symbol") if req.pair_symbol else None
 
     if kind == "backtest":
         choices = [(req.strategy, dict(req.params))]
@@ -245,13 +269,29 @@ def plan(kind: str, req: s.RunSettings, settings: Settings) -> Plan:
         if name not in STRATEGY_REGISTRY:
             raise RunError(f"no strategy {name!r}; there are {', '.join(STRATEGY_REGISTRY)}")
 
-    universe = None
+    baskets = [name for name, _ in choices if is_basket(name)]
+    singles = [name for name, _ in choices if not is_basket(name)]
+    if baskets and singles:
+        raise RunError(f"strategies: cross-sectional strategies ({_names(baskets)}) rank a universe of stocks "
+                       f"against each other, so they are compared only with each other, not with single-stock "
+                       f"strategies ({_names(singles)})")
+    universe, symbol = None, None
+    if baskets:
+        universe = _universe(settings, req.universe, market, timeframe)
+        if req.symbol:
+            raise RunError(f"symbol: {baskets[0]} ranks the whole {req.universe} universe, so it takes no symbol")
+    elif not req.symbol:
+        raise RunError(f"symbol: {singles[0]} trades one stock, so it needs a symbol")
+    else:
+        symbol = _symbol(req.symbol, market, "symbol")
+    pair = _symbol(req.pair_symbol, market, "pair_symbol") if req.pair_symbol else None
+
     runs = []
     for i, (name, given) in enumerate(choices):
         params = _params(name, given) if kind != "optimize" else {}
         # app.py's symbols_for: baskets get the universe, pairs trading its pair, the rest the symbol
         if is_basket(name):
-            universe = universe or _universe(settings, req.universe, market, timeframe)
+            _check_ranking(kind, name, params, req.universe, universe, timeframe)
             symbols = universe
         else:
             symbols = [symbol]
@@ -357,15 +397,17 @@ def _backtest(plan: Plan, storage: DataStorage, progress: Progress) -> s.Backtes
     if not metrics:
         raise _no_data(plan, run.symbols)
     chart = price_chart(plan, storage, run)
+    held = benchmark(plan, storage, run.symbols)
     progress(1.0, f"{run.strategy}: {metrics['total_trades']} trades, {metrics['return_pct']:+.2f}%")
     return s.BacktestResult(strategy=run.strategy, symbols=list(run.symbols), params=run.params,
                             metrics=_clean(metrics), equity=_equity(portfolio), trades=_trades(portfolio),
-                            chart=chart)
+                            chart=chart, benchmark=held)
 
 
 def _compare(plan: Plan, storage: DataStorage, progress: Progress) -> s.CompareResult:
     """app.py's comparison: each strategy run on its own portfolio and risk manager, rows best
-    return first. A strategy that produced nothing (no candles in the dates) is left out."""
+    return first. A strategy that produced nothing (no candles in the dates) is left out. The
+    benchmark is buy and hold of what was compared on: the stock, or the whole universe."""
     rows, equity, skipped = [], {}, []
     n = len(plan.runs)
     for i, run in enumerate(plan.runs):
@@ -381,8 +423,11 @@ def _compare(plan: Plan, storage: DataStorage, progress: Progress) -> s.CompareR
     if not rows:
         raise _no_data(plan, sorted({sym for run in plan.runs for sym in run.symbols}))
     rows.sort(key=lambda r: r.metrics["return_pct"], reverse=True)
+    # plan() keeps baskets and single stocks apart, so the first run says which the comparison is on
+    first = plan.runs[0]
+    held = benchmark(plan, storage, first.symbols if is_basket(first.strategy) else [plan.symbol])
     progress(1.0, f"Compared {len(rows)} strategies" + (f"; no candles for {', '.join(skipped)}" if skipped else ""))
-    return s.CompareResult(rows=rows, equity=equity)
+    return s.CompareResult(rows=rows, equity=equity, benchmark=held)
 
 
 def _optimize(plan: Plan, storage: DataStorage, progress: Progress) -> s.OptimizeResult:
@@ -487,15 +532,20 @@ def indicators(name: str, df: pd.DataFrame, p: Dict[str, Any]) -> List[Tuple[str
     return []
 
 
+def _window(plan: Plan) -> Tuple[pd.Timestamp, pd.Timestamp]:
+    """The backtester's window: from start, through the whole of the end date."""
+    return pd.Timestamp(plan.start, tz="UTC"), pd.Timestamp(plan.end, tz="UTC") + pd.Timedelta(days=1)
+
+
 def price_chart(plan: Plan, storage: DataStorage, run: Run) -> Optional[s.PriceChart]:
-    """plan.symbol's candles over the run's dates with the strategy's overlay. The indicators are
-    computed over the whole cached history, as app.py does, so they are warmed up at the start.
-    For a basket the symbol is shown for reference only; None when it has no candles there."""
-    if not _cached(Path(plan.data_dir), plan.symbol, plan.timeframe):
+    """The traded stock's candles (plan.symbol) over the run's dates with the strategy's overlay.
+    The indicators are computed over the whole cached history, as app.py does, so they are warmed
+    up at the start. None for a basket, which trades a universe rather than one stock, and when
+    the stock has no candles in the dates."""
+    if plan.symbol is None or not _cached(Path(plan.data_dir), plan.symbol, plan.timeframe):
         return None
     df = _ohlcv(storage.load_data(_folder(plan.symbol), plan.timeframe))
-    # the backtester's window: from start, through the whole of the end date
-    t0, t1 = pd.Timestamp(plan.start, tz="UTC"), pd.Timestamp(plan.end, tz="UTC") + pd.Timedelta(days=1)
+    t0, t1 = _window(plan)
     in_window = (df.index >= t0) & (df.index < t1)
     window = df[in_window]
     if window.empty:
@@ -516,6 +566,33 @@ def price_chart(plan: Plan, storage: DataStorage, run: Run) -> Optional[s.PriceC
                for t, o, h, lo, c, v in zip(window.index, *(window[k].astype(float).tolist()
                                                              for k in ("open", "high", "low", "close")), volume)]
     return s.PriceChart(symbol=plan.symbol, candles=candles, indicators=out)
+
+
+def benchmark(plan: Plan, storage: DataStorage, symbols) -> Optional[s.Benchmark]:
+    """The backtester's buy-and-hold benchmark (Backtester._calculate_benchmark) over time: the
+    starting capital split equally across the symbols with candles in the run's dates, each part
+    spent at its symbol's first close there and held. It is valued at every candle of any of them
+    at the latest closes, a part whose symbol has not started yet counted as cash, so its last
+    value gives the run's benchmark_return_pct. None when no symbol has candles in the dates."""
+    t0, t1 = _window(plan)
+    closes = {}
+    for sym in symbols:
+        if not _cached(Path(plan.data_dir), sym, plan.timeframe):
+            continue
+        df = _ohlcv(storage.load_data(_folder(sym), plan.timeframe))
+        close = df.loc[(df.index >= t0) & (df.index < t1), "close"].astype(float)
+        if not close.empty:
+            closes[sym] = close
+    if not closes:
+        return None
+    part = plan.initial_capital / len(closes)
+    first = pd.Series({sym: close.iloc[0] for sym, close in closes.items()})
+    shares = (part / first).where(first > 0, 0.0)                # the backtester skips a price of 0 or less
+    prices = pd.DataFrame({sym: close[~close.index.duplicated(keep="last")] for sym, close in closes.items()})
+    prices = prices.sort_index().ffill()                         # NaN only before a symbol's first candle
+    value = (prices * shares).sum(axis=1) + part * prices.isna().sum(axis=1)
+    return s.Benchmark(symbols=list(closes), equity=[s.SeriesPoint(t=t.to_pydatetime(), v=float(v))
+                                                     for t, v in value.items()])
 
 
 # ── what a deployment can run ───────────────────────────────────────────────

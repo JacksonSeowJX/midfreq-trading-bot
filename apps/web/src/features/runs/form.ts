@@ -45,6 +45,18 @@ export function isPairs(strategy: string): boolean {
   return strategy === 'Pairs Trading'
 }
 
+/**
+ * What a comparison runs on: one stock (the single-stock strategies, and Pairs Trading with its
+ * pair) or one universe (the cross-sectional strategies). Never both: the two kinds trade
+ * different stocks, size positions differently and have different benchmarks, so the API
+ * refuses a mix.
+ */
+export type CompareOn = 'stock' | 'universe'
+
+export function fitsCompare(strategy: string, on: CompareOn): boolean {
+  return isBasket(strategy) === (on === 'universe')
+}
+
 export const DEFAULT_STRATEGY = 'Z-Score Mean Reversion'
 export const COMPARE_MIN = 2
 export const COMPARE_MAX = 8
@@ -79,8 +91,12 @@ export interface RunForm {
   strategy: string
   /** strategy -> parameter -> the value typed; missing = the registry default */
   params: Record<string, Record<string, string>>
-  /** Compare: the strategies to run; null = the default selection */
+  /** Compare: on one stock or on a universe */
+  compareOn: CompareOn
+  /** Compare on a stock: the strategies to run; null = the default selection */
   compare: string[] | null
+  /** Compare on a universe: the cross-sectional strategies to run; null = all of them */
+  compareBaskets: string[] | null
   markets: Partial<Record<Market, MarketChoice>>
   timeframe: Timeframe
   start: string
@@ -123,7 +139,9 @@ export function defaultForm(today: Date = new Date()): RunForm {
   return {
     strategy: DEFAULT_STRATEGY,
     params: {},
+    compareOn: 'stock',
     compare: null,
+    compareBaskets: null,
     markets: {},
     timeframe: '1h',
     start: isoDate(yearAgo),
@@ -222,11 +240,13 @@ export function loadForm(kind: JobKind, today: Date = new Date()): RunForm {
       if (c) markets[m] = c
     }
   }
-  const compare = Array.isArray(saved.compare) ? saved.compare.filter((s): s is string => typeof s === 'string') : null
+  const names = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : null)
   return {
     strategy: str(saved.strategy, d.strategy),
     params,
-    compare,
+    compareOn: saved.compareOn === 'universe' || saved.compareOn === 'stock' ? saved.compareOn : d.compareOn,
+    compare: names(saved.compare),
+    compareBaskets: names(saved.compareBaskets),
     markets,
     timeframe: saved.timeframe === '1d' || saved.timeframe === '1h' ? saved.timeframe : d.timeframe,
     start: str(saved.start, d.start),
@@ -282,17 +302,33 @@ export function resolveStrategy(name: string, strategies: StrategyInfo[]): Strat
   )
 }
 
-/** Up to six single-stock strategies (neither pairs nor basket): Streamlit compared them all. */
-export function defaultCompareSelection(strategies: StrategyInfo[]): string[] {
+/**
+ * On a stock, up to six single-stock strategies (neither pairs nor basket): Streamlit compared
+ * them all. On a universe, every cross-sectional strategy.
+ */
+export function defaultCompareSelection(strategies: StrategyInfo[], on: CompareOn = 'stock'): string[] {
+  if (on === 'universe') return strategies.filter((s) => isBasket(s.name)).slice(0, COMPARE_MAX).map((s) => s.name)
   return strategies
     .filter((s) => !isPairs(s.name) && !isBasket(s.name))
     .slice(0, 6)
     .map((s) => s.name)
 }
 
-export function resolveCompare(saved: string[] | null, strategies: StrategyInfo[]): string[] {
-  const names = new Set(strategies.map((s) => s.name))
-  return saved === null ? defaultCompareSelection(strategies) : saved.filter((n) => names.has(n))
+/** The ticked strategies that are still offered and fit what the comparison runs on. */
+export function resolveCompare(saved: string[] | null, strategies: StrategyInfo[], on: CompareOn = 'stock'): string[] {
+  const names = new Set(strategies.filter((s) => fitsCompare(s.name, on)).map((s) => s.name))
+  return saved === null ? defaultCompareSelection(strategies, on) : saved.filter((n) => names.has(n))
+}
+
+/** On a universe only while the registry has cross-sectional strategies to compare there. */
+export function resolveCompareOn(form: RunForm, strategies: StrategyInfo[]): CompareOn {
+  return form.compareOn === 'universe' && strategies.some((s) => isBasket(s.name)) ? 'universe' : 'stock'
+}
+
+/** The strategies the comparison will run, from the list for what it runs on. */
+export function compareSelection(form: RunForm, strategies: StrategyInfo[]): string[] {
+  const on = resolveCompareOn(form, strategies)
+  return resolveCompare(on === 'universe' ? form.compareBaskets : form.compare, strategies, on)
 }
 
 // ── strategy parameters ─────────────────────────────────────────────────────
@@ -451,15 +487,56 @@ function checkRisk(c: Checker, r: RiskForm): RiskSettings {
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
-function checkCommon(c: Checker, form: RunForm, ctx: FormContext, needs: { pair: boolean; basket: boolean }) {
+/**
+ * How many stocks the cross-sectional strategies hold: the largest top_n among them, as typed,
+ * or for a search the largest basket its grid tries. Null when a top_n is not a number yet (its
+ * own field says so).
+ */
+function basketSize(form: RunForm, strategies: StrategyInfo[], search: boolean): number | null {
+  let held = 1
+  for (const s of strategies) {
+    const p = s.params.find((x) => x.name === 'top_n')
+    if (!p) continue
+    const n = search ? p.max : Number(paramTexts(form, s).top_n)
+    if (n === null || n === undefined || !Number.isFinite(n)) return null
+    held = Math.max(held, n)
+  }
+  return held
+}
+
+/**
+ * The data a run needs: one stock (and a pair) for single-stock strategies; for cross-sectional
+ * ones a universe with more stocks than the basket holds, and no symbol, which the API refuses.
+ */
+function checkCommon(
+  c: Checker,
+  form: RunForm,
+  ctx: FormContext,
+  needs: { pair: boolean; baskets: StrategyInfo[]; search?: boolean },
+) {
   const choice = resolveChoice(form.markets[ctx.market], ctx.market, ctx.caps)
-  if (!choice.symbol) c.fail('symbol', 'Pick a symbol')
-  else if (!ctx.caps.symbols.includes(choice.symbol)) c.fail('symbol', `No cached data for ${choice.symbol}`)
+  const basket = needs.baskets.length > 0
+  if (!basket) {
+    if (!choice.symbol) c.fail('symbol', 'Pick a symbol')
+    else if (!ctx.caps.symbols.includes(choice.symbol)) c.fail('symbol', `No cached data for ${choice.symbol}`)
+  }
   if (needs.pair) {
     if (!choice.pairSymbol) c.fail('pair_symbol', 'Pick the second stock of the pair')
     else if (choice.pairSymbol === choice.symbol) c.fail('pair_symbol', 'Must differ from the first symbol')
   }
-  if (needs.basket && !choice.universe) c.fail('universe', 'Pick a universe')
+  if (basket) {
+    const universe = ctx.caps.universes.find((u) => u.name === choice.universe)
+    const size = universe?.withData ?? universe?.symbols ?? null
+    const held = basketSize(form, needs.baskets, !!needs.search)
+    if (!choice.universe) c.fail('universe', 'Pick a universe')
+    else if (size !== null && held !== null && size <= held)
+      c.fail(
+        'universe',
+        needs.search
+          ? `The search tries baskets of up to ${held}, so it needs more than ${held} stocks with data to rank; this universe has ${size}`
+          : `A basket of ${held} needs more than ${held} stocks with data to rank; this universe has ${size}`,
+      )
+  }
 
   if (!DATE.test(form.start)) c.fail('start', 'A date')
   if (!DATE.test(form.end)) c.fail('end', 'A date')
@@ -468,9 +545,9 @@ function checkCommon(c: Checker, form: RunForm, ctx: FormContext, needs: { pair:
   const commission = c.optionalNum('commission_rate', choice.commissionPct ?? '', LIMITS.commissionPct)
   return {
     market: ctx.market,
-    symbol: choice.symbol,
+    symbol: basket ? null : choice.symbol,
     pair_symbol: needs.pair ? choice.pairSymbol : null,
-    universe: needs.basket ? choice.universe : null,
+    universe: basket ? choice.universe : null,
     timeframe: form.timeframe,
     start: form.start,
     end: form.end,
@@ -494,20 +571,21 @@ export function checkBacktest(form: RunForm, ctx: FormContext): Checked<Backtest
     c.fail('strategy', 'Pick a strategy')
     return { ok: false, errors: c.errors }
   }
-  const common = checkCommon(c, form, ctx, { pair: isPairs(strategy.name), basket: isBasket(strategy.name) })
+  const baskets = isBasket(strategy.name) ? [strategy] : []
+  const common = checkCommon(c, form, ctx, { pair: isPairs(strategy.name), baskets })
   const params = checkParams(c, form, strategy, 'params.')
   return done(c, { ...common, strategy: strategy.name, params })
 }
 
 export function checkCompare(form: RunForm, ctx: FormContext): Checked<CompareRequest> {
   const c = new Checker()
-  const names = resolveCompare(form.compare, ctx.strategies)
+  const names = compareSelection(form, ctx.strategies)
   if (names.length < COMPARE_MIN || names.length > COMPARE_MAX)
     c.fail('strategies', `Pick ${COMPARE_MIN} to ${COMPARE_MAX} strategies (${names.length} picked)`)
   const picked = ctx.strategies.filter((s) => names.includes(s.name))
   const common = checkCommon(c, form, ctx, {
     pair: picked.some((s) => isPairs(s.name)),
-    basket: picked.some((s) => isBasket(s.name)),
+    baskets: picked.filter((s) => isBasket(s.name)),
   })
   const strategies = picked.map((s) => ({ strategy: s.name, params: checkParams(c, form, s, `strategies.${s.name}.`) }))
   return done(c, { ...common, strategies })
@@ -520,7 +598,8 @@ export function checkOptimize(form: RunForm, ctx: FormContext): Checked<Optimize
     c.fail('strategy', 'Pick a strategy')
     return { ok: false, errors: c.errors }
   }
-  const common = checkCommon(c, form, ctx, { pair: isPairs(strategy.name), basket: isBasket(strategy.name) })
+  const baskets = isBasket(strategy.name) ? [strategy] : []
+  const common = checkCommon(c, form, ctx, { pair: isPairs(strategy.name), baskets, search: true })
   const objectives = Object.keys(ctx.objectives)
   if (objectives.length && !objectives.includes(form.objective)) c.fail('objective', 'Pick an objective')
   const grid = form.method === 'grid'
@@ -569,7 +648,7 @@ const LEADING_FIELD = /^(initial_capital|commission_rate|slippage_bps|risk\.[a-z
  */
 export function detailFieldErrors(
   detail: string,
-  sent: { strategies: string[]; compare: boolean; symbol?: string; pairSymbol?: string | null },
+  sent: { strategies: string[]; compare: boolean; symbol?: string | null; pairSymbol?: string | null },
 ): FieldErrors {
   const text = detail.trim()
   const prefixed = /^([a-z_]+): (.+)$/.exec(text)

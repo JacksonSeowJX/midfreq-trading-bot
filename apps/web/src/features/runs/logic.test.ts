@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { JobCapabilities } from '@/api/types'
 import { backtestResult, capabilities, compareJob, compareResult, gridJob, gridResult, universes, walkForwardResult } from '@/test/fixtures'
 import {
+  benchmarkLabel,
   bestPerColumn,
   compareLines,
   entityOrder,
@@ -65,6 +66,13 @@ describe('compare', () => {
     expect(best.get('maxDrawdownPct')).toBe(4.2)
     expect(best.get('winRatePct')).toBe(61)
     expect(best.has('trades')).toBe(false)
+  })
+
+  it('names buy and hold by what it holds', () => {
+    expect(benchmarkLabel({ symbols: ['US.AAPL'] })).toBe('Buy and hold US.AAPL')
+    expect(benchmarkLabel({ symbols: Array.from({ length: 1000 }, (_, i) => `US.S${i}`) })).toBe(
+      'Buy and hold, 1,000 stocks in equal amounts',
+    )
   })
 })
 

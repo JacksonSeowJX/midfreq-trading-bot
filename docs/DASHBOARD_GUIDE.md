@@ -146,9 +146,10 @@ and the result on the right.
 2. **Strategy**: pick one. Its parameters appear with their allowed range and step (for
    example *5–30, step 5*).
 3. **Data**: *Symbol* (type to search; only symbols with cached prices are offered). The
-   cross-sectional strategies rank a whole universe, so they also ask for a *Universe* and
-   trade all of it; the symbol then becomes the *Chart symbol*, drawn for reference only.
-   *Timeframe* is 1h or 1d (every study uses 1h). Then *Start* and *End*.
+   cross-sectional strategies rank the stocks of a whole universe against each other, so they
+   ask for a *Universe* instead of a symbol and trade all of it; the universe must hold more
+   stocks than the *Basket Size*, or there is nothing to rank. *Timeframe* is 1h or 1d (every
+   study uses 1h). Then *Start* and *End*.
 4. **Money**: *Starting capital*; *Commission per side (%)*, which defaults to the market's
    calibrated rate (US 0.005%, HK 0.160%; the note beneath says what it covers, and *Reset to*
    restores it); and *Slippage (bps)*.
@@ -166,6 +167,9 @@ and the result on the right.
    - The price as candles, with the strategy's indicators (over the price, or in a pane
      beneath it) and its buys and sells marked.
    - The equity curve against the starting capital, and every trade, newest first.
+   - For a cross-sectional strategy, which trades no one stock, the price is replaced by its
+     equity against holding every stock of the universe in equal amounts (dashed): *Buy and
+     hold* over time, so the gap between the two lines is the alpha.
 
 The run's id goes into the address (`/backtest?job=...`), so a result survives a reload and can
 be linked to while the server keeps it. *Recent runs*, below the result, reopens earlier
@@ -173,17 +177,22 @@ results. The form remembers its last inputs in this browser.
 
 ## Compare
 
-1. Under **Strategies**, tick two to eight. *Params*, beside a ticked strategy, opens its
-   parameters; otherwise each runs with its defaults. A strategy marked *needs a pair* or
-   *runs on the universe* asks for that under *Data*.
-2. Set the data, money and risk as for a backtest. Every strategy runs on the same.
+1. Under **Strategies**, choose what to *Compare on*: *One stock* lists the strategies that
+   trade a single stock (and Pairs Trading, marked *needs a pair*); *A universe* lists the
+   cross-sectional strategies, which rank the stocks of a universe against each other. Tick
+   two to eight. *Params*, beside a ticked strategy, opens its parameters; otherwise each runs
+   with its defaults.
+2. Set the data, money and risk as for a backtest: a *Symbol* on one stock (and a *Pair
+   symbol* for Pairs Trading), a *Universe* on a universe. Every strategy runs on the same.
 3. Press **Compare strategies**.
 4. The *Metrics* table gives each strategy's *Return*, *Alpha*, *Sharpe*, *Max DD*, *Win rate*,
    *Trades* and *Final value*, with the best of each column outlined (for drawdown, the
-   lowest). Below it the equity curves are overlaid; each strategy keeps its colour.
+   lowest). Below it the equity curves are overlaid, each strategy keeping its colour, with
+   buy and hold dashed: the stock, or every stock of the universe in equal amounts.
 
-Cross-sectional strategies run on the whole universe, so they are not like-for-like with the
-single-stock rows; the table says so when one is included.
+A comparison is on one stock or on one universe, never both. The two kinds of strategy trade
+different stocks, size their positions differently and are measured against different buy
+and hold, so their rows would not be like-for-like. Each side keeps its own ticks.
 
 ## Optimize
 
@@ -287,10 +296,11 @@ record of it agrees with the broker's.
    25 September 2025 to 25 September 2026, US$100,000, commission 0.005% per side and no
    slippage. A note above the form says what was filled in.
 2. Press **Run backtest**. It trades the 100 S&P 100 stocks with cached prices (the live test
-   trades 98 of them); the chart shows US.AAPL for reference only.
+   trades 98 of them). There is no one stock's price to chart, so the chart is of the equity
+   against holding all 100 in equal amounts (dashed).
 3. The result: *Return* +56.83%, *Final value* USD 156,828, *Sharpe ratio* 1.44, *Max
    drawdown* 20.50%, *Win rate* 57.0%, 449 trades, *Profit factor* 1.50, and *Buy and hold*
-   +24.86%, so alpha +31.97%.
+   +24.86%, so alpha +31.97%. The dashed line ends at that +24.86%.
 4. **Try it:** [Backtest, the same at the Hong Kong commission of 0.16%](/backtest?preset=forward-test-hk-fees),
    or change *Commission per side (%)* from 0.005 to 0.160 by hand, and run it again.
 5. The same 449 trades now return +24.82% (USD 124,819), with a Sharpe ratio of 0.79 and a
@@ -309,8 +319,8 @@ apart from luck. The cost effect is the same there: the cost sweep fails at 0.16
 ### Example D: three indicator strategies on one stock
 
 1. **Try it:** [Compare, with RSI, MACD and Bollinger Bands on US.AAPL](/compare?preset=oscillators).
-   The form fills in the three strategies with their default parameters, on US.AAPL over the
-   same year at US costs.
+   The form fills in the three strategies with their default parameters, compared on one
+   stock, US.AAPL, over the same year at US costs.
 2. Press **Compare strategies**.
 3. The *Metrics* table:
 
@@ -322,7 +332,8 @@ apart from luck. The cost effect is the same there: the cost sweep fails at 0.16
 
 4. All three made money and two have high Sharpe ratios, yet every alpha is negative: holding
    US.AAPL over the same year returned +34.78% (the return minus the alpha; a backtest of any
-   of the three shows it as *Buy and hold*). With the default sizing of 100 shares a trade,
+   of the three shows it as *Buy and hold*, and the dashed *Buy and hold US.AAPL* line under
+   the table ends there). With the default sizing of 100 shares a trade,
    much of the capital stays in cash, which also keeps the drawdowns small. Out of sample the
    single-stock strategies fare no better: on Overview, 1 of the 126 results in the three
    single-stock families passed.

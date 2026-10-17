@@ -19,12 +19,14 @@ export interface LineSpec {
   name: string
   color: string
   points: SeriesPoint[]
+  /** a reference line (a benchmark) rather than a series: dashed, here and in the legend */
+  dashed?: boolean
 }
 
 /**
- * Several equity curves on one axis (Compare), with a dotted line at the starting capital.
- * The legend names every line and gives its value at the crosshair (or its last value), so a
- * line is never identified by colour alone.
+ * Several equity curves on one axis (Compare), with a dotted line at the starting capital and
+ * any reference line (buy and hold) dashed. The legend names every line and gives its value at
+ * the crosshair (or its last value), so a line is never identified by colour alone.
  */
 export function MultiLineChart({
   lines,
@@ -72,6 +74,7 @@ export function MultiLineChart({
       const s = chart.addSeries(LineSeries, {
         color: l.color,
         lineWidth: 2,
+        lineStyle: l.dashed ? LineStyle.Dashed : LineStyle.Solid,
         priceLineVisible: false,
         lastValueVisible: false,
       })
@@ -115,7 +118,11 @@ export function MultiLineChart({
           const vs = v !== undefined && baseline ? ((v - baseline) / baseline) * 100 : undefined
           return (
             <li key={l.name} className="inline-flex items-center gap-1.5">
-              <span aria-hidden className="h-0.5 w-3.5 rounded-full" style={{ background: l.color }} />
+              {l.dashed ? (
+                <span aria-hidden className="w-3.5 border-t-2 border-dashed" style={{ borderColor: l.color }} />
+              ) : (
+                <span aria-hidden className="h-0.5 w-3.5 rounded-full" style={{ background: l.color }} />
+              )}
               <span className="text-foreground">{l.name}</span>
               <span className="tabular-nums text-muted-foreground">{v !== undefined ? fmtMoney(v, currency) : ''}</span>
               {vs !== undefined ? <span className={cn('tabular-nums', toneClass[tone(vs, 2)])}>{fmtPct(vs)}</span> : null}

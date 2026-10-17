@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { CompareResult } from '@/api/types'
-import { MultiLineChart } from '@/components/charts/MultiLineChart'
-import { useSeriesColors } from '@/components/charts/palette'
+import { MultiLineChart, type LineSpec } from '@/components/charts/MultiLineChart'
+import { useChartPalette, useSeriesColors } from '@/components/charts/palette'
 import { DataTable, type Column } from '@/components/DataTable'
 import { Section } from '@/components/PageHeader'
 import { EmptyState } from '@/components/states'
@@ -9,7 +9,17 @@ import { Card, CardContent } from '@/components/ui/card'
 import { fmtMoney, fmtNum, fmtPct, tone, toneClass, type Tone } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { isBasket } from '../form'
-import { bestPerColumn, COMPARE_COLUMNS, compareLines, entityOrder, paramsText, type CompareLine, type Figure, type RunSummary } from '../logic'
+import {
+  benchmarkLabel,
+  bestPerColumn,
+  COMPARE_COLUMNS,
+  compareLines,
+  entityOrder,
+  paramsText,
+  type CompareLine,
+  type Figure,
+  type RunSummary,
+} from '../logic'
 
 function format(id: Figure, v: number | null, ccy: string): { text: string; tone: Tone } {
   switch (id) {
@@ -31,7 +41,10 @@ function format(id: Figure, v: number | null, ccy: string): { text: string; tone
   }
 }
 
-/** Every strategy on the same data, side by side: metrics (best per column marked) and equity curves. */
+/**
+ * Every strategy on the same data, side by side: metrics (best per column marked) and equity
+ * curves, with buy and hold of what they ran on (the stock, or the universe) dashed beside them.
+ */
 export function CompareResultView({
   result,
   summary,
@@ -44,11 +57,13 @@ export function CompareResultView({
 }) {
   const ccy = summary.currency
   const colors = useSeriesColors()
+  const palette = useChartPalette()
   const lines = useMemo(() => compareLines(result), [result])
   // a colour follows the strategy (its place in the request), never its rank
   const ordered = useMemo(() => entityOrder(lines.map((l) => l.strategy), requested), [lines, requested])
   const colorOf = useMemo(() => new Map(ordered.map((name, i) => [name, colors[i % colors.length]!])), [ordered, colors])
-  const anyBasket = lines.some((l) => isBasket(l.strategy))
+  // a comparison saved before baskets and single stocks were kept apart may mix them
+  const mixed = lines.some((l) => isBasket(l.strategy)) && lines.some((l) => !isBasket(l.strategy))
   const best = useMemo(() => bestPerColumn(lines), [lines])
   const shownColumns = COMPARE_COLUMNS.filter((c) => lines.some((l) => l.figures[c.id] !== null))
   const capital = summary.initialCapital ?? undefined
@@ -90,9 +105,12 @@ export function CompareResultView({
     ),
   ]
 
-  const chartLines = ordered
+  const chartLines: LineSpec[] = ordered
     .filter((name) => (result.equity[name]?.length ?? 0) > 0)
     .map((name) => ({ name, color: colorOf.get(name)!, points: result.equity[name] ?? [] }))
+  const strategyCount = chartLines.length
+  const held = result.benchmark?.equity.length ? result.benchmark : null
+  if (held && strategyCount) chartLines.push({ name: benchmarkLabel(held), color: palette.muted, points: held.equity, dashed: true })
 
   if (!lines.length) return <EmptyState title="No strategy produced a result" className="py-8" />
 
@@ -102,7 +120,7 @@ export function CompareResultView({
         title="Metrics"
         aside="Best in each column outlined; drawdown lower is better"
         description={
-          anyBasket ? 'Cross-sectional rows ran on the whole universe and are not like-for-like with single-stock rows.' : undefined
+          mixed ? 'Cross-sectional rows ran on the whole universe and are not like-for-like with single-stock rows.' : undefined
         }
       >
         <DataTable
@@ -116,13 +134,21 @@ export function CompareResultView({
       </Section>
       <Card>
         <CardContent>
-          <Section title="Equity curves" aside={capital ? `starting from ${fmtMoney(capital, ccy)}` : undefined}>
+          <Section
+            title="Equity curves"
+            aside={capital ? `starting from ${fmtMoney(capital, ccy)}` : undefined}
+            description={
+              held && strategyCount
+                ? `Dashed: ${benchmarkLabel(held)}, the same capital invested at the first candle and held.`
+                : undefined
+            }
+          >
             {chartLines.length ? (
               <MultiLineChart
                 lines={chartLines}
                 currency={ccy}
                 baseline={capital}
-                label={`Equity curves of ${chartLines.length} strategies`}
+                label={`Equity curves of ${strategyCount} strategies${held ? ', and buy and hold' : ''}`}
               />
             ) : (
               <EmptyState title="No equity curves in this result" className="py-6" />

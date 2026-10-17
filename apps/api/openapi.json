@@ -283,8 +283,16 @@
             "type": "string"
           },
           "symbol": {
-            "title": "Symbol",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the stock a single-stock strategy trades; null for a cross-sectional strategy",
+            "title": "Symbol"
           },
           "timeframe": {
             "default": "1h",
@@ -308,7 +316,6 @@
           }
         },
         "required": [
-          "symbol",
           "start",
           "end",
           "strategy"
@@ -318,6 +325,17 @@
       },
       "BacktestResult": {
         "properties": {
+          "benchmark": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Benchmark"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "buy and hold of the symbols traded"
+          },
           "chart": {
             "anyOf": [
               {
@@ -326,7 +344,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "the traded stock's price; null for a cross-sectional strategy, which trades a whole universe"
           },
           "equity": {
             "items": {
@@ -372,6 +391,31 @@
           "trades"
         ],
         "title": "BacktestResult",
+        "type": "object"
+      },
+      "Benchmark": {
+        "description": "Buy and hold, the yardstick of benchmark_return_pct and alpha: the starting capital split\nequally across `symbols` at their first close in the run's dates and held to the end.",
+        "properties": {
+          "equity": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Equity",
+            "type": "array"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols",
+          "equity"
+        ],
+        "title": "Benchmark",
         "type": "object"
       },
       "Candle": {
@@ -493,8 +537,16 @@
             "type": "array"
           },
           "symbol": {
-            "title": "Symbol",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the stock a single-stock strategy trades; null for a cross-sectional strategy",
+            "title": "Symbol"
           },
           "timeframe": {
             "default": "1h",
@@ -518,7 +570,6 @@
           }
         },
         "required": [
-          "symbol",
           "start",
           "end",
           "strategies"
@@ -528,6 +579,17 @@
       },
       "CompareResult": {
         "properties": {
+          "benchmark": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Benchmark"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "buy and hold of what was compared on: the stock, or every stock of the universe in equal amounts"
+          },
           "equity": {
             "additionalProperties": {
               "items": {
@@ -1221,8 +1283,16 @@
             "type": "string"
           },
           "symbol": {
-            "title": "Symbol",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the stock a single-stock strategy trades; null for a cross-sectional strategy",
+            "title": "Symbol"
           },
           "timeframe": {
             "default": "1h",
@@ -1253,7 +1323,6 @@
           }
         },
         "required": [
-          "symbol",
           "start",
           "end",
           "strategy"

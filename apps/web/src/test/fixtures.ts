@@ -358,7 +358,7 @@ export const capabilities: JobCapabilities = {
   },
 }
 
-/** A subset of the registry: whole-number and fractional parameters, a pair and a basket strategy. */
+/** A subset of the registry: whole-number and fractional parameters, a pair and two basket strategies. */
 export const strategies: StrategyInfo[] = [
   {
     name: 'SMA Crossover',
@@ -395,6 +395,14 @@ export const strategies: StrategyInfo[] = [
     params: [
       { name: 'lookback', label: 'Lookback (candles)', default: 10, min: 5, max: 30, step: 5 },
       { name: 'top_n', label: 'Basket Size (# laggards held)', default: 2, min: 1, max: 4, step: 1 },
+      { name: 'rebalance_every', label: 'Rebalance Every N Candles', default: 6, min: 1, max: 24, step: 6 },
+    ],
+  },
+  {
+    name: 'Cross-Sectional Momentum',
+    params: [
+      { name: 'lookback', label: 'Lookback (candles)', default: 10, min: 5, max: 30, step: 5 },
+      { name: 'top_n', label: 'Basket Size (# leaders held)', default: 2, min: 1, max: 4, step: 1 },
       { name: 'rebalance_every', label: 'Rebalance Every N Candles', default: 6, min: 1, max: 24, step: 6 },
     ],
   },
