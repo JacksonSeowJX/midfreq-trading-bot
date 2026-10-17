@@ -1,9 +1,11 @@
 # Live trading architecture: the trading node
 
-Status: built and integrated on branch `feature/live-trading` (October 2026): the five parts
-below are merged, wired on their real classes and tested (see Testing). The forward test keeps
-running on the original engine (`midfreq.live.live_engine`) until it ends on about 13 November
-2026; nothing here changes how that engine trades. The node has not yet traded on paper.
+Status: built, integrated and safety-reviewed on branch `feature/live-trading` (October 2026):
+the five parts below are merged, wired on their real classes and tested (see Testing). From
+Monday 19 October 2026 the node takes over the US S&P 100 forward test on the Moomoo US paper
+account (`config/node_sp100.yaml`, mode paper, release 0.1.2), continuing the original engine's
+state file and records; the original engine (`midfreq.live.live_engine`) stays installable. The
+node has not yet run against a real OpenD.
 
 ## Why
 
@@ -114,14 +116,18 @@ budget (`check-config` checks it).
 ### Bar finality (the MarketDataService)
 
 A forming bar becomes final on a newer push for the same bar type, when the venue marks it
-closed, or when its close plus a grace (`finality_grace_s`, 30 s for the S&P 100) has passed
-with no successor. A bar that **ends a session** (Hong Kong's 12:00 lunch break, the close, an
-early close) waits instead for the next session's open plus the grace: the original engine made
-such a bar final only on the next push or at shutdown with trading off, so no decision is ever
-taken on it while the market is shut. At `stop()` every forming bar whose window has elapsed is
-made final (trading is already off by then). A cross-section is published once complete, or once
-its window has elapsed with at least 90% of the universe; below that, a `gap` StreamEvent and no
-decision.
+closed, or by the clock: its close plus a grace (`finality_grace_s`, 30 s for the S&P 100), but
+only once its stream has delivered a push received after that close; a stream that has not (it
+lags) gets a late grace of 10 minutes, so its last updates to the bar are not cut off. A bar
+that **ends a session** (Hong Kong's 12:00 lunch break, the close, an early close) waits instead
+for the next session's open plus the grace: the original engine made such a bar final only on
+the next push or at shutdown with trading off, so no decision is ever taken on it while the
+market is shut. At `stop()` every forming bar whose window has elapsed is made final (trading is
+already off by then). A cross-section is published once complete. An incomplete one (at least
+90% of the universe) is decided only when a later interval has a final bar, the moment the
+original strategy closed it (on the next interval's first candle), and never by the clock; the
+session's last one, if incomplete, stays undecided at stop, as in the original. Below 90%: a
+`gap` StreamEvent and no decision.
 
 ### Records on disk (`MIDFREQ_ROOT/live_sessions/`)
 
@@ -180,6 +186,24 @@ bars to the store.
    trade id the driver gave, and lists submissions with symbol, side, quantity, price and order
    type.
 
+## State, records and modes
+
+- The mode defaults to **shadow**; paper and live are asked for explicitly (and live also needs
+  `environment: live` on the account and `trading_env: real` in `config/connections.yaml`).
+- In paper and live a candle strategy must name its state file (`state_name`); the node and
+  check-config refuse a configuration without one, so no strategy can take another's state (an
+  HK paper test of Cross-Sectional Reversal would otherwise have taken the US forward test's
+  `state_crosssectionalreversal.json`). A saved state holding positions on venues the strategy does
+  not trade is refused at start-up. The S&P 100 configuration names the forward test's file.
+- One node per records folder: an exclusive `flock` on `<records>/.node.lock`.
+- Shadow and sim never write bars into the real store (`data/`), whatever `persist` says.
+- The state file is written atomically, synced, 0644. The journal repairs a torn last line.
+- At start-up the OMS reconciles orders with the venue before the strategies resume; a strategy
+  then books into its saved state every fill the journal applied after the state was saved (a
+  crash between the two, or a fill made while the node was down), before the shrink-only resume.
+  A rebalance is saved as done before its first order leaves, so a crash in the middle of it does
+  not make the next session run it again.
+
 ## Configuration and wiring
 
 `config/node_<name>.yaml` (`midfreq.trading.config`) names the node, its connectors, accounts,
@@ -228,13 +252,18 @@ The connectors, as built:
 Built first, then tested; the tests decided what was fixed. On 17 October 2026, on
 `feature/live-trading`:
 
-- **Whole repository** (`uv run pytest`): all pass (slow tests needing the real `data/` cache and
-  a Linux-only check are skipped, as on main).
+- **Whole repository** (`uv run pytest`): 1381 pass (44 skipped: slow tests needing the real
+  `data/` cache and a Linux-only check, as on main).
 - **Execution contract suite** (`packages/midfreq-data/tests/test_execution_contract.py`): 13
   scenarios (fill; partial fills; rejection; cancel; cancel racing a fill; refused cancel;
   repeated push; disconnect mid-order and reconciliation; connection status; venue order id;
   events to the handler only; paper by default; live refused) against Moomoo, ccxt in watch mode,
   ccxt in poll mode and the simulated venue: 52 pass, none skipped.
+- **The takeover from the real state** (`test_from_the_real_state_the_first_node_rebalance_matches_the_original`):
+  from the forward test's state of 17 October (clock 84, AMAT 74, MU 35, cash 33,310.91), a
+  synthetic Monday (no rebalance, 84 -> 91) and Tuesday (rebalance due at 95, Tuesday 13:30): the
+  node and the original engine send the same orders (sell AMAT 74 and MU 35, buy AMT 246, ABBV
+  185, NKE 233), at the same prices, and end with the same clock, holdings, cash and state.
 - **Replay equivalence on the real components** (`test_replay_equivalence_with_the_real_components`):
   the node, built with its default factories from `config/node_sp100.yaml` (no stand-in), fed the
   candles of the 13 recorded October sessions, makes the same decisions as the original engine
@@ -246,10 +275,32 @@ Built first, then tested; the tests decided what was fixed. On 17 October 2026, 
   session.
 - **Boundary**: no venue SDK outside the connectors; `lint-imports`: the package layers hold.
 - **Python 3.10** (the VM's): the core, data and trading packages' tests and the integration
-  tests pass on Python 3.10.22 with `ops/vm/requirements-vm.txt` (plus ccxt 4.5.88).
+  tests (799) pass on Python 3.10.22 with `ops/vm/requirements-vm.txt` (plus ccxt 4.5.88).
+- **Safety review of 17 October**: each finding has a test that reproduces it (fails before the
+  fix, passes after); see the section below.
 - **End to end on paper** (with approval, not yet run): the Hong Kong paper account during Hong
   Kong hours, a few stocks, while the US forward test is not running, so it cannot touch the
   forward test's account or exceed the quote quota.
+
+## Safety review (17 October 2026)
+
+Fixed, each with a reproducing test: adapter orders take their id from the OMS (C1); fill reports
+booked only up to the venue's cumulative filled quantity, cumulative Moomoo reports as increments
+(C2); venue fills on a rejected order always applied, and an order the venue still has open
+reopened and cancelled at the venue (C3); shadow and sim never write the real bar store (C4);
+the components wired on their real constructors, positions before risk (H1); the wait follows the
+re-priced family (H2); state files and records as above (H3); venue ids learned from reports kept
+(H4); trading off halts risk and pauses re-pricing, the calendar gates children (H5); position
+reconciliation skips instruments with orders in flight (H6); account clients carry their
+environment and a mismatch is not reconciled against (H7); the clock never cuts a lagging stream,
+incomplete cross-sections on the original's timing (H8); the reconcile grace covers the clients'
+window (M1); a node kill switch (M2); crash mid-rebalance (M3); ccxt does no network under its
+lock (M4); subscriptions in batches, none to a venue that is down (M5); foreign items on the shared
+account are INFO and errors are not repeated (M6); ccxt bars never closed by the clock (M7);
+base-asset fees reduce the position (M8); the state file synced and 0644 (M9); SIGTERM ends a wait
+for a fill (M10); the journal repairs a torn line (M11); ambiguous Moomoo send errors looked up by
+remark (S1); HKEX's spread table (S2); an empty position list with holdings is a failed read
+(S3); Moomoo's refreshed queries kept within OpenD's 10 per 30 s (S4).
 
 ## Known open issues
 
@@ -260,14 +311,9 @@ Built first, then tested; the tests decided what was fixed. On 17 October 2026, 
    October 16:00 live). So the recordings do not hold everything the live sessions saw (the
    rebalance clock and warm-up at each start, at least). Equivalence is established as "the same
    decisions as the original engine on the same inputs", not "the recorded trades".
-2. **A cent of rounding can deny a cash-constrained buy.** The adapter sizes a buy, as the
-   original engine did, against `price x 1.01 x (1 + commission)` unrounded, and sends the limit
-   rounded to the cent; pre-trade risk checks cash at the rounded limit. When the rounding goes up
-   and the cash left after sizing is under a cent a share (e.g. cash 33,334.00, 330 shares, limit
-   101.006 rounded to 101.01), risk denies a buy the original engine would have sent (roughly 0.4%
-   of a rebalance's last buy). Not seen in the replays. Choose before the node trades: size
-   against the rounded limit (one share fewer in those cases), or let the strategy's own cash
-   check be the cash check for candle strategies (`risk.strategies.<id>.check_cash: false`).
+2. **Risk's cash check is off for the S&P 100 strategy** (Jackson's decision): the strategy sizes
+   against its own cash at the unrounded price, as the original engine did, and a cent of limit
+   rounding would otherwise deny a buy the original sent. Other candle strategies keep the check.
 3. **Corporate actions are not applied.** The reference data serves them and the PositionKeeper
    can book them, but no step of the node's day applies them, and the candle strategy's portfolio
    (which the state file holds) has no dividend booking.
@@ -283,9 +329,12 @@ Built first, then tested; the tests decided what was fixed. On 17 October 2026, 
    when it next delivers); a fee charged in a third currency (OKX's OKB discount) is estimated, not
    converted.
 8. **Not yet built for rollout**: a Hong Kong paper configuration (`config/node_hk_paper.yaml`)
-   and runbook for the end-to-end test; `ops/vm/startup_check.sh` and the release's launcher for
-   the node; alert sinks configured; journal files are named by wall-clock day, so a replay
-   writes all its days into one file.
+   and runbook for the end-to-end test; alert sinks configured; journal files are named by
+   wall-clock day, so a replay writes all its days into one file.
+9. **Never run against a real OpenD.** Every Moomoo path (orders, deals, synthetic fills, K-line
+   and order-book streams, the quote quota, lot sizes) is tested against the fake OpenD only.
+10. **HKEX's spread table** in `config/venues.json` is the long-standing one; HKEX narrowed some
+    bands in 2025: check it before Hong Kong trades.
 
 ## Rollout
 
