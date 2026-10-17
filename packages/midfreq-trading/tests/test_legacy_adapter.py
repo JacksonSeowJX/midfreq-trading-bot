@@ -178,7 +178,7 @@ def test_confirm_mode_waits_for_the_outcome_before_returning(tmp_path):
     rig.adapter.portfolio.execute_trade("US.AAPL", True, 10, 100.0, TS)
     # booked by the time execute_trade returned, and no cancel needed
     assert rig.adapter.portfolio.get_position_qty("US.AAPL") == 10.0
-    assert rig.waits == [75.0] and rig.cancels == []
+    assert rig.waits == [150.0] and rig.cancels == []          # the default confirm_timeout_s
 
 
 def test_confirm_mode_cancels_an_order_that_does_not_resolve(tmp_path):
