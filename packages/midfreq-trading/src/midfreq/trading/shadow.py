@@ -29,7 +29,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import pandas as pd
 
 from midfreq.core.model.enums import OrderSide, OrderType
-from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderFilled
+from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderCancelRejected, OrderFilled
 from midfreq.core.model.identifiers import AccountId, TradeId
 from midfreq.core.model.orders import Order
 from midfreq.data.adapters.base import ExecutionClient, FillReport, OrderReport
@@ -112,7 +112,12 @@ class ShadowExecutionClient(ExecutionClient):
 
     def cancel_order(self, order: Order) -> None:
         w = self._find(order)
-        if w is None or w.filled >= w.order.quantity:
+        if w is None:
+            return
+        if w.filled >= w.order.quantity or w.order.tags.get("shadow_state") == "cancelled":
+            state = "filled" if w.filled >= w.order.quantity else "cancelled"
+            self._emit(OrderCancelRejected(order.client_order_id, order.strategy_id, order.instrument_id,
+                                           self._now_ns(), reason=f"shadow: already {state}"))
             return
         self._cancel(w, "shadow: cancelled on request")
 

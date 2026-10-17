@@ -16,7 +16,9 @@ SimulatedExecutionClient (environment 'sim') fills
   taking what is left), `partial_fill_interval_ns` apart.
 It rejects what `check_lot(order)` or `check_cash(order, price)` objects to (each returns a reason
 or None), and a market order with no price at all. A cancel arriving after the order filled is
-refused (the fill won), and what a cancel arrives in time for is cancelled.
+refused (the fill won) with OrderCancelRejected, as is one the venue was told to refuse
+(venue_refuse_cancel); what a cancel arrives in time for is cancelled. venue_disconnect and
+venue_reconnect are reported to the status handler ('disconnected', 'reconnected').
 
 `auto=False` turns the matching off: the venue then only does what its venue-side methods
 (venue_accept, venue_fill, venue_reject, venue_cancel, venue_refuse_cancel, ...) tell it, which is
@@ -47,7 +49,7 @@ from midfreq.core.common.clock import Clock, TestClock
 from midfreq.core.common.timestamps import ns_to_timestamp, to_utc_timestamp
 from midfreq.core.model.data import Bar, BarType, QuoteTick
 from midfreq.core.model.enums import LiquiditySide, OrderSide, OrderType
-from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderFilled, OrderRejected
+from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderCancelRejected, OrderFilled, OrderRejected
 from midfreq.core.model.identifiers import AccountId, ClientId, InstrumentId, TradeId
 from midfreq.core.model.orders import Order
 from midfreq.data.adapters.base import (
@@ -150,7 +152,7 @@ class SimOrder:
 
 @dataclass
 class _Push:
-    kind: str                       # accepted | filled | canceled | rejected
+    kind: str                       # accepted | filled | canceled | rejected | cancel_rejected
     venue_order_id: str
     data: Dict[str, Any] = field(default_factory=dict)
 
@@ -205,6 +207,8 @@ class SimulatedExecutionClient(ExecutionClient):
         self._accepted_sent: set = set()
         self._ended_sent: set = set()
         self._trades_sent: set = set()
+        self._refusal_ids = itertools.count(1)
+        self._refusals_sent: set = set()
 
     # ── identity and session ─────────────────────────────────────────
 
@@ -397,10 +401,13 @@ class SimulatedExecutionClient(ExecutionClient):
     def _cancel_arrives(self, so: SimOrder) -> None:
         if not so.is_open:
             log.info("sim: cancel of %s refused: already %s", so.order.client_order_id, so.status.lower())
+            self._push(_Push("cancel_rejected", so.venue_order_id, {"reason": f"already {so.status.lower()}",
+                                                                    "seq": next(self._refusal_ids)}))
             return
         if so.refuse_cancel is not None:
             log.info("sim: cancel of %s refused: %s", so.order.client_order_id, so.refuse_cancel)
-            so.refuse_cancel = None
+            reason, so.refuse_cancel = so.refuse_cancel, None
+            self._push(_Push("cancel_rejected", so.venue_order_id, {"reason": reason, "seq": next(self._refusal_ids)}))
             return
         so.cancel_requested = True
         if self.auto:
@@ -475,13 +482,17 @@ class SimulatedExecutionClient(ExecutionClient):
 
     def venue_disconnect(self) -> None:
         self._linked = False
+        self._status("disconnected", "sim: link to the venue lost", self.clock.timestamp_ns())
 
     def venue_reconnect(self) -> None:
-        """The link returns; the client catches up on the pushes it missed."""
+        """The link returns; the client catches up on the pushes it missed, then reports
+        'reconnected'."""
         self._linked = True
         missed, self._missed = self._missed, []
         for push in missed:
             self._deliver(push)
+        self._status("reconnected", f"sim: link restored, {len(missed)} missed push(es) delivered",
+                     self.clock.timestamp_ns())
 
     # ── pushes -> events ─────────────────────────────────────────────
 
@@ -512,6 +523,12 @@ class SimulatedExecutionClient(ExecutionClient):
                 trade_id=TradeId(d["trade_id"]), side=order.side, last_qty=d["quantity"], last_px=d["price"],
                 commission=d["commission"], currency=d["currency"], liquidity_side=d["liquidity"],
                 tags={"venue_order_id": key}))
+        elif push.kind == "cancel_rejected":
+            if push.data["seq"] in self._refusals_sent:
+                return
+            self._refusals_sent.add(push.data["seq"])
+            self._emit(OrderCancelRejected(order.client_order_id, order.strategy_id, order.instrument_id, now,
+                                           reason=push.data.get("reason", "cancel refused")))
         else:
             if key in self._ended_sent:
                 return

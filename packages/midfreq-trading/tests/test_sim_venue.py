@@ -132,7 +132,8 @@ def test_a_cancel_arriving_after_the_fill_is_refused():
     sim.submit_order(order)
     sim.cancel_order(order)               # sent at once, but reaches the venue after the order filled
     scheduler.run()
-    assert kinds(events) == ["OrderAccepted", "OrderFilled"]
+    assert kinds(events) == ["OrderAccepted", "OrderFilled", "OrderCancelRejected"]
+    assert "already filled" in events[-1].reason
 
 
 def test_a_resting_order_is_cancelled():
