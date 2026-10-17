@@ -7,24 +7,28 @@ So the OMS, risk, positions, market data and strategies never need locks, and a 
 replayed deterministically by feeding the same queue items with a test clock.
 
 Messages between components go over midfreq.core.common.msgbus.MessageBus on these topics.
+Closed bars use the engine's own topic, `data.bars.<bar_type>` (midfreq.core.common.msgbus), so a
+native Strategy's `subscribe_bars(bar_type)` receives the MarketDataService's bars directly, as
+in a backtest. Cross-sections have no counterpart in the Strategy API: the StrategyHost turns
+each into a TimeSlice on `data.slices` for native strategies.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Protocol, Tuple
 
 import pandas as pd
 
-from midfreq.core.model.data import Bar, BarType
+from midfreq.core.model.data import Bar, BarType, QuoteTick
 from midfreq.core.model.events import OrderEvent, OrderFilled
 from midfreq.core.model.identifiers import ClientOrderId, InstrumentId, StrategyId, Venue
 from midfreq.core.model.instruments import Instrument
 from midfreq.core.model.orders import Order
-from midfreq.data.adapters.base import PositionReport
+from midfreq.data.adapters.base import BarUpdate, PositionReport, StreamStatus
 
 # ── bus topics ─────────────────────────────────────────────────────────────────────────────────
-TOPIC_BAR = "data.bars.{instrument_id}"                 # Bar: closed bars only
+TOPIC_BAR = "data.bars.{bar_type}"                      # Bar: closed bars only (the engine's topic)
 TOPIC_CROSS_SECTION = "data.cross_section.{universe}"   # CrossSection
 TOPIC_QUOTE = "data.quotes.{instrument_id}"             # QuoteTick
 TOPIC_ORDER_EVENTS = "events.order.{strategy_id}"       # OrderEvent, after the OMS applied it
@@ -126,6 +130,14 @@ class OrderManager(Protocol):
 
     def order(self, client_order_id: ClientOrderId) -> Optional[Order]: ...
 
+    def family(self, client_order_id: ClientOrderId) -> List[Order]:
+        """The order with the child orders that replaced it when it was re-priced (tags parent,
+        root, attempt), oldest first: one intent's orders."""
+
+    def family_done(self, client_order_id: ClientOrderId) -> bool:
+        """Whether that intent has its outcome: every order of the family closed and no child
+        order still to come."""
+
     def open_orders(self, strategy_id: Optional[StrategyId] = None) -> List[Order]: ...
 
     def on_timer(self, now_ns: int) -> None:
@@ -149,7 +161,10 @@ class PreTradeRisk(Protocol):
 
 
 class PositionKeeper(Protocol):
-    def on_fill(self, fill: OrderFilled) -> None: ...
+    """The node's books (midfreq.trading.positions.PositionLedger): one per strategy."""
+
+    def on_fill(self, fill: OrderFilled) -> None:
+        """Book one fill (the OMS calls it once per applied fill)."""
 
     def position(self, strategy_id: StrategyId, instrument_id: InstrumentId) -> float: ...
 
@@ -157,25 +172,74 @@ class PositionKeeper(Protocol):
 
     def cash(self, strategy_id: StrategyId) -> float: ...
 
-    def reconcile(self, venue: Venue, broker: List[PositionReport]) -> ReconcileReport:
+    def avg_price(self, strategy_id: StrategyId, instrument_id: InstrumentId) -> Optional[float]: ...
+
+    def snapshot(self, strategy_id: StrategyId) -> Dict[str, Any]:
+        """The book as plain data; `restore` reads it back."""
+
+    def restore(self, strategy_id: "StrategyId | str", cash: float, positions: Mapping[Any, Any],
+                capital: Optional[float] = None, realized_pnl: float = 0.0, commissions: float = 0.0,
+                dividends: float = 0.0, corporate_actions: Iterable[str] = ()) -> None:
+        """Set a strategy's book: cash, and positions {instrument: (qty, avg_px)}."""
+
+    def apply_corporate_action(self, strategy_id: "StrategyId | str", action: "CorporateAction") -> float:
+        """Book a dividend (cash) or a split (quantity and average price); returns the cash."""
+
+    def reconcile(self, venue: Venue, broker: List[PositionReport],
+                  strategy_ids: Optional[Iterable[StrategyId]] = None) -> ReconcileReport:
         """Shrink-only: a strategy's claim never grows from the broker's view, only shrinks to it."""
 
 
 class MarketDataService(Protocol):
+    """midfreq.trading.marketdata.LiveMarketDataService. Inbound: the connectors' push threads
+    only ever call the handlers of `stream_handlers()` (or the queue's put, which they are), and
+    the node's loop hands each queued item back through `dispatch` (or the on_* methods)."""
+
+    # ── inbound ──
+    def stream_handlers(self, venue: Optional[Venue] = None) -> Any:
+        """StreamHandlers(bar_update, quote, stream_status): what a DataClient is given; each only
+        puts what it receives on the node's queue (stream status tagged with its source)."""
+
+    def dispatch(self, item: Any) -> bool:
+        """Handle a queued BarUpdate, QuoteTick or StreamStatus; False for anything else."""
+
+    def on_bar_update(self, update: BarUpdate) -> None: ...
+
+    def on_quote(self, quote: QuoteTick) -> None: ...
+
+    def on_stream_status(self, status: StreamStatus) -> None: ...
+
+    def on_timer(self, now_ns: int) -> None:
+        """Finalise bars and cross-sections whose window has elapsed; detect stalls (a stall is
+        a StreamEvent('stall') on TOPIC_STREAM, the stream is resubscribed once, and a second
+        stall sets `fatal_stall`)."""
+
+    # ── subscriptions and lifecycle ──
     def subscribe_bars(self, bar_type: BarType, universe: Optional[str] = None) -> None: ...
 
+    def unsubscribe_bars(self, bar_type: BarType, universe: Optional[str] = None) -> None: ...
+
     def subscribe_quotes(self, instrument_id: InstrumentId) -> None: ...
+
+    def unsubscribe_quotes(self, instrument_id: InstrumentId) -> None: ...
+
+    def resubscribe(self) -> int:
+        """Subscribe every live stream again now; returns how many."""
 
     def warm_up(self, bar_type: BarType, count: int) -> List[Bar]:
         """The last `count` closed bars from the local store (never the broker's metered history)."""
 
     def start(self) -> None: ...
 
-    def stop(self) -> None:
-        """Unsubscribe, finalise bars whose window has elapsed, write the session's bars to the store."""
+    def stop(self) -> Any:
+        """Unsubscribe, finalise bars whose window has elapsed, write the session's bars to the
+        store (unless persisting is off); returns what was written."""
 
-    def on_timer(self, now_ns: int) -> None:
-        """Finalise bars and cross-sections whose window has elapsed; detect stalls."""
+    # ── reads ──
+    def last_price(self, instrument_id: InstrumentId) -> Optional[float]: ...
+
+    @property
+    def fatal_stall(self) -> bool: ...
 
 
 class TradingCalendar(Protocol):

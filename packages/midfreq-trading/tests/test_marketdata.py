@@ -16,7 +16,7 @@ from midfreq.core.model.identifiers import InstrumentId
 from midfreq.core.venues.spec import default_venues
 from midfreq.data.adapters.base import BarUpdate, ConnectorError, DataClient, StreamStatus
 from midfreq.data.storage import DataStorage
-from midfreq.trading.interfaces import CrossSection, StreamEvent
+from midfreq.trading.interfaces import TOPIC_BAR, CrossSection, StreamEvent
 from midfreq.trading.marketdata import (
     DEFAULT_GRACE_S, LiveMarketDataService, SourcedStreamStatus, SubscriptionLimitError,
 )
@@ -230,7 +230,7 @@ def test_an_early_close_is_a_session_end_too(tmp_path):
 def test_a_failing_subscriber_does_not_break_the_service(env, caplog):
     def broken(bar):
         raise RuntimeError("strategy bug")
-    env.bus.subscribe("data.bars.AAPL.XNAS", broken)
+    env.bus.subscribe(TOPIC_BAR.format(bar_type=btype("AAPL.XNAS")), broken)
     env.svc.subscribe_bars(btype("AAPL.XNAS"), universe="u")
     with caplog.at_level(logging.ERROR, logger="midfreq.trading.marketdata"):
         push(env, mkbar("AAPL.XNAS", et("2026-10-16 10:30")), closed=True)

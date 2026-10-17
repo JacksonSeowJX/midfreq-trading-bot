@@ -204,7 +204,8 @@ class LiveMarketDataService:
                  grace: "float | timedelta" = DEFAULT_GRACE_S,
                  min_share: float = DEFAULT_MIN_SHARE,
                  stall_factor: float = DEFAULT_STALL_FACTOR,
-                 limit_unit: str = "stream"):
+                 limit_unit: str = "stream",
+                 persist: bool = True):
         """
         clients: the DataClient serving each venue (one client may serve several venues, as
             Moomoo serves XHKG, XNAS and XNYS; its subscription limit is then shared).
@@ -220,7 +221,10 @@ class LiveMarketDataService:
         min_share: the share of a universe an incomplete cross-section needs (0.9).
         stall_factor: intervals of silence that count as a stall (1.25).
         limit_unit: what a client's subscription_limit() counts: "stream" (one per instrument and
-            data type, which is how Moomoo's quota is charged) or "instrument".
+            data type: the DataClient contract's unit, which is how Moomoo's quota is charged) or
+            "instrument" (for a client that counts instruments, whatever their data types).
+        persist: write the session's bars to the store at stop() (off for shadow and sim runs,
+            whose bars must not enter the real cache).
         """
         if limit_unit not in ("stream", "instrument"):
             raise ValueError(f"limit_unit must be 'stream' or 'instrument', not {limit_unit!r}")
@@ -240,6 +244,7 @@ class LiveMarketDataService:
         self._min_share = float(min_share)
         self._stall_factor = float(stall_factor)
         self._limit_unit = limit_unit
+        self._persist_bars = bool(persist)
 
         # clients, each once however many venues it serves
         self._client_of: Dict[Venue, int] = {}
@@ -434,7 +439,7 @@ class LiveMarketDataService:
         self._finalise_elapsed(now, stopping=True)
         for u in list(self._universes.values()):
             self._evaluate(u, now, stopping=True)
-        self._persisted = self._persist()
+        self._persisted = self._persist() if self._persist_bars else PersistReport(0, 0, 0)
         return self._persisted
 
     @property
@@ -659,7 +664,7 @@ class LiveMarketDataService:
         self._session_bars.setdefault(state.bar_type, []).append(bar)
         self.bars_published += 1
         log.debug("bar final (%s): %s %s close=%s", reason, state.bar_type, _iso(bar.ts_event), bar.close)
-        self._send(TOPIC_BAR.format(instrument_id=bar.instrument_id), bar)
+        self._send(TOPIC_BAR.format(bar_type=state.bar_type), bar)
         for u in list(self._universes.values()):
             if state.bar_type in u.members:
                 self._add_to_universe(u, bar)
@@ -787,6 +792,24 @@ class LiveMarketDataService:
             self._fatal = True
             log.error("STALL: %s after resubscribing once; the node should stop cleanly", what)
             self._send(TOPIC_STREAM, StreamEvent("stall", "fatal", now_ns))
+
+    def resubscribe(self) -> int:
+        """Unsubscribe and subscribe again every live bar stream now (an operator's or the
+        node's request; the stall detector does the same for one stalled stream). Returns how
+        many streams were resubscribed; a stream that fails is logged and skipped."""
+        done = 0
+        for stream in list(self._streams.values()):
+            if stream.fatal or not any(self._bars[bt].refs > 0 for bt in stream.bar_types):
+                continue
+            try:
+                self._resubscribe(stream)
+            except Exception as exc:                       # noqa: BLE001 - the others still get theirs
+                log.error("resubscribe of %s %s failed: %s", self._source(stream.client_index),
+                          stream.spec.interval, exc)
+                continue
+            stream.last_update_ns = self._clock.timestamp_ns()
+            done += 1
+        return done
 
     def _resubscribe(self, stream: _Stream) -> None:
         client = self._clients[stream.client_index]

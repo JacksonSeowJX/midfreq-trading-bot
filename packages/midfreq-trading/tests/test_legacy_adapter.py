@@ -264,7 +264,7 @@ def test_bars_that_never_make_a_cross_section_are_fed_before_the_next(tmp_path):
     rig = make(tmp_path)
     a = rig.adapter
     iid = a.instrument_for["US.AAPL"]
-    rig.bus.publish(TOPIC_BAR.format(instrument_id=iid), Bar(BarType(iid, SPEC), 99.0, 99.0, 99.0, 99.0, 1.0, T0, T0))
+    rig.bus.publish(TOPIC_BAR.format(bar_type=BarType(iid, SPEC)), Bar(BarType(iid, SPEC), 99.0, 99.0, 99.0, 99.0, 1.0, T0, T0))
     rig.xs(T0 + HOUR, {"US.AAPL": 100.0, "US.MSFT": 200.0})
     s = a.strategy
     assert s.history["US.AAPL"] == [99.0, 100.0]

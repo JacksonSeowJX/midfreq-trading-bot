@@ -397,8 +397,8 @@ class LiveLegacyAdapter:
         if self._subscribed:
             return
         bus = self.services.msgbus
-        for iid in self.instrument_for.values():
-            bus.subscribe(TOPIC_BAR.format(instrument_id=iid), self._on_bar)
+        for bt in self.bar_types.values():
+            bus.subscribe(TOPIC_BAR.format(bar_type=bt), self._on_bar)
         bus.subscribe(TOPIC_CROSS_SECTION.format(universe=self.universe), self._on_cross_section)
         bus.subscribe(TOPIC_ORDER_EVENTS.format(strategy_id=self.id), self._on_order_event)
         self._subscribed = True
@@ -407,8 +407,8 @@ class LiveLegacyAdapter:
         if not self._subscribed:
             return
         bus = self.services.msgbus
-        for iid in self.instrument_for.values():
-            bus.unsubscribe(TOPIC_BAR.format(instrument_id=iid), self._on_bar)
+        for bt in self.bar_types.values():
+            bus.unsubscribe(TOPIC_BAR.format(bar_type=bt), self._on_bar)
         bus.unsubscribe(TOPIC_CROSS_SECTION.format(universe=self.universe), self._on_cross_section)
         bus.unsubscribe(TOPIC_ORDER_EVENTS.format(strategy_id=self.id), self._on_order_event)
         self._subscribed = False
@@ -855,7 +855,7 @@ class NativeStrategyRunner:
                 self.log.warning("[warmup] %s: no history (%s)", iid, exc)
         for bar in sorted(bars, key=lambda b: b.ts_event):
             self.services.cache.add_bar(bar)
-            self.services.msgbus.publish(f"data.bars.{bar.bar_type}", bar)
+            self.services.msgbus.publish(TOPIC_BAR.format(bar_type=bar.bar_type), bar)
             fed += 1
         self.phase = "live"
         return fed
@@ -875,14 +875,14 @@ class NativeStrategyRunner:
 
 
 class StrategyHost:
-    """Every strategy of the node, and the bridges from the MarketDataService's topics to the
-    topics the Strategy API subscribes to (bars by bar type, slices)."""
+    """Every strategy of the node. Native strategies receive the MarketDataService's closed bars
+    on their own topic (TOPIC_BAR is the engine's data.bars.<bar_type>); cross-sections, which
+    the Strategy API does not know, are bridged to data.slices as a LiveTimeSlice."""
 
     def __init__(self, services: NodeServices):
         self.services = services
         self.legacy: List[LiveLegacyAdapter] = []
         self.native: List[NativeStrategyRunner] = []
-        self._bridged_bars: Set[InstrumentId] = set()
         self._bridged_universes: Set[str] = set()
 
     @property
@@ -896,18 +896,11 @@ class StrategyHost:
     def add_native(self, runner: NativeStrategyRunner, universe: Optional[str] = None) -> NativeStrategyRunner:
         self.native.append(runner)
         bus = self.services.msgbus
-        for iid in runner.instrument_ids:
-            if iid not in self._bridged_bars:
-                bus.subscribe(TOPIC_BAR.format(instrument_id=iid), self._bridge_bar)
-                self._bridged_bars.add(iid)
         if universe and universe not in self._bridged_universes:
             bus.subscribe(TOPIC_CROSS_SECTION.format(universe=universe), self._bridge_slice)
             self._bridged_universes.add(universe)
         runner.register()
         return runner
-
-    def _bridge_bar(self, bar: Bar) -> None:
-        self.services.msgbus.publish(f"data.bars.{bar.bar_type}", bar)
 
     def _bridge_slice(self, xs: CrossSection) -> None:
         bars = tuple(sorted(xs.bars.values(), key=lambda b: str(b.bar_type.instrument_id)))
