@@ -222,6 +222,14 @@ grep -c '^ *publish: true' ~/midfreq/runtime/config/connections.yaml   # 2: the 
 `grep` prints 0, the runtime has an older one: take the release's
 (`cp ~/midfreq/current/defaults/config/connections.yaml ~/midfreq/runtime/config/`).
 
+**3b. Startup check** (VM, market closed): run the release for 5 minutes on a copy of the runtime
+and check it restores the strategy, streams and shuts down cleanly without trading. Only on PASS
+go on to step 4. (From 0.1.2 the script ships in the release; for 0.1.1, copy it over first.)
+
+```bash
+~/midfreq/current/ops/vm/startup_check.sh 5      # prints PASS or FAIL; the real runtime is not written
+```
+
 **4. Schedule** (VM): replace the crontab with the versioned one, which runs everything from
 `~/midfreq/current` and drops the disabled git jobs. It includes the broker snapshots
 (`vm/broker_snapshot.sh`, every 5 minutes).
