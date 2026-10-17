@@ -594,3 +594,28 @@ def test_an_unknown_market_is_a_stream_error():
         assert status.state == "error" and "BadSymbol" in status.detail
     finally:
         conn.close()
+
+
+def _push_trade(client, order_id, trade):
+    venue = client.fake_venue
+    trade = {"order": order_id, "timestamp": BASE_MS + 5, "symbol": "BTC/USDT", "side": "buy",
+             "takerOrMaker": "taker", **trade}
+    with venue.lock:
+        venue.trades.append(trade)
+    venue.push("trades", trade)
+
+
+def test_a_trade_without_a_fee_is_marked_commission_unknown(paper_config, live):
+    """ExecutionClient contract: no fee reported -> commission 0 and tags['commission_unknown']; a
+    fee reported (even 0) carries no such tag, in the currency the exchange charged it in."""
+    client, driver, events = live()
+    client.submit_order(orders().limit(BTC, OrderSide.BUY, 0.3, 60000.0))
+    vid = driver.last_order_id()
+    _push_trade(client, vid, {"id": "NOFEE", "price": 60000.0, "amount": 0.1})
+    _push_trade(client, vid, {"id": "ZEROFEE", "price": 60000.0, "amount": 0.1, "fee": {"cost": 0.0, "currency": "USDT"}})
+    _push_trade(client, vid, {"id": "BASEFEE", "price": 60000.0, "amount": 0.1, "fee": {"cost": 0.0001, "currency": "BTC"}})
+    fills = {str(f.trade_id): f for f in events.wait(OrderFilled, 3)}
+    assert fills["NOFEE"].commission == 0.0 and fills["NOFEE"].tags["commission_unknown"] is True
+    assert "commission_unknown" not in fills["ZEROFEE"].tags and fills["ZEROFEE"].commission == 0.0
+    assert (fills["BASEFEE"].commission, fills["BASEFEE"].currency) == (0.0001, "BTC")
+    assert "commission_unknown" not in fills["BASEFEE"].tags

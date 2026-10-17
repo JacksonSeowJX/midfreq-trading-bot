@@ -31,7 +31,13 @@ Updates. With ccxt.pro (part of ccxt >= 4) and an exchange that has watchOrders,
 watch_orders and watch_my_trades on a background asyncio thread; otherwise it polls fetch_order
 and fetch_my_trades for its open orders on that thread (option updates='auto'|'watch'|'poll').
 After a stream error, when the stream resumes, and every `resync_interval` seconds in any case,
-it re-reads its open orders over REST, so fills missed while disconnected are emitted then.
+it re-reads its open orders over REST, so fills missed while disconnected are emitted then. The
+status handler (`set_status_handler`) hears 'disconnected' at the first stream error (or failed
+poll) and 'reconnected' once the stream (or polling) works again and the open orders have been
+re-read. A cancel the exchange refuses (anything but a network error) is followed by a re-read
+of the order and then OrderCancelRejected. A trade that carries no fee is an OrderFilled with
+commission 0 and tags['commission_unknown']; a fee is reported in the currency the exchange
+charged it in (OKX: the base asset on a spot buy), which the PositionKeeper converts.
 
 ccxt order status -> event (each at most once per order):
     open      -> OrderAccepted
@@ -63,7 +69,7 @@ import pandas as pd
 from midfreq.core.common.timestamps import ms_to_ns, ns_to_ms, ns_to_timestamp, to_utc_timestamp
 from midfreq.core.connections import get_secret as _env_secret
 from midfreq.core.model.enums import LiquiditySide, OrderSide, OrderStatus, OrderType, TimeInForce
-from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderFilled, OrderRejected
+from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderCancelRejected, OrderFilled, OrderRejected
 from midfreq.core.model.identifiers import AccountId, InstrumentId, TradeId, as_instrument_id
 from midfreq.core.model.orders import Order
 from midfreq.data.adapters.base import ConnectorError, ExecutionClient, FillReport, OrderReport
@@ -263,6 +269,10 @@ class CcxtExecutionClient(ExecutionClient):
         self._resync_needed = False
         self._last_resync_ns = 0
         self._trade_stream = False
+        self._link_down = False             # a 'disconnected' status was reported, no 'reconnected' yet
+        self._reconnect_due = False         # the stream resumed: report 'reconnected' after the resync
+        self._rest_ok = 0                   # REST requests that succeeded (evidence the link works)
+        self._rest_ok_at_loss = 0
         self._mode: Optional[str] = None
         self._connected = False
         self._stop = threading.Event()
@@ -397,7 +407,9 @@ class CcxtExecutionClient(ExecutionClient):
 
     def _rest(self, name: str, *args, **kwargs):
         with self._rest_lock:
-            return getattr(self._ex, name)(*args, **kwargs)
+            result = getattr(self._ex, name)(*args, **kwargs)
+            self._rest_ok += 1
+            return result
 
     def _rest_has(self, feature: str) -> bool:
         return _has(self._ex, feature)
@@ -483,8 +495,13 @@ class CcxtExecutionClient(ExecutionClient):
         except Exception as exc:
             log.warning("%s refused to cancel %s (%s): %s: %s", self.exchange_id, order.client_order_id, vid,
                         type(exc).__name__, exc)
-            if not is_transient(exc):
-                self._refresh(tr)    # the order may have filled or ended: learn how
+            if not is_transient(exc):     # refused (a network error leaves the outcome unknown)
+                self._refresh(tr)         # the order may have filled or ended: learn how, then say so
+                with self._lock:
+                    self._emit(OrderCancelRejected(order.client_order_id, order.strategy_id, order.instrument_id,
+                                                   self._now_ns(),
+                                                   reason=f"cancel refused by {self.exchange_id}: "
+                                                          f"{type(exc).__name__}: {exc}"))
             return
         if isinstance(reply, dict) and reply.get("status"):
             with self._lock:
@@ -710,11 +727,13 @@ class CcxtExecutionClient(ExecutionClient):
         liquidity = LiquiditySide.MAKER if str(t.get("takerOrMaker") or "").lower() == "maker" else LiquiditySide.TAKER
         tr.emitted_qty += qty
         order = tr.order
+        tags = {"venue_order_id": tr.venue_order_id, "venue_client_order_id": tr.venue_client_id}
+        if not _has_fee(t):
+            tags["commission_unknown"] = True     # the PositionKeeper books its fee model's estimate
         self._emit(OrderFilled(
             order.client_order_id, order.strategy_id, order.instrument_id, self._ts(t.get("timestamp")),
             trade_id=TradeId(trade_id), side=order.side, last_qty=qty, last_px=px, commission=commission,
-            currency=currency, liquidity_side=liquidity,
-            tags={"venue_order_id": tr.venue_order_id, "venue_client_order_id": tr.venue_client_id}))
+            currency=currency, liquidity_side=liquidity, tags=tags))
         if tr.closed_seen and self._trades_cover(tr):
             tr.terminal = True
 
@@ -843,6 +862,7 @@ class CcxtExecutionClient(ExecutionClient):
                     return await self._poll()
                 if not failing:
                     log.warning("%s %s failed (%s: %s); retrying", self.exchange_id, method, type(exc).__name__, exc)
+                    self._link_lost(f"{method}: {type(exc).__name__}: {exc}")
                 failing = True
                 self._resync_needed = True
                 await asyncio.sleep(delay)
@@ -852,6 +872,7 @@ class CcxtExecutionClient(ExecutionClient):
                 log.info("%s %s resumed", self.exchange_id, method)
                 failing, delay = False, self._reconnect_delay
                 self._resync_needed = True     # anything between the last re-read and the resubscription
+                self._reconnect_due = self._link_down
             try:
                 on_items(items)
             except Exception:
@@ -863,10 +884,12 @@ class CcxtExecutionClient(ExecutionClient):
             try:
                 self._resolve_unconfirmed()
                 due = self._now_ns() - self._last_resync_ns >= self._resync_interval * 1e9
-                if self._resync_needed or due:
+                if self._resync_needed or due or self._link_down:
                     self._resync_needed = False
-                    if not self._resync():
+                    ok = self._resync()
+                    if not ok:
                         self._resync_needed = True
+                    self._after_resync(ok)
             except Exception:
                 log.exception("%s housekeeping failed", self.exchange_id)
 
@@ -874,10 +897,42 @@ class CcxtExecutionClient(ExecutionClient):
         while True:
             try:
                 self._resolve_unconfirmed()
-                self._resync()
+                self._after_resync(self._resync())
             except Exception:
                 log.exception("%s: polling failed", self.exchange_id)
             await asyncio.sleep(self._poll_interval)
+
+    def _after_resync(self, ok: bool) -> None:
+        """The link's state from a REST re-read of the open orders: a failed one means the
+        exchange is out of reach; after a loss, a REST request that worked (the re-read, or a
+        probe when nothing was open) means it is back and what was missed has been re-read."""
+        if not ok:
+            self._link_lost("a REST re-read of the open orders failed")
+            return
+        if not (self._link_down or self._reconnect_due):
+            return
+        if self._link_down and self._rest_ok <= self._rest_ok_at_loss and not self._probe_link():
+            return
+        self._link_back("the exchange answers again; open orders re-read")
+
+    def _probe_link(self) -> bool:
+        try:
+            self._rest("fetch_open_orders")
+        except Exception as exc:
+            return not is_transient(exc)      # an answer, even a refusal, means the link works
+        return True
+
+    def _link_lost(self, detail: str) -> None:
+        if not self._link_down:
+            self._link_down = True
+            self._rest_ok_at_loss = self._rest_ok
+            self._status("disconnected", f"{self.exchange_id}: {detail}", self._now_ns())
+
+    def _link_back(self, detail: str) -> None:
+        self._reconnect_due = False
+        if self._link_down:
+            self._link_down = False
+            self._status("reconnected", f"{self.exchange_id}: {detail}", self._now_ns())
 
     def _resync(self) -> bool:
         """Re-read every open order over REST: its trades first, then its status, so fills come
@@ -1045,6 +1100,14 @@ def _has(ex: Any, feature: str, default: bool = False) -> bool:
     if not isinstance(has, dict) or feature not in has:
         return default
     return bool(has.get(feature))
+
+
+def _has_fee(t: Dict[str, Any]) -> bool:
+    """Whether a ccxt trade reports its fee at all (a reported 0 counts)."""
+    fee = t.get("fee")
+    if isinstance(fee, dict) and fee.get("cost") is not None:
+        return True
+    return any(isinstance(f, dict) and f.get("cost") is not None for f in (t.get("fees") or []))
 
 
 def _fee(t: Dict[str, Any]) -> Tuple[float, str]:

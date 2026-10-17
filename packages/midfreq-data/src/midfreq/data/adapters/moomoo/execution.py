@@ -7,7 +7,11 @@ What it carries over from midfreq.live.order_gateway, the original engine's gate
 - Paper unless told otherwise. The trading environment comes from the `trading_env` option, else
   the `moomoo` connection (config/connections.yaml, or MIDFREQ_MOOMOO_TRADING_ENV), else
   `simulate`. Only `real` (or `live`) selects TrdEnv.REAL; any other word is refused rather than
-  guessed, so a typo can never select real money.
+  guessed, so a typo can never select real money. An option asking for real money is refused
+  unless the connection says real as well (the same rule as the ccxt client).
+- A refused cancel is reported as OrderCancelRejected, after the fresh query of the order below.
+- The connection's drops and returns go to `set_status_handler` ('disconnected', and
+  'reconnected' once the catch-up poll has been started).
 - Orders go at the price given: a LIMIT order is OpenD's NORMAL order at `order.price`, a MARKET
   order is OpenD's MARKET order. The client never invents or adjusts a price (the original
   gateway's 1% marketable-limit slip is the OMS's policy now, not the venue client's).
@@ -56,7 +60,7 @@ import pandas as pd
 
 from midfreq.core.common.timestamps import ns_to_timestamp, to_utc_timestamp
 from midfreq.core.model.enums import OrderSide, OrderStatus, OrderType, TimeInForce
-from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderFilled, OrderRejected
+from midfreq.core.model.events import OrderAccepted, OrderCanceled, OrderCancelRejected, OrderFilled, OrderRejected
 from midfreq.core.model.identifiers import AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId
 from midfreq.core.model.orders import Order
 from midfreq.data.adapters.base import ConnectorError, ExecutionClient, FillReport, OrderReport
@@ -294,6 +298,15 @@ class MoomooExecutionClient(ExecutionClient):
         if env_word not in TRADING_ENVS:
             raise ValueError(f"moomoo trading_env must be one of {sorted(TRADING_ENVS)}, got {conn['trading_env']!r}")
         self.trd_env = TRADING_ENVS[env_word]
+        if self.trd_env == "REAL" and opts["trading_env"] is not None:
+            # Asking for real money in the options is not enough: the moomoo connection itself
+            # (config/connections.yaml or MIDFREQ_MOOMOO_TRADING_ENV) must say real as well, as
+            # for ccxt, so a node configuration alone can never switch an account to real money.
+            configured = connection_settings("moomoo", {"trading_env": "simulate"})["trading_env"]
+            if TRADING_ENVS.get(str(configured or "simulate").strip().lower()) != "REAL":
+                raise ConnectorError(
+                    "refusing to trade real money through moomoo: trading_env=real needs `trading_env: real` "
+                    "under `moomoo` in config/connections.yaml (or MIDFREQ_MOOMOO_TRADING_ENV=real) as well")
         self.security_firm = str(conn["security_firm"]).upper()
         self.acc_id = int(opts["acc_id"] or 0)
         self.host, self.port = connector.config.host, int(connector.config.port)
@@ -518,9 +531,11 @@ class MoomooExecutionClient(ExecutionClient):
                 t.cancel_requested = True
             return
         # Refused, typically because it has already filled; the status may lag, so look again
-        # (order and deals, uncached) and report what OpenD says now.
+        # (order and deals, uncached), report what OpenD says now, then the refusal itself.
         log.warning("moomoo refused to cancel %s (%s): %s; querying the order", t.client_order_id, vid, data)
         self._refresh(t)
+        with self._lock:
+            self._emit(self._event(OrderCancelRejected, t, reason=f"cancel refused by moomoo: {data}"))
 
     def query_order(self, order: Order) -> Optional[OrderReport]:
         ctx = self._require_ctx()
@@ -673,6 +688,9 @@ class MoomooExecutionClient(ExecutionClient):
                                trd_env=self.trd_env, acc_id=self.acc_id)
         if ret != RET_OK:
             log.warning("moomoo refused to cancel %s (%s): %s", t.client_order_id, t.venue_order_id, data)
+            self._refresh(t)
+            with self._lock:
+                self._emit(self._event(OrderCancelRejected, t, reason=f"cancel refused by moomoo: {data}"))
 
     # ── SDK callbacks (SDK threads) ──────────────────────────────────
 
@@ -703,14 +721,16 @@ class MoomooExecutionClient(ExecutionClient):
         log.warning("moomoo %s trade connection restored; catching up on orders", self.market)
         if self._poller is not None and self._poller.is_alive():
             self._wake.set()
-            return
-        try:
-            self.poll_now()
-        except Exception:
-            log.exception("moomoo %s catch-up poll after reconnect failed", self.market)
+        else:
+            try:
+                self.poll_now()
+            except Exception:
+                log.exception("moomoo %s catch-up poll after reconnect failed", self.market)
+        self._status("reconnected", f"moomoo {self.market} trade connection restored", self._now_ns())
 
     def _on_disconnected(self, ctx, detail: Any) -> None:
         log.warning("moomoo %s trade connection lost (%s); the SDK reconnects every 6 s", self.market, detail)
+        self._status("disconnected", f"moomoo {self.market} trade connection lost: {detail}", self._now_ns())
 
     # ── applying what OpenD says (always under self._lock) ───────────
 
