@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "replay":
-        from midfreq.trading.modes.replay import main as replay_main
+        from midfreq.trading.replay.sessions import main as replay_main
         return replay_main(argv[1:])
     args = build_parser().parse_args(argv)
     return int(args.func(args))

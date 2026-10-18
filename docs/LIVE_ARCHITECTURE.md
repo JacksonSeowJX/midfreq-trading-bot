@@ -63,12 +63,12 @@ showed what it lacks:
 | Component | Module | Responsibility |
 |---|---|---|
 | **Connectors** | `midfreq.data.adapters.<venue>` | `ExecutionClient` (submit, cancel, fills and refused cancels as events, connection status, open orders and fills for reconciliation), live streams on `DataClient` (`subscribe_bars`, `subscribe_quotes`, stream status, subscription limit). Contracts: `adapters/base.py`. |
-| **MarketDataService** | `midfreq.trading.marketdata` | One subscription per bar type whatever the number of strategies (reference counted, within the venue's limit, counted in subscriptions); bar finality; cross-sections per universe (complete, or at least 90% when the window elapses); quotes; stall detection (no bar update for 1.25 intervals of session time: resubscribe once, then `fatal_stall`); warm-up from the local store only (never the broker's metered history); the session's bars written to the store at stop (paper and live only). |
+| **MarketDataService** | `midfreq.trading.data` | One subscription per bar type whatever the number of strategies (reference counted, within the venue's limit, counted in subscriptions); bar finality; cross-sections per universe (complete, or at least 90% when the window elapses); quotes; stall detection (no bar update for 1.25 intervals of session time: resubscribe once, then `fatal_stall`); warm-up from the local store only (never the broker's metered history); the session's bars written to the store at stop (paper and live only). |
 | **ReferenceData** | `midfreq.trading.refdata` | Instruments (lot, tick, currency) from each connector's `InstrumentProvider`, cached, the venue's lot rule when a provider cannot answer; trading calendars per venue (sessions, lunch breaks, holidays and early closes from `config/venues.json`); corporate actions (dividends, splits) from `config/corporate_actions.json` and, where a venue reports them, its cash flows. |
-| **StrategyHost** | `midfreq.trading.strategy_host` | Runs strategies on bus events. `LiveLegacyAdapter` gives a candle strategy a portfolio whose `execute_trade` sends a DAY limit order to the OMS, with the decision candle's close as `reference_price`, and waits for its outcome (see below). Native strategies get bars on their own topic and cross-sections as `data.slices`. |
-| **OMS** | `midfreq.trading.oms` | The one owner of order state (`OrderStatus` state machine); unique client order ids `<strategy>-<YYYYMMDD>-<seq>`; routing by the instrument's venue; the journal (`orders_<date>.jsonl`, append-only, written before an order is sent); order families and the unfilled-order policy (re-price from the quote or last price, then cancel, each step journaled with the venue's reply); refused cancels; reconciliation with the venue's open orders and fills at start-up, every 5 minutes and after reconnects. |
+| **StrategyHost** | `midfreq.trading.strategy` | Runs strategies on bus events. `LiveLegacyAdapter` gives a candle strategy a portfolio whose `execute_trade` sends a DAY limit order to the OMS, with the decision candle's close as `reference_price`, and waits for its outcome (see below). Native strategies get bars on their own topic and cross-sections as `data.slices`. |
+| **OMS** | `midfreq.trading.execution` | The one owner of order state (`OrderStatus` state machine); unique client order ids `<strategy>-<YYYYMMDD>-<seq>`; routing by the instrument's venue; the journal (`orders_<date>.jsonl`, append-only, written before an order is sent); order families and the unfilled-order policy (re-price from the quote or last price, then cancel, each step journaled with the venue's reply); refused cancels; reconciliation with the venue's open orders and fills at start-up, every 5 minutes and after reconnects. |
 | **PreTradeRisk** | `midfreq.trading.risk` | Before every order: kill switch, quantity a whole lot, trading session open (calendar), a price to value it, price band of the last price (fat finger), order and position notionals, no short selling, cash available at the worst case. Denials become `OrderDenied`. |
-| **PositionKeeper** | `midfreq.trading.positions` | Books per strategy (positions, average price, cash, realised P&L, commissions, dividends) from fills, with Portfolio's arithmetic to the bit; fee estimates for fills whose venue reports none; fees in another currency converted; corporate actions; reconciliation with the broker's positions that only ever shrinks a strategy's claim. |
+| **PositionKeeper** | `midfreq.trading.portfolio` | Books per strategy (positions, average price, cash, realised P&L, commissions, dividends) from fills, with Portfolio's arithmetic to the bit; fee estimates for fills whose venue reports none; fees in another currency converted; corporate actions; reconciliation with the broker's positions that only ever shrinks a strategy's claim. |
 | **TradingNode** | `midfreq.trading.node` | Wiring and lifecycle: build the components → connect → reference data → restore every strategy's state and reconcile → session start → warm up → subscribe → the event loop with timers (finality and policies every second, reconciliation every 5 min, heartbeat) → stop: trading off, cancel what works, finalise, save state, write bars, session end, disconnect. Modes: `shadow` (orders logged, never sent), `sim` (a simulated venue, for replays), `paper`, `live`. |
 | **Ops** | `midfreq.trading.ops` | Python `logging` with a console format (`SGT time | ET time | LEVEL | component | message`) and a JSON-lines file (`ops_<session>.jsonl`); heartbeat every 5 min; alert sinks behind configuration, off by default. |
 
@@ -208,7 +208,7 @@ bars to the store.
 
 `config/node_<name>.yaml` (`midfreq.trading.config`) names the node, its connectors, accounts,
 universes and strategies, and one section per component. The default components are the
-factories of `midfreq.trading.components`, which build the real classes with their real
+factories of `midfreq.trading.node.components`, which build the real classes with their real
 constructor arguments:
 
 | Section | Builds | Settings |
@@ -350,13 +350,13 @@ remark (S1); HKEX's spread table (S2); an empty position list with holdings is a
 
 | Part | Built |
 |---|---|
-| A: OMS, risk, positions, journal | `midfreq/trading/{oms,risk,positions,journal}.py` |
+| A: OMS, risk, positions, journal | `midfreq/trading/{execution,risk,portfolio}/` |
 | B: Moomoo connector, live | `midfreq/data/adapters/moomoo/{execution,streaming}.py`, the connector's `execution_client()` and streams, `tests/support/fake_moomoo.py` |
-| C: market data and reference data | `midfreq/trading/{marketdata,refdata,calendar,corporate_actions}.py`, holidays in `config/venues.json` |
+| C: market data and reference data | `midfreq/trading/{data,refdata}/`, holidays in `config/venues.json` |
 | D: ccxt connector, simulated venue, contract suite | `midfreq/data/adapters/ccxt/{execution,streaming}.py`, `midfreq/trading/testing/`, the execution contract suite, `tests/support/fake_{ccxt,sim}.py` |
-| E: node, strategies, records, ops | `midfreq/trading/{node,strategy_host,state,session_log,ops,shadow,config,cli,replay}.py`, `ops/run_node.sh`, `config/node_*.yaml` |
-| Integration | `midfreq/trading/components.py`, the contracts above, the wiring and the tests that join the parts |
+| E: node, strategies, records, ops | `midfreq/trading/{node,strategy,persistence,ops,config,replay}/`, `execution/shadow.py`, `cli.py`, `ops/run_node.sh`, `config/node_*.yaml` |
+| Integration | `midfreq/trading/node/components.py`, the contracts above, the wiring and the tests that join the parts |
 
 The contracts they share are `midfreq/data/adapters/base.py` (connectors),
-`midfreq/trading/interfaces.py` (components) and `tests/support/venue_driver.py` (fake venues for
+`midfreq/trading/core/` (components) and `tests/support/venue_driver.py` (fake venues for
 the execution contract suite).

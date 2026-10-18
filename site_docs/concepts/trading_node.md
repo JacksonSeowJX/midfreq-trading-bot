@@ -11,7 +11,7 @@ corporate actions. The strategies are the same classes as in backtests.
 The node is pure Python and imports no venue SDK: it reaches a broker or exchange only through
 that venue's connector, so a new venue is a new connector and nothing in the node changes. The
 design document is [`docs/LIVE_ARCHITECTURE.md`](repo:docs/LIVE_ARCHITECTURE.md); the contracts
-between the parts are in [`midfreq.trading.interfaces`](../api/python/midfreq/trading/interfaces.md)
+between the parts are in [`midfreq.trading.core`](../api/python/midfreq/trading/core/index.md)
 and, towards the venues, [`midfreq.data.adapters.base`](../api/python/midfreq/data/adapters/base.md).
 
 !!! info "Two live paths"
@@ -76,14 +76,45 @@ flowchart LR
 | Component | Module | Responsibility |
 |---|---|---|
 | **Connectors** | `midfreq.data.adapters.<venue>` | An `ExecutionClient` per account (submit, cancel, fills and refused cancels as events, connection status, open orders and fills for reconciliation) and live streams on the `DataClient` (`subscribe_bars`, `subscribe_quotes`, stream status, the subscription limit) |
-| **MarketDataService** | [`midfreq.trading.marketdata`](../api/python/midfreq/trading/marketdata.md) | One subscription per bar type however many strategies want it, within the venue's limit; bar finality; cross-sections per universe; quotes; stall detection; warm-up from the local price cache; the session's bars written to the cache at the end (paper and live only) |
-| **ReferenceData** | [`midfreq.trading.refdata`](../api/python/midfreq/trading/refdata.md) | Instruments (lot, tick, currency) from each connector's `InstrumentProvider`, cached; trading calendars per venue; corporate actions |
-| **StrategyHost** | [`midfreq.trading.strategy_host`](../api/python/midfreq/trading/strategy_host.md) | Runs the strategies on the bus: candle strategies through `LiveLegacyAdapter`, event-driven ones through `NativeStrategyRunner` |
-| **OMS** | [`midfreq.trading.oms`](../api/python/midfreq/trading/oms.md) | The one owner of order state: the state machine, client order ids, routing by venue, the write-ahead journal, order families and the unfilled-order policy, refused cancels, reconciliation with the venues |
-| **PreTradeRisk** | [`midfreq.trading.risk`](../api/python/midfreq/trading/risk.md) | The checks every order passes before it is sent, and the kill switch |
-| **PositionKeeper** | [`midfreq.trading.positions`](../api/python/midfreq/trading/positions.md) | Each strategy's positions, average prices, cash, realized P&L, commissions and dividends, from the fills; reconciliation with the broker that only ever shrinks a strategy's claim |
-| **TradingNode** | [`midfreq.trading.node`](../api/python/midfreq/trading/node.md) | Builds the components from the configuration, runs their lifecycle, and owns the event loop |
-| **Ops** | [`midfreq.trading.ops`](../api/python/midfreq/trading/ops.md) | Logging to the console and to a JSON-lines file, the heartbeat, alert sinks |
+| **MarketDataService** | [`midfreq.trading.data`](../api/python/midfreq/trading/data/index.md) | One subscription per bar type however many strategies want it, within the venue's limit; bar finality; cross-sections per universe; quotes; stall detection; warm-up from the local price cache; the session's bars written to the cache at the end (paper and live only) |
+| **ReferenceData** | [`midfreq.trading.refdata`](../api/python/midfreq/trading/refdata/index.md) | Instruments (lot, tick, currency) from each connector's `InstrumentProvider`, cached; trading calendars per venue; corporate actions |
+| **StrategyHost** | [`midfreq.trading.strategy`](../api/python/midfreq/trading/strategy/index.md) | Runs the strategies on the bus: candle strategies through `LiveLegacyAdapter`, event-driven ones through `NativeStrategyRunner` |
+| **OMS** | [`midfreq.trading.execution`](../api/python/midfreq/trading/execution/index.md) | The one owner of order state: the state machine, client order ids, routing by venue, the write-ahead journal, order families and the unfilled-order policy, refused cancels, reconciliation with the venues |
+| **PreTradeRisk** | [`midfreq.trading.risk`](../api/python/midfreq/trading/risk/index.md) | The checks every order passes before it is sent, and the kill switch |
+| **PositionKeeper** | [`midfreq.trading.portfolio`](../api/python/midfreq/trading/portfolio/index.md) | Each strategy's positions, average prices, cash, realized P&L, commissions and dividends, from the fills; reconciliation with the broker that only ever shrinks a strategy's claim |
+| **TradingNode** | [`midfreq.trading.node`](../api/python/midfreq/trading/node/index.md) | Builds the components from the configuration, runs their lifecycle, and owns the event loop |
+| **Ops** | [`midfreq.trading.ops`](../api/python/midfreq/trading/ops/index.md) | Logging to the console and to a JSON-lines file, the heartbeat, alert sinks |
+
+### Code layout
+
+The package has one folder per domain, and each folder imports only the folders below it. The
+rule is an import-linter contract in the root `pyproject.toml` ("Trading node layers"), checked on
+every change, so a component cannot quietly reach into another.
+
+```text
+midfreq/trading/
+├── cli.py         the midfreq-node command
+├── replay/        recorded sessions replayed through the node
+├── node/          the kernel: event loop, wiring, start-up and shutdown, the broker's view,
+│                  the default components
+├── strategy/      the strategy host; legacy/ runs candle strategies unchanged, native.py the
+│                  event-driven ones
+├── execution/     the OMS, its order state machine, the unfilled-order policy, reconciliation,
+│                  pricing, the order journal, shadow execution
+├── risk/          pre-trade checks and the kill switch
+├── portfolio/     positions, cash and P&L per strategy
+├── data/          market data: subscriptions and quota, bar finality, cross-sections, stalls,
+│                  the candle store
+├── refdata/       instruments, trading calendars, corporate actions
+├── config/        the node's YAML configuration
+├── persistence/   state files and session logs, in the session runner's formats
+├── testing/       the simulated venue
+├── ops/           logging, alerts, health
+└── core/          the contracts between the parts: protocols and events
+```
+
+Folders on the same level of the contract (execution, risk, portfolio and data) never import
+one another; they meet only in the node.
 
 ## The event loop
 
@@ -337,7 +368,7 @@ not make the next session run it again.
 ## Configuration
 
 A node is configured by one YAML file, `config/node_<name>.yaml`
-([`midfreq.trading.config`](../api/python/midfreq/trading/config.md)): its connectors, accounts,
+([`midfreq.trading.config`](../api/python/midfreq/trading/config/index.md)): its connectors, accounts,
 universes and strategies, and one section per component. The forward test's, abridged from
 [`config/node_sp100.yaml`](repo:config/node_sp100.yaml):
 
@@ -384,7 +415,7 @@ marketdata:
 ```
 
 The default components are the factories of
-[`midfreq.trading.components`](../api/python/midfreq/trading/components.md), which build the real
+[`midfreq.trading.node.components`](../api/python/midfreq/trading/node/components.md), which build the real
 classes from their sections:
 
 | Section | Builds | Settings |
@@ -434,12 +465,12 @@ configuration config/node_sp100.yaml: valid
   node      sp100, mode shadow, timeframe 1h
   account   moomoo-us: connector moomoo, environment paper, options {'market': 'US'}
   strategy  sp100-xsr: CrossSectionalReversal (legacy) on sp100-xsr (98 symbols), account moomoo-us, capital 100,000, params {'lookback': 30, 'top_n': 3, 'rebalance_every': 19}, pricing last slip 0.01
-  component refdata       midfreq.trading.components:make_refdata: ok
-  component journal       midfreq.trading.components:make_journal: ok
-  component positions     midfreq.trading.components:make_positions: ok
-  component risk          midfreq.trading.components:make_risk: ok
-  component oms           midfreq.trading.components:make_oms: ok
-  component marketdata    midfreq.trading.components:make_marketdata: ok
+  component refdata       midfreq.trading.node.components:make_refdata: ok
+  component journal       midfreq.trading.node.components:make_journal: ok
+  component positions     midfreq.trading.node.components:make_positions: ok
+  component risk          midfreq.trading.node.components:make_risk: ok
+  component oms           midfreq.trading.node.components:make_oms: ok
+  component marketdata    midfreq.trading.node.components:make_marketdata: ok
 ```
 
 `run` starts the node and blocks until the duration ends, a stop signal arrives or the stream

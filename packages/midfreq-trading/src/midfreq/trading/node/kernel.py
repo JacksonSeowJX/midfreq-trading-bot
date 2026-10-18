@@ -90,7 +90,7 @@ from midfreq.core.model.instruments import Instrument
 from midfreq.core.venues.spec import VenueRegistry, default_venues
 from midfreq.data.adapters.base import BarUpdate, StreamStatus
 from midfreq.trading.config.settings import NodeConfig
-from midfreq.trading.modes.shadow import ShadowExecutionClient
+from midfreq.trading.execution.shadow import ShadowExecutionClient
 from midfreq.trading.node.broker_view import BrokerViewMixin
 from midfreq.trading.node.clock import NANOS, ClockMixin, TimerEvent, _Timer
 from midfreq.trading.node.context import (  # noqa: F401

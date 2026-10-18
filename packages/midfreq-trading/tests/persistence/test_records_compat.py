@@ -230,7 +230,7 @@ def test_forward_test_reads_a_node_session(tmp_path):
     from midfreq.research import forward_test
     from midfreq.trading.config.settings import config_from_dict
     from midfreq.trading.node.kernel import TradingNode
-    from midfreq.trading.modes.replay import ReplayBroker
+    from midfreq.trading.replay.sessions import ReplayBroker
     from midfreq.core.model.data import Bar, BarType, BarSpecification
     from midfreq.data.adapters.base import BarUpdate
     from midfreq.trading.config.settings import instrument_for_symbol

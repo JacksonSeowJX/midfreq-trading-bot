@@ -17,7 +17,7 @@ from midfreq.data.adapters.base import BarUpdate
 from midfreq.trading.config.settings import config_from_dict, instrument_for_symbol
 from midfreq.trading.node.kernel import TradingNode
 from midfreq.trading.persistence.session_log import read_events
-from midfreq.trading.modes.shadow import ShadowExecutionClient
+from midfreq.trading.execution.shadow import ShadowExecutionClient
 
 IID = InstrumentId.from_str("AAPL.XNAS")
 NOW = pd.Timestamp("2026-10-14 14:00", tz="UTC").value

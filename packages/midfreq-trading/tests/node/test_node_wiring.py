@@ -283,7 +283,7 @@ def test_c4_shadow_and_sim_never_write_the_real_bar_store(tmp_path, monkeypatch,
 def test_c4_a_replay_leaves_the_real_data_dir_untouched(tmp_path, monkeypatch):
     """C4: a replay on the real components writes its bars to its own store only."""
     from midfreq.core import paths
-    from midfreq.trading.modes.replay import RecordedSession, replay_sessions
+    from midfreq.trading.replay.sessions import RecordedSession, replay_sessions
     root = tmp_path / "root"
     (root / "data" / "US_AAPL").mkdir(parents=True)
     (root / "data" / "US_AAPL" / "1h.parquet").write_bytes(b"the real cache")

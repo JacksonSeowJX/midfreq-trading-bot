@@ -87,5 +87,25 @@ layers = [
     # the C++ engine's Python face imports nothing else from midfreq; midfreq.backtest.native adapts it
     "midfreq.core | midfreq.engine",
 ]
+# The trading node's own folders, each importing only the layers below it (packages/midfreq-trading).
+# Folders on one line separated by "|" are independent: none imports another.
+[[tool.importlinter.contracts]]
+name = "Trading node layers"
+type = "layers"
+layers = [
+    "midfreq.trading.cli",
+    "midfreq.trading.replay",
+    "midfreq.trading.node",
+    "midfreq.trading.strategy",
+    "midfreq.trading.execution | midfreq.trading.risk | midfreq.trading.portfolio | midfreq.trading.data",
+    "midfreq.trading.refdata",
+    "midfreq.trading.config | midfreq.trading.persistence | midfreq.trading.testing",
+    "midfreq.trading.ops",
+    "midfreq.trading.core",
+]
+# The one exception: validating a configuration builds its parts with the node's own component
+# factories (config.settings.validate -> node.components.check_settings, imported where it is used).
+ignore_imports = ["midfreq.trading.config.settings -> midfreq.trading.node.components"]
+
 # Venue SDKs only inside connectors: tests/integration/test_venue_sdk_boundary.py (import-linter
 # cannot check external imports in this namespace layout).

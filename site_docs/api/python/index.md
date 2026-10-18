@@ -18,7 +18,7 @@ starts with an underscore are private and are not listed.
 | [`midfreq.strategies`](midfreq/strategies/index.md) | [`candle_strategies`](midfreq/strategies/candle_strategies.md), [`trading`](midfreq/strategies/trading/index.md), [`event_driven`](midfreq/strategies/event_driven/index.md) |
 | [`midfreq.backtest`](midfreq/backtest/index.md) | [`backtester`](midfreq/backtest/backtester.md), [`optimizer`](midfreq/backtest/optimizer.md), [`engine`](midfreq/backtest/engine.md), [`fill_models`](midfreq/backtest/fill_models.md), [`runstore`](midfreq/backtest/runstore.md) |
 | [`midfreq.live`](midfreq/live/index.md) | [`live_engine`](midfreq/live/live_engine.md), [`order_gateway`](midfreq/live/order_gateway.md) |
-| [`midfreq.trading`](midfreq/trading/index.md) | [`node`](midfreq/trading/node.md), [`oms`](midfreq/trading/oms.md), [`risk`](midfreq/trading/risk.md), [`positions`](midfreq/trading/positions.md), [`marketdata`](midfreq/trading/marketdata.md), [`interfaces`](midfreq/trading/interfaces.md) |
+| [`midfreq.trading`](midfreq/trading/index.md) | [`node`](midfreq/trading/node/index.md), [`execution`](midfreq/trading/execution/index.md), [`risk`](midfreq/trading/risk/index.md), [`portfolio`](midfreq/trading/portfolio/index.md), [`data`](midfreq/trading/data/index.md), [`core`](midfreq/trading/core/index.md) |
 | [`midfreq.research`](midfreq/research/index.md) | [`reality_check`](midfreq/research/reality_check.md), [`overfitting`](midfreq/research/overfitting.md), [`results_index`](midfreq/research/results_index.md) |
 
 !!! note "Not in this reference"

@@ -35,7 +35,7 @@ import pytest
 from _node_testkit import standin_components
 from midfreq.core.paths import repo_root
 from midfreq.trading.config.settings import load_config
-from midfreq.trading.modes.replay import (
+from midfreq.trading.replay.sessions import (
     ReplayBroker, compare_decisions, decisions, load_recorded_sessions, repeat_backwards, replay_sessions,
 )
 from midfreq.core.model.identifiers import InstrumentId
@@ -328,7 +328,7 @@ STATE_17_OCT = {"saved_at": "2026-10-17 04:01:04.571102",
 def _synthetic_days(symbols, days=("2026-10-19", "2026-10-20")):
     """Seven hourly cross-sections a day, every symbol, from a deterministic walk (AMAT and MU
     near their recent prices)."""
-    from midfreq.trading.modes.replay import RecordedSession
+    from midfreq.trading.replay.sessions import RecordedSession
     start = {"US.AMAT": 540.0, "US.MU": 1080.0}
     out = []
     for d, day in enumerate(days):
@@ -352,7 +352,7 @@ def test_from_the_real_state_the_first_node_rebalance_matches_the_original(tmp_p
     The node sends the original engine's orders, on the same candle, at the same quantities and
     prices, and both end with the same clock, holdings and cash."""
     import copy
-    from midfreq.trading.modes.replay import ReplayBroker, replay_sessions
+    from midfreq.trading.replay.sessions import ReplayBroker, replay_sessions
     cfg, s = sp100
     symbols = list(cfg.universes[s.universe].symbols)
     sessions = _synthetic_days(symbols)

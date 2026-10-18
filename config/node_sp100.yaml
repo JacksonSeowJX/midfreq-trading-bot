@@ -83,7 +83,7 @@ risk:
       # keeps the original sizing; the strategy's own cash check is the cash check.
       check_cash: false
 
-# Orders left unfilled (midfreq.trading.oms.UnfilledOrderPolicy). The original engine waited 30 s,
+# Orders left unfilled (midfreq.trading.execution.UnfilledOrderPolicy). The original engine waited 30 s,
 # cancelled, and waited up to 30 s more for the final status, with no retry; that is the preset
 # `unfilled_order: original_engine`, which `midfreq-node replay` uses to reproduce its decisions.
 oms:

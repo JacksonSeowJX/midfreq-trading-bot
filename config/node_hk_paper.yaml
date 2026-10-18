@@ -104,7 +104,7 @@ risk:
   price_band_pct: 0.03        # a limit more than 3% from the latest price is a fat finger
   require_session_open: true  # no order outside 09:30-12:00 and 13:00-16:00 HKT or on a holiday
 
-# Orders left unfilled (midfreq.trading.oms.UnfilledOrderPolicy). A first order at the last price
+# Orders left unfilled (midfreq.trading.execution.UnfilledOrderPolicy). A first order at the last price
 # fills only when the last trade was on the far side; otherwise after 20 s it is cancelled and sent
 # again for what is left 0.3% through the latest price (2-3 ticks on these stocks: marketable),
 # twice, before the rest is cancelled with the reason logged.

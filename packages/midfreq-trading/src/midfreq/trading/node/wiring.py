@@ -19,7 +19,7 @@ from midfreq.core.paths import live_sessions_dir
 from midfreq.data.adapters.base import ExecutionClient
 from midfreq.trading.config.settings import StrategySettings, instrument_for_symbol
 from midfreq.trading.core.interfaces import TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_STREAM
-from midfreq.trading.modes.shadow import ShadowExecutionClient
+from midfreq.trading.execution.shadow import ShadowExecutionClient
 from midfreq.trading.node.context import NodeContext, NodeError, build_component
 from midfreq.trading.ops.logs import get_logger
 from midfreq.trading.strategy.host import NodeServices, StrategyHost
