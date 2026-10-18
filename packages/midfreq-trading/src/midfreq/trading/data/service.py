@@ -68,29 +68,37 @@ Warm-up and the store
 
 The store is DataStorage() unless one is given, i.e. the data/ folder of MIDFREQ_ROOT
 (midfreq.core.paths); tests pass a DataStorage on a temporary folder.
+
+The parts of the service each have a module in this folder: subscriptions.py (the streams and each
+venue account's subscription quota), finality.py, cross_section.py, stalls.py and store.py
+(warm-up and the session's bars). This module holds the service itself: its construction, the
+connectors' handlers, its lifecycle, the calls the node's loop makes, and what strategies and the
+node read.
 """
 from __future__ import annotations
 
 import logging
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
-from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, Tuple
-
-import pandas as pd
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from midfreq.core.common.clock import Clock, LiveClock
 from midfreq.core.common.msgbus import MessageBus
-from midfreq.core.model.data import BAR_COLUMNS, Bar, BarSpecification, BarType, QuoteTick
+from midfreq.core.model.data import Bar, BarSpecification, BarType, QuoteTick
 from midfreq.core.model.identifiers import InstrumentId, Venue, as_instrument_id, as_venue
-from midfreq.core.venues.spec import VenueRegistry, VenueSpec, default_venues
+from midfreq.core.venues.spec import VenueRegistry, default_venues
 from midfreq.data.adapters.base import BarUpdate, DataClient, StreamStatus
 from midfreq.data.storage import DataStorage
 from midfreq.trading.refdata.calendar import VenueCalendar
 from midfreq.trading.core.interfaces import (
-    TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_QUOTE, TOPIC_STREAM, CrossSection, EventQueue, ReferenceData,
-    StreamEvent, TradingCalendar,
+    TOPIC_QUOTE, TOPIC_STREAM, EventQueue, ReferenceData, StreamEvent, TradingCalendar,
+)
+from midfreq.trading.data.cross_section import DEFAULT_MIN_SHARE, CrossSectionMixin, _Universe
+from midfreq.trading.data.finality import DEFAULT_GRACE_S, DEFAULT_LATE_GRACE_S, FinalityMixin, _BarState, _iso
+from midfreq.trading.data.stalls import DEFAULT_STALL_FACTOR, StallsMixin
+from midfreq.trading.data.store import DEFAULT_WARM_UP, CandleStore, PersistReport
+from midfreq.trading.data.subscriptions import (
+    SubscriptionLimitError, SubscriptionQuota, SubscriptionsMixin, _Stream,
 )
 
 log = logging.getLogger("midfreq.trading.marketdata")
@@ -100,23 +108,7 @@ __all__ = [
     "DEFAULT_GRACE_S", "DEFAULT_MIN_SHARE", "DEFAULT_STALL_FACTOR", "DEFAULT_WARM_UP",
 ]
 
-DEFAULT_GRACE_S = 60.0          # a forming bar is final this long after its close without a successor
-DEFAULT_LATE_GRACE_S = 600.0    # ... or this long, while its stream has delivered nothing since the close
-DEFAULT_MIN_SHARE = 0.9         # LE 363: math.ceil(0.9 * len(symbols))
-DEFAULT_STALL_FACTOR = 1.25     # LE 325: 1.25 candle periods of silence
-DEFAULT_WARM_UP = 60            # LE 373: _warm_up(candles=60)
-
-# LE 381-382: the window the original engine wanted `count` cached candles inside, else it went
-# to the broker. Used here only to warn that the cache is stale.
-_WARM_UP_LOOKBACK = {"1m": timedelta(days=3), "5m": timedelta(days=10),
-                     "1h": timedelta(days=30), "1d": timedelta(days=200)}
-
 _STREAM_STATES = {"connected", "disconnected", "reconnected", "error"}
-_NS_PER_MIN = 60 * 1_000_000_000
-
-
-class SubscriptionLimitError(RuntimeError):
-    """A subscription would take a venue account past the number of streams it may hold."""
 
 
 @dataclass(frozen=True)
@@ -135,71 +127,13 @@ class StreamHandlers:
     stream_status: Callable[[StreamStatus], None]
 
 
-@dataclass(frozen=True)
-class PersistReport:
-    """What `stop()` wrote to the store."""
-    bars_written: int
-    instruments_written: int
-    failed: int
-    errors: Tuple[str, ...] = ()
+class LiveMarketDataService(SubscriptionsMixin, FinalityMixin, CrossSectionMixin, StallsMixin):
+    """The node's MarketDataService (midfreq.trading.interfaces.MarketDataService).
 
-
-@dataclass
-class _BarState:
-    bar_type: BarType
-    refs: int = 0
-    stream_key: Optional[Tuple[int, BarSpecification]] = None
-    forming: Optional[Bar] = None
-    last_final_ts: Optional[int] = None     # newest bar published
-    last_bar: Optional[Bar] = None
-    floor_ts: Optional[int] = None          # newest warm-up bar: anything not newer is history
-
-
-@dataclass
-class _Universe:
-    name: str
-    spec: BarSpecification
-    members: Dict[BarType, int] = field(default_factory=dict)          # bar type -> subscriptions
-    pending: Dict[int, Dict[InstrumentId, Bar]] = field(default_factory=dict)
-    done_through: Optional[int] = None      # newest interval published or given up as a gap
-    published: int = 0
-    gaps: int = 0
-
-
-@dataclass
-class _Stream:
-    """One live bar stream: one client, one bar specification (all its instruments)."""
-    client_index: int
-    spec: BarSpecification
-    venues: Set[Venue] = field(default_factory=set)
-    bar_types: Set[BarType] = field(default_factory=set)
-    last_update_ns: Optional[int] = None    # the stall clock (pushes, the start, a resubscribe)
-    last_push_ns: Optional[int] = None      # when the last push was received (pushes only)
-    resubscribed: bool = False
-    fatal: bool = False
-
-
-def _iso(ns: int) -> str:
-    return pd.Timestamp(int(ns), unit="ns", tz="UTC").strftime("%Y-%m-%d %H:%M:%SZ")
-
-
-def _merge_ns(intervals: List[Tuple[int, int]]) -> int:
-    """Total length of the union of [start, end) intervals."""
-    total, cur_s, cur_e = 0, None, None
-    for s, e in sorted(intervals):
-        if cur_e is None or s > cur_e:
-            if cur_e is not None:
-                total += cur_e - cur_s
-            cur_s, cur_e = s, e
-        else:
-            cur_e = max(cur_e, e)
-    if cur_e is not None:
-        total += cur_e - cur_s
-    return total
-
-
-class LiveMarketDataService:
-    """The node's MarketDataService (midfreq.trading.interfaces.MarketDataService)."""
+    Its parts: subscriptions (SubscriptionsMixin, with a SubscriptionQuota per service), bar
+    finality (FinalityMixin), cross-sections (CrossSectionMixin), stall detection (StallsMixin)
+    and the candle store (a CandleStore).
+    """
 
     def __init__(self, clients: Mapping["str | Venue", DataClient], bus: MessageBus, queue: EventQueue, *,
                  venues: Optional[VenueRegistry] = None,
@@ -246,15 +180,14 @@ class LiveMarketDataService:
         self._calendar_overrides: Dict[Venue, TradingCalendar] = {
             as_venue(v): c for v, c in (calendars or {}).items()}
         self._calendars: Dict[Venue, TradingCalendar] = {}
-        self._store = store
         self._clock = clock or LiveClock()
+        self._candle_store = CandleStore(store, self._venues, self._clock)
         grace_s = grace.total_seconds() if isinstance(grace, timedelta) else float(grace)
         self._grace_ns = int(round(grace_s * 1e9))
         late_s = late_grace.total_seconds() if isinstance(late_grace, timedelta) else float(late_grace)
         self._late_grace_ns = int(round(max(late_s, grace_s) * 1e9))
         self._min_share = float(min_share)
         self._stall_factor = float(stall_factor)
-        self._limit_unit = limit_unit
         self._persist_bars = bool(persist)
 
         # clients, each once however many venues it serves
@@ -266,8 +199,7 @@ class LiveMarketDataService:
                 idx = len(self._clients)
                 self._clients.append(client)
             self._client_of[as_venue(v)] = idx
-        self._limits: Dict[int, Optional[int]] = {}
-        self._in_use: Dict[int, Dict[Tuple[str, ...], int]] = {i: {} for i in range(len(self._clients))}
+        self._quota = SubscriptionQuota(self._clients, self._source, limit_unit)
 
         self._bars: Dict[BarType, _BarState] = {}
         self._universes: Dict[str, _Universe] = {}
@@ -318,121 +250,6 @@ class LiveMarketDataService:
             return False
         return True
 
-    # ── subscriptions ────────────────────────────────────────────────────────────────────────
-
-    def subscribe_bars(self, bar_type: BarType, universe: Optional[str] = None) -> None:
-        """Stream `bar_type` (once per bar type, however many callers), as part of `universe`
-        when given. Raises SubscriptionLimitError when the venue account has no room for it."""
-        self.subscribe_bars_many([bar_type], universe)
-
-    def subscribe_bars_many(self, bar_types: Iterable[BarType], universe: Optional[str] = None) -> None:
-        """Several bar types at once, checked against the subscription limit as a whole first, so
-        a universe that does not fit is refused before any of it is subscribed."""
-        bts = list(dict.fromkeys(bar_types))
-        if not bts:
-            return
-        if self._stopped:
-            raise RuntimeError("the market data service has stopped")
-        for bt in bts:
-            self._client_index(bt.instrument_id.venue)
-        if universe is not None:
-            spec = self._universes[universe].spec if universe in self._universes else bts[0].spec
-            odd = [str(bt) for bt in bts if bt.spec != spec]
-            if odd:
-                raise ValueError(f"universe {universe!r} is {spec} bars; cannot add {odd}")
-        # Room at each client for the streams that are new.
-        wanted: Dict[int, Set[Tuple[str, ...]]] = {}
-        for bt in bts:
-            state = self._bars.get(bt)
-            if state is None or state.refs == 0:
-                idx = self._client_index(bt.instrument_id.venue)
-                wanted.setdefault(idx, set()).add(self._limit_key(bt.instrument_id, f"bars:{bt.spec}"))
-        for idx, keys in wanted.items():
-            self._check_limit(idx, keys, ", ".join(sorted(str(bt) for bt in bts))[:200])
-        if universe is not None and universe not in self._universes:
-            self._universes[universe] = _Universe(universe, bts[0].spec)
-        new: Dict[int, List[BarType]] = {}
-        for bt in bts:
-            state = self._state(bt)
-            if state.refs == 0:
-                new.setdefault(self._client_index(bt.instrument_id.venue), []).append(bt)
-        for idx, batch in new.items():                     # one request per client (Moomoo: per K-line type)
-            self._clients[idx].subscribe_bars_many(batch, self._queue.put)
-        for bt in bts:
-            state = self._state(bt)
-            if state.refs == 0:
-                idx = self._client_index(bt.instrument_id.venue)
-                self._acquire(idx, self._limit_key(bt.instrument_id, f"bars:{bt.spec}"))
-                stream = self._stream(idx, bt)
-                state.stream_key = (idx, bt.spec)
-                if self._started and stream.last_update_ns is None:
-                    stream.last_update_ns = self._clock.timestamp_ns()
-                log.debug("subscribed %s", bt)
-            state.refs += 1
-            if universe is not None:
-                members = self._universes[universe].members
-                members[bt] = members.get(bt, 0) + 1
-
-    def unsubscribe_bars(self, bar_type: BarType, universe: Optional[str] = None) -> None:
-        """Drop one subscription; the venue stream closes with the last one."""
-        state = self._bars.get(bar_type)
-        if state is None or state.refs <= 0:
-            log.debug("unsubscribe_bars(%s): not subscribed", bar_type)
-            return
-        if universe is not None and universe in self._universes:
-            members = self._universes[universe].members
-            if bar_type in members:
-                members[bar_type] -= 1
-                if members[bar_type] <= 0:
-                    del members[bar_type]
-        state.refs -= 1
-        if state.refs == 0:
-            idx = self._client_index(bar_type.instrument_id.venue)
-            try:
-                self._clients[idx].unsubscribe_bars(bar_type)
-            except Exception as exc:                       # noqa: BLE001 - the venue may refuse; we stop listening anyway
-                log.warning("unsubscribe %s failed: %s", bar_type, exc)
-            self._release(idx, self._limit_key(bar_type.instrument_id, f"bars:{bar_type.spec}"))
-            state.forming = None
-
-    def subscribe_quotes(self, instrument_id: "str | InstrumentId") -> None:
-        iid = as_instrument_id(instrument_id)
-        if self._stopped:
-            raise RuntimeError("the market data service has stopped")
-        if self._quote_refs.get(iid, 0) == 0:
-            idx = self._client_index(iid.venue)
-            key = self._limit_key(iid, "quotes")
-            self._check_limit(idx, {key}, f"{iid} quotes")
-            self._clients[idx].subscribe_quotes(iid, self._queue.put)
-            self._acquire(idx, key)
-        self._quote_refs[iid] = self._quote_refs.get(iid, 0) + 1
-
-    def unsubscribe_quotes(self, instrument_id: "str | InstrumentId") -> None:
-        iid = as_instrument_id(instrument_id)
-        refs = self._quote_refs.get(iid, 0)
-        if refs <= 0:
-            return
-        self._quote_refs[iid] = refs - 1
-        if refs == 1:
-            idx = self._client_index(iid.venue)
-            try:
-                self._clients[idx].unsubscribe_quotes(iid)
-            except Exception as exc:                       # noqa: BLE001
-                log.warning("unsubscribe quotes %s failed: %s", iid, exc)
-            self._release(idx, self._limit_key(iid, "quotes"))
-
-    def subscriptions(self) -> Dict[str, Dict[str, Any]]:
-        """Per client: streams in use and its limit, for the ops log."""
-        out = {}
-        for idx in range(len(self._clients)):
-            out[self._source(idx)] = {"in_use": len(self._in_use[idx]), "limit": self._limit(idx),
-                                      "unit": self._limit_unit}
-        return out
-
-    def universe(self, name: str) -> Tuple[InstrumentId, ...]:
-        u = self._universes.get(name)
-        return tuple(bt.instrument_id for bt in u.members) if u else ()
-
     # ── lifecycle ────────────────────────────────────────────────────────────────────────────
 
     def start(self) -> None:
@@ -457,7 +274,8 @@ class LiveMarketDataService:
         self._finalise_elapsed(now, stopping=True)
         for u in list(self._universes.values()):
             self._evaluate(u, now, stopping=True)
-        self._persisted = self._persist() if self._persist_bars else PersistReport(0, 0, 0)
+        self._persisted = (self._candle_store.persist(self._session_bars) if self._persist_bars
+                           else PersistReport(0, 0, 0))
         return self._persisted
 
     @property
@@ -571,135 +389,13 @@ class LiveMarketDataService:
         ts_event the true UTC close (the store's local-as-UTC labels converted). Never asks the
         broker (LE 384-392). Bars streamed later that are not newer than these are history and
         are dropped."""
-        iid = bar_type.instrument_id
-        tf = bar_type.spec.legacy_timeframe
-        if tf is None:
-            log.warning("[warmup] %s: the store has no %s files", iid, bar_type.spec.interval)
-            return []
-        try:
-            store = self._get_store()
-            key = self._store_key(iid)
-            # DataStorage creates a symbol's folder when asked for its path; look first so a miss
-            # leaves no empty folder behind.
-            if not (Path(store.base_path) / key.upper().replace(".", "_") / f"{tf}.parquet").exists():
-                log.warning("[warmup] %s: no history available in the store", iid)
-                return []
-            df = store.load_data(key, tf)
-        except Exception as exc:                           # noqa: BLE001 - a bad file must not stop the node
-            log.warning("[warmup] %s: store not readable (%s)", iid, exc)
-            return []
-        if df is None or df.empty:
-            log.warning("[warmup] %s: no history available in the store", iid)
-            return []
-        spec = self._venues.get(iid.venue)
-        closes = self._true_utc(pd.DatetimeIndex(df.index), spec, bar_type.spec)
-        keep = ~closes.isna()
-        if not keep.all():
-            log.warning("[warmup] %s: dropped %d rows whose local time does not exist", iid, int((~keep).sum()))
-        values = df.loc[keep, BAR_COLUMNS].astype(float).to_numpy()
-        ts = closes[keep].asi8
-        # One bar per close (the last row wins, as DataStorage.append_data keeps), oldest first,
-        # closed by now.
-        frame = pd.DataFrame(values, columns=BAR_COLUMNS, index=ts)
-        frame = frame[~frame.index.duplicated(keep="last")].sort_index()
-        now = self._clock.timestamp_ns()
-        frame = frame[frame.index <= now]
-        tail = frame.tail(int(count)) if count > 0 else frame.iloc[0:0]
-        bars = [Bar(bar_type, float(o), float(h), float(lo), float(c), float(v), int(t), int(t))
-                for t, (o, h, lo, c, v) in zip(tail.index, tail.to_numpy())]
-        window = _WARM_UP_LOOKBACK.get(tf, timedelta(days=5))
-        recent = int((frame.index >= now - int(window.total_seconds() * 1e9)).sum())
-        if len(bars) < count:
-            log.warning("[warmup] %s: only %d of %d bars in the store", iid, len(bars), count)
-        elif recent < count:
-            log.warning("[warmup] %s: the store is stale: only %d bars from the last %d days (want %d); "
-                        "the original engine would have asked the broker, this one never does",
-                        iid, recent, window.days, count)
+        bars = self._candle_store.warm_up(bar_type, count)
         if bars:
             state = self._state(bar_type)
             state.floor_ts = max(state.floor_ts or bars[-1].ts_event, bars[-1].ts_event)
         return bars
 
-    @staticmethod
-    def _true_utc(index: pd.DatetimeIndex, venue: VenueSpec, spec: BarSpecification) -> pd.DatetimeIndex:
-        """The store's labels as true UTC closes (midfreq.data.persistence.legacy does the same)."""
-        if len(index) == 0:
-            return pd.DatetimeIndex([], tz="UTC")
-        if spec.is_intraday:
-            return venue.localize(index)                   # local close tagged UTC -> UTC
-        naive = index.tz_localize(None) if index.tz is not None else index
-        return venue.daily_close(naive)                    # local midnight of the date -> session close
-
-    # ── finality ─────────────────────────────────────────────────────────────────────────────
-
-    def _finalise_elapsed(self, now_ns: int, stopping: bool = False) -> None:
-        """The timer's rule (close + grace, or the next open + grace for a bar that ends a
-        session), or at stop the original's: the window has elapsed (LE 637)."""
-        # Oldest first (LE 629-633): in a stalled hour some forming bars are an interval older
-        # than others, and finalising a newer one first would decide its interval's predecessor
-        # without them.
-        due = []
-        for s in list(self._bars.values()):
-            if s.forming is None:
-                continue
-            t = s.forming.ts_event
-            if now_ns >= (t if stopping else self._clock_due_ns(s, t)):
-                due.append(s)
-        due.sort(key=lambda s: s.forming.ts_event)
-        for state in due:
-            bar = state.forming
-            state.forming = None
-            self._finalise(state, bar, "window elapsed")
-
-    def _clock_due_ns(self, state: _BarState, t: int) -> int:
-        """When the timer may make this forming bar final during the session: the grace after its
-        close (or the next open) once its stream has delivered a push received after the close,
-        else not before the late grace: a lagging stream may still be updating it."""
-        due = self._due_ns(state.bar_type.instrument_id.venue, t)
-        stream = self._streams.get(state.stream_key) if state.stream_key is not None else None
-        if stream is not None and stream.last_push_ns is not None and stream.last_push_ns > t:
-            return due
-        return max(due, t + self._late_grace_ns)
-
-    def _due_ns(self, venue: Venue, t: int) -> int:
-        """When the timer may make a bar closing at `t` final: t + grace, or, when `t` ends a
-        session, the next session's open + grace (by when a newer push has normally done it)."""
-        key = (venue, t)
-        due = self._due.get(key)
-        if due is None:
-            due = t + self._grace_ns
-            try:
-                cal = self._calendar(venue)
-                ts = pd.Timestamp(t, unit="ns", tz="UTC")
-                if self._ends_session(cal, ts):
-                    due = max(due, cal.next_open(ts).value + self._grace_ns)
-            except Exception as exc:                       # noqa: BLE001 - no calendar answer: plain grace
-                log.debug("%s: no session information for %s (%s)", venue, _iso(t), exc)
-            self._due[key] = due
-        return due
-
-    @staticmethod
-    def _ends_session(cal: TradingCalendar, ts: pd.Timestamp) -> bool:
-        is_open = getattr(cal, "is_open", None)
-        if is_open is not None:
-            return (not is_open(ts)) and is_open(ts - pd.Timedelta(1, unit="ns"))
-        # Only the TradingCalendar contract: the day's last close.
-        for offset in (-1, 0, 1):
-            sess = cal.session((ts + pd.Timedelta(days=offset)).date())
-            if sess is not None and sess[1] == ts:
-                return True
-        return False
-
-    def _finalise(self, state: _BarState, bar: Bar, reason: str) -> None:
-        state.last_final_ts = bar.ts_event
-        state.last_bar = bar
-        self._session_bars.setdefault(state.bar_type, []).append(bar)
-        self.bars_published += 1
-        log.debug("bar final (%s): %s %s close=%s", reason, state.bar_type, _iso(bar.ts_event), bar.close)
-        self._send(TOPIC_BAR.format(bar_type=state.bar_type), bar)
-        for u in list(self._universes.values()):
-            if state.bar_type in u.members:
-                self._add_to_universe(u, bar)
+    # ── publishing and bookkeeping ───────────────────────────────────────────────────────────
 
     def _send(self, topic: str, message: Any) -> None:
         """Publish; a subscriber's exception is logged, not raised, so one failing strategy
@@ -709,178 +405,6 @@ class LiveMarketDataService:
             self._bus.publish(topic, message)
         except Exception:                                  # noqa: BLE001
             log.exception("a subscriber to %s failed on %s", topic, type(message).__name__)
-
-    def _late(self, state: _BarState, bar: Bar, why: str) -> None:
-        self.late_bars += 1
-        last = state.last_bar
-        if last is not None and last.ts_event == bar.ts_event and (
-                last.open, last.high, last.low, last.close, last.volume) == (
-                bar.open, bar.high, bar.low, bar.close, bar.volume):
-            log.debug("repeat of a published bar dropped: %s %s", state.bar_type, _iso(bar.ts_event))
-            return
-        log.warning("late bar dropped: %s %s close=%s (%s)", state.bar_type, _iso(bar.ts_event), bar.close, why)
-
-    # ── cross-sections ───────────────────────────────────────────────────────────────────────
-
-    def _add_to_universe(self, u: _Universe, bar: Bar) -> None:
-        t = bar.ts_event
-        if u.done_through is not None and t <= u.done_through:
-            log.warning("%s: %s bar for %s arrived after that cross-section was decided; published as a "
-                        "bar only", u.name, bar.instrument_id, _iso(t))
-            return
-        u.pending.setdefault(t, {})[bar.instrument_id] = bar
-        self._evaluate(u, None)
-
-    def _evaluate(self, u: _Universe, now_ns: Optional[int], stopping: bool = False) -> None:
-        """Publish every interval of `u` that can be decided: complete, or, once a later interval
-        has a final bar, with at least ceil(min_share * N) instruments (else a gap). The clock
-        never decides an incomplete interval, at stop neither: the original engine's timing."""
-        members = [bt.instrument_id for bt in u.members]
-        n = len(members)
-        if n == 0:
-            return
-        member_set = set(members)
-        venues = {i.venue for i in members}
-        need = math.ceil(self._min_share * n)            # LE 363, the same expression
-        for t in sorted(u.pending):
-            if u.done_through is not None and t <= u.done_through:
-                del u.pending[t]
-                continue
-            bars = u.pending[t]
-            have = [i for i in bars if i in member_set]    # in the order they became final
-            if len(have) >= n:
-                self._publish(u, t, bars, have, members, complete=True)
-                continue
-            if not any(other > t for other in u.pending):
-                break
-            if len(have) >= need:
-                self._publish(u, t, bars, have, members, complete=False)
-            else:
-                self._gap(u, t, len(have), n, need, now_ns)
-
-    def _publish(self, u: _Universe, t: int, bars: Dict[InstrumentId, Bar], have: List[InstrumentId],
-                 members: List[InstrumentId], complete: bool) -> None:
-        missing = tuple(sorted((i for i in members if i not in bars), key=str))
-        xs = CrossSection(u.name, t, {i: bars[i] for i in have}, complete, missing)
-        u.done_through = t
-        u.pending.pop(t, None)
-        u.published += 1
-        if complete:
-            log.info("cross-section %s %s: all %d instruments", u.name, _iso(t), len(have))
-        else:
-            log.warning("cross-section %s %s: %d of %d instruments; missing %s", u.name, _iso(t),
-                        len(have), len(members), ", ".join(map(str, missing)))
-        self._send(TOPIC_CROSS_SECTION.format(universe=u.name), xs)
-
-    def _gap(self, u: _Universe, t: int, have: int, n: int, need: int, now_ns: Optional[int]) -> None:
-        u.done_through = t
-        u.pending.pop(t, None)
-        u.gaps += 1
-        detail = (f"{u.name} {_iso(t)}: {have} of {n} instruments reported, below the minimum of "
-                  f"{need}; no cross-section")
-        log.warning("gap: %s", detail)
-        self._send(TOPIC_STREAM, StreamEvent(
-            "gap", detail, self._clock.timestamp_ns() if now_ns is None else now_ns))
-
-    # ── stalls ───────────────────────────────────────────────────────────────────────────────
-
-    def _touch(self, state: _BarState, ts_received: Optional[int]) -> None:
-        if state.stream_key is None:
-            return
-        stream = self._streams.get(state.stream_key)
-        if stream is None:
-            return
-        ts = int(ts_received) if ts_received else self._clock.timestamp_ns()
-        if stream.last_update_ns is None or ts > stream.last_update_ns:
-            stream.last_update_ns = ts
-        if stream.last_push_ns is None or ts > stream.last_push_ns:
-            stream.last_push_ns = ts
-
-    def _check_stalls(self, now_ns: int) -> None:
-        for stream in self._streams.values():
-            if stream.fatal or not any(self._bars[bt].refs > 0 for bt in stream.bar_types):
-                continue
-            if stream.last_update_ns is None:
-                stream.last_update_ns = now_ns
-                continue
-            silent = self._silent_ns(stream, now_ns)
-            if silent <= self._stall_factor * stream.spec.nanos:      # LE 579: strictly more than
-                continue
-            what = (f"no bar update for {silent / _NS_PER_MIN:.1f} min of session time on "
-                    f"{self._source(stream.client_index)} {stream.spec.interval} "
-                    f"({', '.join(sorted(map(str, stream.venues)))})")
-            if not stream.resubscribed:
-                log.warning("STALL: %s; resubscribing once", what)
-                self._send(TOPIC_STREAM, StreamEvent("stall", f"{what}; resubscribing once", now_ns))
-                stream.resubscribed = True
-                try:
-                    self._resubscribe(stream)
-                    stream.last_update_ns = now_ns             # LE 592
-                    continue
-                except Exception as exc:                       # noqa: BLE001 - LE 594-595: fall through to stopping
-                    log.error("resubscribe failed: %s", exc)
-                    self._send(TOPIC_STREAM, StreamEvent("error", f"resubscribe failed: {exc}", now_ns))
-            stream.fatal = True
-            self._fatal = True
-            log.error("STALL: %s after resubscribing once; the node should stop cleanly", what)
-            self._send(TOPIC_STREAM, StreamEvent("stall", "fatal", now_ns))
-
-    def resubscribe(self) -> int:
-        """Unsubscribe and subscribe again every live bar stream now (an operator's or the
-        node's request; the stall detector does the same for one stalled stream). Returns how
-        many streams were resubscribed; a stream that fails is logged and skipped."""
-        done = 0
-        for stream in list(self._streams.values()):
-            if stream.fatal or not any(self._bars[bt].refs > 0 for bt in stream.bar_types):
-                continue
-            try:
-                self._resubscribe(stream)
-            except Exception as exc:                       # noqa: BLE001 - the others still get theirs
-                log.error("resubscribe of %s %s failed: %s", self._source(stream.client_index),
-                          stream.spec.interval, exc)
-                continue
-            stream.last_update_ns = self._clock.timestamp_ns()
-            done += 1
-        return done
-
-    def _resubscribe(self, stream: _Stream) -> None:
-        client = self._clients[stream.client_index]
-        bts = sorted((b for b in stream.bar_types if self._bars[b].refs > 0), key=str)
-        try:
-            client.unsubscribe_bars_many(bts)
-        except Exception as exc:                               # noqa: BLE001 - a dead stream may refuse this
-            log.warning("unsubscribe of %d bar types before resubscribing failed: %s", len(bts), exc)
-        client.subscribe_bars_many(bts, self._queue.put)
-
-    def _silent_ns(self, stream: _Stream, now_ns: int) -> int:
-        """Time since the stream's last update that the venue was open; wall time for daily bars."""
-        start = stream.last_update_ns
-        if now_ns <= start:
-            return 0
-        if not stream.spec.is_intraday:
-            return now_ns - start
-        intervals: List[Tuple[int, int]] = []
-        for venue in stream.venues:
-            intervals.extend(self._open_intervals(venue, start, now_ns))
-        return _merge_ns(intervals)
-
-    def _open_intervals(self, venue: Venue, start_ns: int, end_ns: int) -> List[Tuple[int, int]]:
-        cal = self._calendar(venue)
-        s = pd.Timestamp(start_ns, unit="ns", tz="UTC")
-        e = pd.Timestamp(end_ns, unit="ns", tz="UTC")
-        if hasattr(cal, "open_intervals"):
-            return [(o.value, c.value) for o, c in cal.open_intervals(s, e)]
-        # Only the TradingCalendar contract: first open to last close of each day.
-        out = []
-        day = (s - pd.Timedelta(days=1)).date()
-        while day <= (e + pd.Timedelta(days=1)).date():
-            sess = cal.session(day)
-            if sess is not None:
-                lo, hi = max(sess[0], s), min(sess[1], e)
-                if lo < hi:
-                    out.append((lo.value, hi.value))
-            day = (pd.Timestamp(day) + pd.Timedelta(days=1)).date()
-        return out
 
     def _calendar(self, venue: Venue) -> TradingCalendar:
         cal = self._calendars.get(venue)
@@ -893,79 +417,6 @@ class LiveMarketDataService:
                 cal = VenueCalendar.for_venue(venue, self._venues)
             self._calendars[venue] = cal
         return cal
-
-    # ── the store ────────────────────────────────────────────────────────────────────────────
-
-    def _get_store(self) -> DataStorage:
-        if self._store is None:
-            self._store = DataStorage()                    # data/ of MIDFREQ_ROOT (midfreq.core.paths)
-        return self._store
-
-    def _store_key(self, iid: InstrumentId) -> str:
-        """The store's file key for an instrument: the original's `symbol.replace('.', '_')` of
-        its Moomoo-style symbol ('US.AAPL' -> 'US_AAPL'; LE 401, 661), the symbol being what
-        midfreq.data.persistence.legacy.LegacyDataReader.legacy_symbol gives. A venue Moomoo
-        does not serve is keyed '<VENUE>_<SYMBOL>'."""
-        try:
-            market = self._venues.get(iid.venue).connector_options("moomoo")["market"]
-            symbol = f"{market}.{iid.symbol}"
-        except (KeyError, ValueError):
-            symbol = f"{iid.venue}.{iid.symbol}"
-        return symbol.replace(".", "_")
-
-    def _persist(self) -> PersistReport:
-        """Append the session's bars to the store, as LE 643-667 did: one frame per instrument
-        with float columns open..volume indexed by the local close tagged UTC ('timestamp')."""
-        if not self._session_bars:
-            return PersistReport(0, 0, 0)
-        try:
-            store = self._get_store()
-        except Exception as exc:                           # noqa: BLE001 - LE 651-653
-            log.warning("[cache] not written (%s)", exc)
-            return PersistReport(0, 0, len(self._session_bars), (str(exc),))
-        written = instruments = failed = 0
-        errors: List[str] = []
-        for bt, bars in self._session_bars.items():
-            if not bars:
-                continue
-            try:
-                tf = bt.spec.legacy_timeframe
-                if tf is None:
-                    raise ValueError(f"the store has no {bt.spec.interval} files")
-                venue = self._venues.get(bt.instrument_id.venue)
-                index = venue.to_legacy_index([b.ts_event for b in bars], bt.spec)
-                df = pd.DataFrame(
-                    {"open": [b.open for b in bars], "high": [b.high for b in bars],
-                     "low": [b.low for b in bars], "close": [b.close for b in bars],
-                     "volume": [b.volume for b in bars]},
-                    index=pd.DatetimeIndex(index, name="timestamp")).astype(float)
-                store.append_data(df, self._store_key(bt.instrument_id), tf)
-                written += len(bars)
-                instruments += 1
-            except Exception as exc:                       # noqa: BLE001 - LE 663-664: count and go on
-                failed += 1
-                errors.append(f"{bt}: {exc}")
-                log.warning("[cache] %s not written: %s", bt, exc)
-        log.info("[cache] wrote %d bars for %d instruments%s", written, instruments,
-                 f", {failed} failed" if failed else "")
-        return PersistReport(written, instruments, failed, tuple(errors))
-
-    # ── bookkeeping ──────────────────────────────────────────────────────────────────────────
-
-    def _state(self, bar_type: BarType) -> _BarState:
-        state = self._bars.get(bar_type)
-        if state is None:
-            state = self._bars[bar_type] = _BarState(bar_type)
-        return state
-
-    def _stream(self, idx: int, bar_type: BarType) -> _Stream:
-        key = (idx, bar_type.spec)
-        stream = self._streams.get(key)
-        if stream is None:
-            stream = self._streams[key] = _Stream(idx, bar_type.spec)
-        stream.venues.add(bar_type.instrument_id.venue)
-        stream.bar_types.add(bar_type)
-        return stream
 
     def _client_index(self, venue: "str | Venue") -> int:
         v = as_venue(venue)
@@ -980,61 +431,3 @@ class LiveMarketDataService:
             return str(client.client_id)
         except Exception:                                  # noqa: BLE001 - a client without a connector name
             return f"client{idx}"
-
-    def _limit(self, idx: int) -> Optional[int]:
-        if idx not in self._limits:
-            try:
-                self._limits[idx] = self._clients[idx].subscription_limit()
-            except Exception as exc:                       # noqa: BLE001 - unknown limit: the venue will say
-                log.warning("%s: subscription limit unknown (%s)", self._source(idx), exc)
-                self._limits[idx] = None
-        return self._limits[idx]
-
-    def _limit_key(self, iid: InstrumentId, what: str) -> Tuple[str, ...]:
-        return (str(iid), what) if self._limit_unit == "stream" else (str(iid),)
-
-    def _check_limit(self, idx: int, keys: Set[Tuple[str, ...]], what: str) -> None:
-        limit = self._limit(idx)
-        if limit is None:
-            return
-        in_use = self._in_use[idx]
-        new = [k for k in keys if k not in in_use]
-        if len(in_use) + len(new) > limit:
-            raise SubscriptionLimitError(
-                f"{self._source(idx)} allows {limit} {self._limit_unit}s at once on this account; "
-                f"{len(in_use)} in use and {len(new)} more requested ({what}). Unsubscribe something, "
-                f"or share one subscription between strategies.")
-
-    def _acquire(self, idx: int, key: Tuple[str, ...]) -> None:
-        self._in_use[idx][key] = self._in_use[idx].get(key, 0) + 1
-
-    def _release(self, idx: int, key: Tuple[str, ...]) -> None:
-        n = self._in_use[idx].get(key, 0) - 1
-        if n <= 0:
-            self._in_use[idx].pop(key, None)
-        else:
-            self._in_use[idx][key] = n
-
-    def _unsubscribe_all(self) -> None:
-        """At stop: one request per client; none to a client whose connection is down (its
-        subscriptions went with it, and each call would wait out a timeout)."""
-        by_client: Dict[int, List[BarType]] = {}
-        for bt, state in self._bars.items():
-            if state.refs > 0:
-                by_client.setdefault(self._client_index(bt.instrument_id.venue), []).append(bt)
-        down = set()
-        for idx, bts in by_client.items():
-            if self._source(idx) in self._down:
-                down.add(idx)
-                log.warning("%s is disconnected: its %d subscriptions are not unsubscribed", self._source(idx), len(bts))
-                continue
-            try:
-                self._clients[idx].unsubscribe_bars_many(bts)
-            except Exception as exc:                       # noqa: BLE001 - shutting down regardless
-                log.warning("unsubscribe of %d bar types failed: %s", len(bts), exc)
-        for iid, refs in self._quote_refs.items():
-            if refs > 0 and self._client_index(iid.venue) not in down:
-                try:
-                    self._clients[self._client_index(iid.venue)].unsubscribe_quotes(iid)
-                except Exception as exc:                   # noqa: BLE001
-                    log.warning("unsubscribe quotes %s failed: %s", iid, exc)
