@@ -34,7 +34,7 @@ from midfreq.core.model.identifiers import AccountId, InstrumentId, TradeId
 from midfreq.core.model.orders import Order
 from midfreq.core.venues.spec import default_venues
 from midfreq.data.adapters.base import DataClient, ExecutionClient, OrderReport, FillReport
-from midfreq.trading.interfaces import (
+from midfreq.trading.core.interfaces import (
     TOPIC_BAR, TOPIC_CROSS_SECTION, TOPIC_FILLS, TOPIC_ORDER_EVENTS, TOPIC_QUOTE, CrossSection, ReconcileReport,
 )
 
@@ -111,7 +111,7 @@ class StandInOMS:
         self.clients = execution_clients
         self.risk = risk
         self.positions = positions
-        from midfreq.trading.oms import UnfilledOrderPolicy       # the configuration's own reader
+        from midfreq.trading.execution.oms import UnfilledOrderPolicy       # the configuration's own reader
         policy = UnfilledOrderPolicy.from_config((config or {}).get("unfilled_order"))
         self.wait_ns = int(policy.wait_s * 1e9)
         self.orders: Dict[Any, Order] = {}
@@ -223,7 +223,7 @@ class StandInRefData:
         return [self.instrument(i) for i in instrument_ids]
 
     def calendar(self, venue):
-        from midfreq.trading.calendar import VenueCalendar
+        from midfreq.trading.refdata.calendar import VenueCalendar
         return VenueCalendar.for_venue(venue, self.venues)
 
     def corporate_actions(self, instrument_id, start, end):

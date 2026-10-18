@@ -18,11 +18,11 @@ import importlib
 import sys
 from typing import List, Optional, Sequence
 
-from midfreq.trading.config import ConfigError, MODES, load_config, resolve_strategy_class, strategy_params
+from midfreq.trading.config.settings import ConfigError, MODES, load_config, resolve_strategy_class, strategy_params
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    from midfreq.trading.node import TradingNode
+    from midfreq.trading.node.kernel import TradingNode
     try:
         cfg = load_config(args.config, mode=args.mode)
     except ConfigError as e:
@@ -39,7 +39,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_check(args: argparse.Namespace) -> int:
-    from midfreq.trading.node import DEFAULT_COMPONENTS
+    from midfreq.trading.node.kernel import DEFAULT_COMPONENTS
     try:
         cfg = load_config(args.config, mode=args.mode)
     except ConfigError as e:
@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "replay":
-        from midfreq.trading.replay import main as replay_main
+        from midfreq.trading.modes.replay import main as replay_main
         return replay_main(argv[1:])
     args = build_parser().parse_args(argv)
     return int(args.func(args))
