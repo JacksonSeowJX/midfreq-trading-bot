@@ -1,6 +1,6 @@
 [project]
 name = "midfreq-backtest"
-version = "0.1.4"
+version = "0.1.5"
 description = "Backtesting: the candle backtester and walk-forward optimiser, and the event-driven BacktestEngine with simulated venues, fill and slippage models."
 requires-python = ">=3.10"
 dependencies = ["midfreq-core", "midfreq-data", "midfreq-strategies", "pandas>=2.1"]

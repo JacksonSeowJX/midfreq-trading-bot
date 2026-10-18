@@ -1,6 +1,6 @@
 [project]
 name = "midfreq-trading-bot"
-version = "0.1.4"
+version = "0.1.5"
 description = "Mid-frequency quantitative trading bot (NTU FYP CCDS25-1040): workspace root with the dashboard and the live runner."
 requires-python = ">=3.10"
 dependencies = [
