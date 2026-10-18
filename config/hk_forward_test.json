@@ -1,11 +1,12 @@
 {
   "generated_at": "2026-10-16 16:00:00",
-  "chosen_at_wallclock": "2026-10-18 20:44:32",
+  "chosen_at_wallclock": "2026-10-18 23:38:49",
   "purpose": "Infrastructure test of the trading node on a second market (Hong Kong paper account, Hong Kong hours). Not a validated edge: the 18 Oct 2026 Hong Kong search found nothing fit to trade, and this strategy's pass is consistent with luck across its family (White's Reality Check p = 0.79 under config A, 0.46 under config B).",
   "strategy": "ML Direction Classifier",
   "symbols": [
     "HK.00005"
   ],
+  "data": "HK.00005 hourly bars without price adjustment (Moomoo AuType.NONE), as the trading server's candle store holds them and as live prices arrive. The project's research cache holds the same stock forward-adjusted by subtracting dividends, on which the same settings won but lost 0.135% in sample (Sharpe -0.45).",
   "rationale": "Grid-searched the most recent training segment by Sharpe, the same procedure each walk-forward window uses and the US forward test used.",
   "train_window": {
     "start": "2026-07-24 16:00:00",
@@ -28,8 +29,8 @@
     "sell_threshold=0.5 is the grid MAXIMUM ([0.35, 0.5])"
   ],
   "in_sample": {
-    "objective": -0.4473384552442461,
-    "return_pct": -0.13464268799997806,
+    "objective": 0.2160638211121371,
+    "return_pct": 0.06493747200001963,
     "trades": 16
   },
   "capital": 100000.0,
