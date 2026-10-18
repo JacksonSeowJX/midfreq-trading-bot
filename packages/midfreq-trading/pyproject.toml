@@ -1,6 +1,6 @@
 [project]
 name = "midfreq-trading"
-version = "0.1.3"
+version = "0.1.4"
 description = "The live trading node: OMS, pre-trade risk, positions, market data and reference data services, wired to venues through connectors."
 requires-python = ">=3.10"
 dependencies = ["midfreq-core", "midfreq-data", "midfreq-strategies", "pandas>=2.1"]
