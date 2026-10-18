@@ -13,6 +13,7 @@ live_sessions/
 .DS_Store
 .claude/
 !results/*.csv
+!results/hk_search/*.csv
 .venv/
 
 # saved backtests and optimizations (midfreq.backtest.runstore); a run the report cites is
