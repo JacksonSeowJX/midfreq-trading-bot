@@ -21,7 +21,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages packages
 COPY apps/api apps/api
-# only the API and what it imports (not Streamlit, the broker SDKs or the dev tools)
+# only the API and what it imports (not the broker SDKs or the dev tools)
 RUN uv sync --frozen --no-dev --package midfreq-api --extra gcs --no-editable
 COPY config config
 COPY results results

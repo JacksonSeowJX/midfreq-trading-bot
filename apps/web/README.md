@@ -2,7 +2,7 @@
 
 A trading-terminal style dashboard for the bot, in React. It reads everything through the
 dashboard API in `apps/api` and never touches the repository's files or the trading process
-itself. It replaces the Streamlit dashboard (`apps/dashboard`) one view at a time.
+itself.
 
 | View | What it shows | Source |
 |---|---|---|
@@ -104,7 +104,7 @@ until the first edit or run. The parameter is then dropped from the URL, and the
 is remembered as usual. An unknown preset, or one for another page, is ignored.
 
 **Runs (Backtest, Compare, Optimize).** The three pages share one form (`features/runs/RunForm.tsx`)
-with the Streamlit sidebar's controls and limits: strategy and its parameters (min, max, step
+with the same controls and limits throughout: strategy and its parameters (min, max, step
 from `/api/strategies`), the market from the top bar, a searchable symbol among those with
 cached candles at the chosen timeframe, the pair for Pairs Trading, the universe for the
 cross-sectional (basket) strategies, which rank the whole universe rather than one stock,
@@ -167,7 +167,7 @@ src/
 
 ### Look
 
-The palette is the Streamlit dashboard's (warm light surface, orange accent), with a dark
+The palette is a warm light surface with an orange accent, with a dark
 variant stepped from the same hues. Dark mode follows the system until it is chosen in the top
 bar. Tokens live in `src/index.css`, and canvas charts read the same values from
 `src/components/charts/palette.ts`. Tables are dense, with tabular figures and right-aligned

@@ -1000,8 +1000,8 @@ class CrossSectionalReversal(BaseStrategy):
 
     Requires multiple symbols passed to the backtester (the whole
     universe, not one or two stocks) — it has nothing to rank against
-    otherwise. Not wired into the Streamlit dashboard, which only ever
-    passes 1-2 symbols to a backtest; validated via research scripts.
+    otherwise. The dashboard runs it on a whole universe, as the
+    research scripts do.
 
     Mechanics: candles from different symbols sharing the same timestamp
     arrive back-to-back in the event stream (see Backtester). This

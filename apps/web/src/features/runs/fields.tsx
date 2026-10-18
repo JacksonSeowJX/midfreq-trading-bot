@@ -74,7 +74,7 @@ export function NumberField({
         value={value}
         min={min ?? undefined}
         max={max ?? undefined}
-        // the arrows step by this; any value in range is accepted, as in the Streamlit inputs
+        // the arrows step by this; any value in range is accepted
         step={step ?? 'any'}
         disabled={disabled}
         aria-invalid={error ? true : undefined}

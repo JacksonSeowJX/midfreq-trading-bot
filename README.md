@@ -112,7 +112,6 @@ packages/           seven installable packages, all under the `midfreq` namespac
 apps/
   api/              the dashboard's HTTP API (FastAPI)
   web/              the dashboard (React + TypeScript); guide in docs/DASHBOARD_GUIDE.md
-  dashboard/        the earlier Streamlit dashboard, kept until it is removed
   live_runner/      run_live.py, runs `midfreq-live` (the live engine) from a checkout
 research/studies/   every study the final report draws on (superseded/: earlier
                     versions replaced after the 2026-09-08 testing audit)

@@ -113,8 +113,8 @@ sequenceDiagram
   run's dates and held, valued over time. Its last value gives the run's buy-and-hold return,
   from which `alpha` is measured. A cross-sectional backtest has no `chart`, since it trades no
   one stock.
-- **Execution.** Runs make the same library calls with the same arguments as the Streamlit
-  dashboard's sidebar did, so the same inputs give the same numbers. They run in worker
+- **Execution.** Runs make the same library calls with the same arguments as the research
+  scripts, so the same inputs give the same numbers. They run in worker
   processes at a lower priority than the API, so the API keeps answering while a run computes.
   At most `max_concurrent_jobs` run at once (1 by default); another request gets 429.
 - **Registry.** Jobs are held in the API process's memory: the most recent 50, with their

@@ -168,7 +168,7 @@ def test_backtest_runs_in_a_worker_and_returns_metrics_equity_trades_and_the_cha
 
 def _direct(settings, strategy, params, symbols, start, end, *, capital=100_000.0, commission=0.00005,
             slippage=0.0, stop=None, trailing=None, take=None, max_dd=0.10, sizer=None):
-    """The Streamlit backtest view's own calls, written out."""
+    """The library calls a backtest makes, written out."""
     portfolio = Portfolio(initial_cash=capital, commission_rate=commission)
     risk = RiskManager(stop_loss_pct=stop, trailing_stop_pct=trailing, take_profit_pct=take, max_drawdown_pct=max_dd,
                        position_sizer=sizer)

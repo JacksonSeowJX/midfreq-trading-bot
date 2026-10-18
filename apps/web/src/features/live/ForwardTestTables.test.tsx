@@ -12,7 +12,7 @@ function cellsOf(row: HTMLElement) {
 }
 
 describe('TradesTable', () => {
-  it('lists trades newest first with the Streamlit view’s columns', () => {
+  it('lists trades newest first with the record\'s columns', () => {
     render(<TradesTable trades={forwardTest.trades} currency="USD" />)
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent)
     expect(headers).toEqual([

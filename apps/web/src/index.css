@@ -3,8 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Palette: the Streamlit dashboard's (.streamlit/config.toml, apps/dashboard/ui.py), a warm light
- * surface with an orange accent, plus a dark variant stepped from the same hues.
+ * Palette: a warm light surface with an orange accent, plus a dark variant stepped from the same hues.
  *
  *   broker  the broker's own account view (blue)
  *   bot     the bot's own record (orange, the brand accent: it is this system's data)

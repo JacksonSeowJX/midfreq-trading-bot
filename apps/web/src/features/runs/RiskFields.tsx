@@ -5,7 +5,7 @@ import { Field, NumberField, OptionalPctField } from './fields'
 import { describedBy, fieldId } from './fieldIds'
 import { LIMITS, riskSummary, SIZING_METHODS, type FieldErrors, type RiskForm } from './form'
 
-/** Stops, the drawdown circuit breaker and position sizing: Streamlit's Risk Management expanders. */
+/** Stops, the drawdown circuit breaker and position sizing, folded away under Risk management. */
 export function RiskFields({
   formId,
   risk,

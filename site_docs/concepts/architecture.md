@@ -11,7 +11,6 @@ Around them sit the applications that use them, the research studies and the ope
 | [`packages/`](repo:packages) | The eight packages, each with its own `pyproject.toml` and `tests/` |
 | [`apps/api`](repo:apps/api) | The dashboard's HTTP API (FastAPI, `midfreq.api`); see [HTTP API](../api/http/index.md) |
 | [`apps/web`](repo:apps/web) | The dashboard (React and TypeScript), a client of that API; see [The dashboard](dashboard.md) |
-| [`apps/dashboard`](repo:apps/dashboard) | The earlier Streamlit dashboard, kept until it is removed |
 | [`apps/live_runner`](repo:apps/live_runner) | `run_live.py`, which starts the session runner from a checkout |
 | [`research/studies/`](repo:research/README.md) | One script per study; each writes its result to `results/` |
 | [`ops/`](repo:ops) | The trading VM's session launchers (the trading node's and the session runner's), its schedule and startup checks, the release build and deploy scripts |

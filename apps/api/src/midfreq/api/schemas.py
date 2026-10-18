@@ -237,7 +237,7 @@ class Overview(BaseModel):
 class ResearchFile(BaseModel):
     name: str
     study: str
-    label: str = Field(description="human-readable name, as the Streamlit research view shows it")
+    label: str = Field(description="human-readable name, as the research view shows it")
     kind: Literal["csv", "json"]
     size: int
     modified: datetime
@@ -287,7 +287,7 @@ class Candle(BaseModel):
 # ── runs: backtest, compare, optimize (as background jobs) ──────────────────
 
 class RiskSettings(BaseModel):
-    """The Streamlit sidebar's risk and sizing controls. Percentages as fractions (0.03 = 3%)."""
+    """The run form's risk and sizing controls. Percentages as fractions (0.03 = 3%)."""
     stop_loss_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None

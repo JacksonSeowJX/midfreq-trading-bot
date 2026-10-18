@@ -1,6 +1,5 @@
 """
-Human-readable names the Streamlit dashboard (apps/dashboard/app.py) gives result files and
-universes, so the web app shows the same ones. Keep in step with app.py until it is retired.
+Human-readable names for result files and universes, as the web app shows them.
 """
 import re
 from pathlib import Path

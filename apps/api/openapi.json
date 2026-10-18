@@ -1675,7 +1675,7 @@
             "type": "string"
           },
           "label": {
-            "description": "human-readable name, as the Streamlit research view shows it",
+            "description": "human-readable name, as the research view shows it",
             "title": "Label",
             "type": "string"
           },
@@ -1870,7 +1870,7 @@
         "type": "object"
       },
       "RiskSettings": {
-        "description": "The Streamlit sidebar's risk and sizing controls. Percentages as fractions (0.03 = 3%).",
+        "description": "The run form's risk and sizing controls. Percentages as fractions (0.03 = 3%).",
         "properties": {
           "fraction": {
             "default": 0.5,

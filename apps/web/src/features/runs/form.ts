@@ -3,8 +3,7 @@
  * remembers between visits, and validation into the API's request types.
  *
  * Inputs are kept as the strings typed, so a half-typed number ("0.") never jumps; they are
- * parsed and checked against the same limits as the Streamlit sidebar (apps/dashboard/app.py)
- * when the run is submitted. Error keys are the request's own field paths ("risk.qty",
+ * parsed and checked against the limits below when the run is submitted. Error keys are the request's own field paths ("risk.qty",
  * "params.lookback"), so a 422 from the API lands beside the same input.
  */
 import type {
@@ -36,7 +35,7 @@ export const SIZING_METHODS: { value: SizingMethod; label: string; explain: stri
   { value: 'equal_dollar', label: 'Equal dollar', explain: 'Split equity evenly by value across the positions.' },
 ]
 
-/** The cross-sectional strategies rank a whole universe against itself (Streamlit's is_basket). */
+/** The cross-sectional strategies rank a whole universe against itself (is_basket). */
 export function isBasket(strategy: string): boolean {
   return strategy.startsWith('Cross-Sectional')
 }
@@ -132,7 +131,7 @@ export function isoDate(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-/** The Streamlit defaults: the last year, hourly candles, 100,000 of capital, no slippage. */
+/** The defaults: the last year, hourly candles, 100,000 of capital, no slippage. */
 export function defaultForm(today: Date = new Date()): RunForm {
   const yearAgo = new Date(today)
   yearAgo.setFullYear(today.getFullYear() - 1)
@@ -274,7 +273,7 @@ export function saveForm(kind: JobKind, form: RunForm) {
 
 const PREFERRED_SYMBOL: Record<Market, string[]> = { US: ['US.AAPL'], HK: ['HK.00700'] }
 
-/** Percent with three decimals, as the Streamlit input showed it: 0.0016 -> "0.160". */
+/** Percent with three decimals: 0.0016 -> "0.160". */
 export function commissionPctText(rate: number | null): string {
   return rate === null ? '' : (rate * 100).toFixed(3)
 }
@@ -303,8 +302,8 @@ export function resolveStrategy(name: string, strategies: StrategyInfo[]): Strat
 }
 
 /**
- * On a stock, up to six single-stock strategies (neither pairs nor basket): Streamlit compared
- * them all. On a universe, every cross-sectional strategy.
+ * On a stock, up to six single-stock strategies (neither pairs nor basket). On a universe, every
+ * cross-sectional strategy.
  */
 export function defaultCompareSelection(strategies: StrategyInfo[], on: CompareOn = 'stock'): string[] {
   if (on === 'universe') return strategies.filter((s) => isBasket(s.name)).slice(0, COMPARE_MAX).map((s) => s.name)
@@ -399,7 +398,7 @@ export function checkNumber(raw: string, rule: NumRule): { value: number | null 
   return { value: n }
 }
 
-/** The limits of every number input, Streamlit's where it had them. */
+/** The limits of every number input. */
 export const LIMITS = {
   capital: { min: 1000 },
   commissionPct: { min: 0, max: 1 },

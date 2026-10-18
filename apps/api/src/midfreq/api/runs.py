@@ -1,7 +1,7 @@
 """
-The runs the Streamlit dashboard starts from its sidebar (apps/dashboard/app.py): a backtest, a
-comparison of strategies and an optimization (grid search or walk-forward). They make the same
-library calls with the same arguments as app.py does, so the same inputs give the same numbers:
+The runs the dashboard starts: a backtest, a comparison of strategies and an optimization (grid
+search or walk-forward). They make the same library calls with the same arguments as the research
+scripts, so the same inputs give the same numbers:
 
     plan(kind, request, settings) -> Plan     # checked up front, in the request (RunError -> 422)
     execute(plan, progress) -> result model   # the run itself, in a worker (runner.py)

@@ -1,5 +1,5 @@
 """
-The dashboard API: read-only JSON over what the Streamlit dashboard reads directly today.
+The dashboard API: read-only JSON over the results, the live records and the saved runs.
 
     uv run uvicorn midfreq.api.main:app --reload          # http://127.0.0.1:8000/docs
 

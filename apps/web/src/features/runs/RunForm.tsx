@@ -155,7 +155,7 @@ export interface RunFormProps {
 }
 
 /**
- * The run settings, the Streamlit sidebar's controls: strategy and parameters, the data
+ * The run settings: strategy and parameters, the data
  * (market from the top bar, symbol, pair, universe, timeframe, dates), money (capital,
  * commission, slippage) and, folded away, risk and sizing. Remembered per view; a preset
  * (a guide example) replaces the remembered inputs when the form mounts, and says so until

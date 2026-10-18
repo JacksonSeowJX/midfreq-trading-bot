@@ -1147,7 +1147,7 @@ export interface components {
             kind: "csv" | "json";
             /**
              * Label
-             * @description human-readable name, as the Streamlit research view shows it
+             * @description human-readable name, as the research view shows it
              */
             label: string;
             /**
@@ -1223,7 +1223,7 @@ export interface components {
         };
         /**
          * RiskSettings
-         * @description The Streamlit sidebar's risk and sizing controls. Percentages as fractions (0.03 = 3%).
+         * @description The run form's risk and sizing controls. Percentages as fractions (0.03 = 3%).
          */
         RiskSettings: {
             /**

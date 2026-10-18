@@ -6,7 +6,7 @@ export interface ListedFile {
 }
 
 /**
- * The study list as the Streamlit research view orders it: the newest file of each study (and kind),
+ * The study list in reading order: the newest file of each study (and kind),
  * the corrected headline study first, then current studies, then the rest, with superseded
  * and failed studies last. With `showAll`, every raw file by name, newest first.
  */
@@ -46,7 +46,7 @@ export interface QuickChartSpec {
 }
 
 /**
- * The quick chart the Streamlit view draws when it is obvious: the first return-like numeric
+ * The quick chart drawn when it is obvious: the first return-like numeric
  * column against the first symbol / strategy / assigned column.
  */
 export function quickChartSpec(columns: string[], rows: Record<string, unknown>[]): QuickChartSpec | null {

@@ -1,6 +1,6 @@
 """Runs (backtest, compare, optimize) as background jobs: start one, poll it, read its result.
 
-The runs are the Streamlit dashboard's (runs.py), done in worker processes (runner.py). A run kind
+The runs are planned in runs.py and done in worker processes (runner.py). A run kind
 outside Settings.job_kinds is 403; a run that cannot be done as asked (an unknown strategy or
 parameter, a symbol with no cached candles) is 422 before it starts; more than
 Settings.max_concurrent_jobs at once is 429. A run that fails once started (no candles between the

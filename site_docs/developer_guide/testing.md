@@ -5,7 +5,7 @@ uv run pytest            # every package's tests, apps/api/tests and tests/
 uv run lint-imports      # packages import only the layers below them
 ```
 
-The suite collects 1,426 tests. On Python 3.12 with `uv.lock`, 1,382 pass and 44 are skipped by
+The suite collects 1,423 tests. On Python 3.12 with `uv.lock`, 1,379 pass and 44 are skipped by
 default: 43 that need the real price cache (opt-in, below) and one Linux-only check of the VM's
 schedule, which runs in CI.
 
@@ -21,7 +21,7 @@ schedule, which runs in CI.
 | `packages/midfreq-research/tests/` | 7 | the results index and the forward-test read-back |
 | `apps/api/tests/` | 235 | the API, in temporary folders only, with the sign-in verifier and the run store replaced |
 | `tests/integration/` | 58 | cross-package tests: the equivalence of the venue engine's legacy adapter with the candle backtester for all 13 strategies, and the venue SDK boundary |
-| `tests/e2e/` | 32 | end-to-end checks: the Streamlit dashboard's smoke test, the session close, the deploy gate and the VM's schedule |
+| `tests/e2e/` | 29 | end-to-end checks: the session close, the deploy gate and the VM's schedule |
 | `tests/slow/` | 43 | the adapter's and the C++ engine's equivalence on the real price cache; opt-in |
 | `tests/support/` | | shared helpers (fake connectors and venues, synthetic markets), importable from any package's tests |
 

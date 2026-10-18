@@ -1,7 +1,7 @@
 # midfreq-api: the dashboard's HTTP API
 
-Read-only JSON for the web dashboard (`apps/web`), over the same data the Streamlit dashboard
-(`apps/dashboard/app.py`) reads directly.
+Read-only JSON for the web dashboard (`apps/web`), over the results files, the live session logs,
+the broker snapshots and the store of saved runs.
 
 ```
 uv run uvicorn midfreq.api.main:app --reload      # http://127.0.0.1:8000/docs
