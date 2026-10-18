@@ -1,0 +1,46 @@
+symbol,strategy,config_a_oos,config_a_consistency,config_b_oos,config_b_consistency,robust
+US.AAPL,Regime Switch,-0.109,22.2,0.403,60.0,False
+US.AAPL,HMM Regime Switch,0.417,55.6,0.245,53.3,True
+US.AAPL,ML Direction Classifier,-0.462,22.2,0.114,60.0,False
+US.MSFT,Regime Switch,-0.314,44.4,-0.022,26.7,False
+US.MSFT,HMM Regime Switch,-0.346,22.2,-0.079,6.7,False
+US.MSFT,ML Direction Classifier,-0.086,33.3,0.52,73.3,False
+US.NVDA,Regime Switch,-0.232,33.3,-0.315,13.3,False
+US.NVDA,HMM Regime Switch,-0.163,22.2,-0.261,20.0,False
+US.NVDA,ML Direction Classifier,-0.375,44.4,-0.424,40.0,False
+US.TSLA,Regime Switch,0.473,55.6,-0.473,20.0,False
+US.TSLA,HMM Regime Switch,0.279,22.2,-0.094,13.3,False
+US.TSLA,ML Direction Classifier,-0.676,55.6,0.013,46.7,False
+US.GOOGL,Regime Switch,0.336,55.6,0.15,53.3,True
+US.GOOGL,HMM Regime Switch,0.54,66.7,0.217,46.7,False
+US.GOOGL,ML Direction Classifier,0.62,55.6,0.045,60.0,True
+US.AMZN,Regime Switch,0.474,66.7,-0.038,40.0,False
+US.AMZN,HMM Regime Switch,-0.08,33.3,-0.144,13.3,False
+US.AMZN,ML Direction Classifier,0.507,55.6,-0.166,60.0,False
+US.META,Regime Switch,-0.035,33.3,0.33,40.0,False
+US.META,HMM Regime Switch,-0.68,33.3,-0.423,20.0,False
+US.META,ML Direction Classifier,1.475,55.6,0.576,66.7,True
+US.JPM,Regime Switch,0.062,33.3,0.129,46.7,False
+US.JPM,HMM Regime Switch,0.122,55.6,0.079,33.3,False
+US.JPM,ML Direction Classifier,0.179,55.6,0.281,73.3,True
+US.V,Regime Switch,0.259,55.6,-0.013,26.7,False
+US.V,HMM Regime Switch,0.173,55.6,0.014,33.3,False
+US.V,ML Direction Classifier,0.167,66.7,-0.068,53.3,False
+US.XOM,Regime Switch,-0.126,11.1,-0.011,26.7,False
+US.XOM,HMM Regime Switch,0.094,44.4,-0.017,26.7,False
+US.XOM,ML Direction Classifier,-0.011,55.6,-0.17,40.0,False
+US.JNJ,Regime Switch,0.039,33.3,0.073,26.7,False
+US.JNJ,HMM Regime Switch,0.023,33.3,-0.034,13.3,False
+US.JNJ,ML Direction Classifier,0.003,55.6,-0.042,40.0,False
+US.PFE,Regime Switch,-0.016,33.3,-0.008,26.7,False
+US.PFE,HMM Regime Switch,0.011,44.4,0.0,26.7,False
+US.PFE,ML Direction Classifier,0.024,66.7,-0.031,20.0,False
+US.PG,Regime Switch,-0.106,44.4,0.031,26.7,False
+US.PG,HMM Regime Switch,0.02,55.6,0.01,26.7,False
+US.PG,ML Direction Classifier,0.147,66.7,0.125,66.7,True
+US.WMT,Regime Switch,-0.02,33.3,0.015,60.0,False
+US.WMT,HMM Regime Switch,0.008,33.3,0.006,33.3,False
+US.WMT,ML Direction Classifier,-0.269,33.3,0.032,46.7,False
+US.CAT,Regime Switch,0.507,55.6,-0.33,33.3,False
+US.CAT,HMM Regime Switch,-0.351,44.4,-0.024,20.0,False
+US.CAT,ML Direction Classifier,-0.753,33.3,0.133,46.7,False

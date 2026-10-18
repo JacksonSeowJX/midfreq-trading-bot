@@ -12,6 +12,11 @@ window boundary. The only way to make all four numbers genuinely
 comparable is to compute them together, in one script, sharing one
 start/end and one set of window boundaries.
 
+Re-run on 19 Oct 2026 on the corrected validation machinery (Section 3.6.3 of the report): the
+window is anchored to the data (DataStorage.latest_common_timestamp) instead of the run date,
+and US runs pass their commission explicitly (zero, the best-case bound of the corrected US
+studies), so a US run is no longer charged the Hong Kong rate.
+
 Usage:
     uv run python research/studies/combination_attempts_unified.py
 """
@@ -36,8 +41,9 @@ ORIGINAL_11 = ['HK.00700', 'HK.00005', 'HK.09988', 'HK.03690', 'HK.01299',
 
 def main():
     storage = DataStorage()
-    end = datetime.now()
+    end = storage.latest_common_timestamp(ORIGINAL_11, '1h')    # the data's end, not the run date
     start = end - timedelta(days=HISTORY_DAYS)
+    print(f"Window anchored to data: {start.date()} -> {end.date()}", flush=True)
 
     rows = []
     t0 = time.time()

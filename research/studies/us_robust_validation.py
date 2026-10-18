@@ -10,6 +10,11 @@ whether the null result is specific to this HK universe or holds more
 broadly. US market data confirmed free (no paid subscription) as of
 2026-08-11.
 
+Re-run on 19 Oct 2026 on the corrected validation machinery (Section 3.6.3 of the report): the
+window is anchored to the data (DataStorage.latest_common_timestamp) instead of the run date,
+and US runs pass their commission explicitly (zero, the best-case bound of the corrected US
+studies), so a US run is no longer charged the Hong Kong rate.
+
 Usage:
     uv run python research/studies/us_robust_validation.py
 """
@@ -45,8 +50,9 @@ def main():
     config = ConfigLoader()
     symbols = config.get_all_symbols(market="US")
 
-    end = datetime.now()
+    end = storage.latest_common_timestamp(symbols, '1h')    # the data's end, not the run date
     start = end - timedelta(days=HISTORY_DAYS)
+    print(f"Window anchored to data: {start.date()} -> {end.date()}", flush=True)
 
     rows = []
     t0 = time.time()
@@ -59,7 +65,7 @@ def main():
                     strategy_name=strat, symbols=[sym], timeframe=Timeframe.HOUR_1,
                     start_date=start, end_date=end, storage=storage,
                     n_splits=cfg['n_splits'], train_pct=cfg['train_pct'], objective=OBJECTIVE,
-                    slippage_bps=SLIPPAGE_BPS,
+                    slippage_bps=SLIPPAGE_BPS, commission_rate=0.0,   # US: best-case bound, not the HK rate
                 )
                 s = res.get('summary', {})
                 if not s or s.get('error'):

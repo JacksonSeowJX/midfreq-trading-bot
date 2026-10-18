@@ -17,6 +17,10 @@ before it is trusted enough to assign. A result that only looks good
 under one specific window slicing is exactly the fragile case this is
 designed to catch and reject.
 
+Re-run on 19 Oct 2026 on the corrected validation machinery (Section 3.6.3 of the report), on
+the original 11 Hong Kong stocks it was first run on, with its one-year window anchored to the
+data (DataStorage.latest_common_timestamp) instead of the run date.
+
 Usage:
     uv run python research/studies/superseded/best_tool_allocation_robust.py
 """
@@ -42,6 +46,9 @@ OBJECTIVE = 'sharpe_ratio'
 MIN_CONSISTENCY = 50.0
 
 
+ORIGINAL_11 = ['HK.00700', 'HK.00005', 'HK.09988', 'HK.03690', 'HK.01299',
+               'HK.00941', 'HK.02318', 'HK.01211', 'HK.01810', 'HK.09618', 'HK.09888']
+
 def qualifies(oos_return, consistency):
     return oos_return > 0 and consistency >= MIN_CONSISTENCY
 
@@ -49,10 +56,11 @@ def qualifies(oos_return, consistency):
 def main():
     storage = DataStorage()
     config = ConfigLoader()
-    symbols = config.get_live_symbols(market="HK")
+    symbols = ORIGINAL_11    # the stocks this stage was first run on
 
-    end = datetime.now()
+    end = storage.latest_common_timestamp(symbols, '1h')    # the data's end, not the run date
     start = end - timedelta(days=365)
+    print(f"Window anchored to data: {start.date()} -> {end.date()}", flush=True)
 
     rows = []
     t0 = time.time()

@@ -1,0 +1,34 @@
+symbol,strategy,avg_oos_return_pct,oos_consistency_pct
+HK.00700,Regime Switch,-1.421,0.0
+HK.00700,HMM Regime Switch,-0.045,0.0
+HK.00700,ML Direction Classifier,-1.895,0.0
+HK.00005,Regime Switch,-0.149,0.0
+HK.00005,HMM Regime Switch,0.129,33.3
+HK.00005,ML Direction Classifier,0.043,66.7
+HK.09988,Regime Switch,0.136,66.7
+HK.09988,HMM Regime Switch,-0.158,0.0
+HK.09988,ML Direction Classifier,-0.201,33.3
+HK.03690,Regime Switch,-0.489,0.0
+HK.03690,HMM Regime Switch,-0.104,66.7
+HK.03690,ML Direction Classifier,-0.483,0.0
+HK.01299,Regime Switch,-0.175,33.3
+HK.01299,HMM Regime Switch,-0.054,0.0
+HK.01299,ML Direction Classifier,-0.086,0.0
+HK.00941,Regime Switch,0.046,33.3
+HK.00941,HMM Regime Switch,-0.018,0.0
+HK.00941,ML Direction Classifier,-0.015,33.3
+HK.02318,Regime Switch,-0.075,0.0
+HK.02318,HMM Regime Switch,-0.095,0.0
+HK.02318,ML Direction Classifier,-0.106,0.0
+HK.01211,Regime Switch,-0.098,33.3
+HK.01211,HMM Regime Switch,-0.06,0.0
+HK.01211,ML Direction Classifier,-0.254,0.0
+HK.01810,Regime Switch,-0.091,0.0
+HK.01810,HMM Regime Switch,0.011,33.3
+HK.01810,ML Direction Classifier,-0.086,0.0
+HK.09618,Regime Switch,-0.05,33.3
+HK.09618,HMM Regime Switch,-0.118,33.3
+HK.09618,ML Direction Classifier,-0.462,33.3
+HK.09888,Regime Switch,-0.457,0.0
+HK.09888,HMM Regime Switch,-0.158,33.3
+HK.09888,ML Direction Classifier,-0.217,33.3

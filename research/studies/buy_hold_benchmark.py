@@ -16,6 +16,11 @@ throughout this project, for the same 19 symbols and both configs, so
 the null result has a concrete anchor: did these stocks even go up
 during the periods our strategies were tested on?
 
+Re-run on 19 Oct 2026 on the corrected validation machinery (Section 3.6.3 of the report): the
+window is anchored to the data (DataStorage.latest_common_timestamp) instead of the run date,
+and US runs pass their commission explicitly (zero, the best-case bound of the corrected US
+studies), so a US run is no longer charged the Hong Kong rate.
+
 Usage:
     uv run python research/studies/buy_hold_benchmark.py [market]   # market defaults to HK
 """
@@ -67,8 +72,9 @@ def main():
     config = ConfigLoader()
     symbols = config.get_live_symbols(market=market) or config.get_all_symbols(market=market)
 
-    end = datetime.now()
+    end = storage.latest_common_timestamp(symbols, '1h')    # the data's end, not the run date
     start = end - timedelta(days=HISTORY_DAYS)
+    print(f"Window anchored to data: {start.date()} -> {end.date()}", flush=True)
 
     rows = []
     t0 = time.time()

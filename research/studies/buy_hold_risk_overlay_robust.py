@@ -18,6 +18,11 @@ out-of-sample, exactly like every other strategy in this project. Same
 two-config agreement standard (9-window / 15-window, 3yr, 5bps slippage)
 applies before a symbol counts as "robust."
 
+Re-run on 19 Oct 2026 on the corrected validation machinery (Section 3.6.3 of the report): the
+window is anchored to the data (DataStorage.latest_common_timestamp) instead of the run date,
+and US runs pass their commission explicitly (zero, the best-case bound of the corrected US
+studies), so a US run is no longer charged the Hong Kong rate.
+
 Usage:
     uv run python research/studies/buy_hold_risk_overlay_robust.py [market]   # HK or US, defaults to both
 """
@@ -32,6 +37,7 @@ from midfreq.core.candle import Timeframe
 from midfreq.data.storage import DataStorage
 from midfreq.core.config import ConfigLoader
 from midfreq.backtest.optimizer import walk_forward
+from midfreq.core.portfolio import Portfolio
 
 STRATEGY = 'Buy & Hold + Risk Overlay'
 CONFIGS = [
@@ -51,7 +57,7 @@ def qualifies(oos_return, consistency):
 def load_buyhold_benchmark(market):
     """Most recent buy_hold_benchmark_*.csv for this market, for a head-to-head comparison."""
     results_dir = paths.results_dir()
-    pattern = 'buy_hold_benchmark_us_*.csv' if market == 'US' else 'buy_hold_benchmark_2*.csv'
+    pattern = 'buy_hold_benchmark_us_*.csv' if market == 'US' else 'buy_hold_benchmark_hk_*.csv'
     matches = sorted(results_dir.glob(pattern))
     if not matches:
         return {}
@@ -61,8 +67,9 @@ def load_buyhold_benchmark(market):
 
 def run_market(market, storage, config):
     symbols = config.get_live_symbols(market=market) or config.get_all_symbols(market=market)
-    end = datetime.now()
+    end = storage.latest_common_timestamp(symbols, '1h')    # the data's end, not the run date
     start = end - timedelta(days=HISTORY_DAYS)
+    print(f"Window anchored to data: {start.date()} -> {end.date()}", flush=True)
     buyhold = load_buyhold_benchmark(market)
 
     rows = []
@@ -74,7 +81,7 @@ def run_market(market, storage, config):
                 strategy_name=STRATEGY, symbols=[sym], timeframe=Timeframe.HOUR_1,
                 start_date=start, end_date=end, storage=storage,
                 n_splits=cfg['n_splits'], train_pct=cfg['train_pct'], objective=OBJECTIVE,
-                slippage_bps=SLIPPAGE_BPS,
+                slippage_bps=SLIPPAGE_BPS, commission_rate=0.0 if market == 'US' else Portfolio.HK_FEE_RATE,
             )
             s = res.get('summary', {})
             if not s or s.get('error'):
