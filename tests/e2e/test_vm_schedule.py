@@ -48,12 +48,26 @@ def test_the_schedule_never_reaches_github_or_the_old_clone():
 
 
 def test_the_session_fires_at_both_us_open_times_on_weekdays():
-    session = [l for l in active_lines() if "run_node.sh" in l or "run_sp100_forward_test.sh" in l]
+    session = [l for l in active_lines()
+               if ("run_node.sh" in l and "node_sp100" in l) or "run_sp100_forward_test.sh" in l]
     assert len(session) == 1, "exactly one US session launcher may be active"
     assert "run_node.sh" in session[0] and "NODE_MODE=paper" in session[0]
     assert "NODE_CONFIG=config/node_sp100.yaml" in session[0]
     assert session[0].split()[:5] == ["35", "21,22", "*", "*", "1-5"]
     assert "--scheduled" in session[0] and "MIDFREQ_ROOT=$HOME/midfreq/runtime" in session[0]
+
+
+def test_the_hong_kong_session_fires_after_the_hong_kong_open_on_weekdays():
+    hk = [l for l in active_lines() if "run_node.sh" in l and "node_hk.yaml" in l]
+    assert len(hk) == 1, "exactly one Hong Kong session launcher may be active"
+    line = hk[0]
+    # 09:35 SGT = HKT: inside run_node.sh's gate (open to open + 30 minutes); HKT has no DST
+    assert line.split()[:5] == ["35", "9", "*", "*", "1-5"]
+    assert "NODE_MODE=paper" in line and "--scheduled" in line and "MIDFREQ_ROOT=$HOME/midfreq/runtime" in line
+    assert "cron_hk.log" in line
+    # never two sessions at once: Hong Kong stops at 16:02, the US starts at 21:35 or 22:35
+    us = [l for l in active_lines() if "run_node.sh" in l and "node_sp100" in l]
+    assert int(line.split()[1]) < 16 < min(int(h) for h in us[0].split()[1].split(","))
 
 
 def test_the_session_runner_line_is_kept_for_rollback():

@@ -1,0 +1,96 @@
+# The trading node for the Hong Kong session: the node trading a second market on its own
+# schedule (ops/vm/crontab.txt starts it at 09:35 SGT on weekdays, NODE_MODE=paper), on the Hong
+# Kong paper account, during Hong Kong hours (09:30-12:00 and 13:00-16:00 HKT = SGT).
+#
+# What it tests. That the node runs a second market end to end on its own schedule: start-up,
+# reconciliation with the Hong Kong account, warm-up, the lunch break, board lots, orders and
+# fills through the Hong Kong account, the state file, and a clean stop at 16:02. It is NOT a
+# strategy with an edge: the 18 Oct 2026 Hong Kong search (research/studies/hk_*.py) found nothing
+# fit to trade, and the one strategy that met the validation standard, the ML Direction
+# Classifier on HSBC, is consistent with luck across its family (White's Reality Check p = 0.79
+# and 0.46). Its settings come from scripts/live/pick_hk_live_config.py, by the US forward test's
+# procedure, in config/hk_forward_test.json; the file states the purpose too.
+#
+# Separate from the US session in every way: another account (moomoo-hk), another state file,
+# and its own records folder, live_sessions/hk/. The order journal is one file per UTC day, which
+# both sessions would otherwise share. The two sessions never overlap (Hong Kong stops at 16:02,
+# the US starts at 21:35 SGT), so each has the account's whole quote quota; this one holds one
+# subscription. Check it with:
+#   midfreq-node check-config --config config/node_hk.yaml
+
+node:
+  name: hk
+  mode: shadow                # the schedule passes NODE_MODE=paper
+  timeframe: 1h
+  records_dir: live_sessions/hk         # paper: records here; shadow: live_sessions/hk/shadow/
+  seed_state_from: live_sessions/hk     # a shadow run starts from this test's own state, read only
+  heartbeat_s: 300
+  reconcile_s: 300
+  stall_factor: 1.25          # no closed hourly bar for 75 minutes of session time: resubscribe once
+  stop_order_wait_s: 30
+  console_tz: Asia/Singapore
+  console_tz_label: SGT
+  market_tz: Asia/Hong_Kong
+  market_tz_label: HKT
+
+connectors:
+  moomoo: {}                  # OpenD host and port from config/connections.yaml
+
+data:
+  connector: moomoo
+  quotes: false               # bars only
+
+accounts:
+  moomoo-hk:
+    connector: moomoo
+    options: {market: HK}     # the Hong Kong trade account; trading_env (simulate) from connections.yaml
+    environment: paper
+
+strategies:
+  - id: hk-ml-00005
+    class: ML Direction Classifier
+    from: config/hk_forward_test.json   # params, symbol and capital
+    account: moomoo-hk
+    timeframe: 1h
+    state_name: hk_ml_00005   # state_hk_ml_00005.json, never another strategy's file
+    commission_rate: 0.0016   # Hong Kong all-in per side (config/venues.json, calibrated on paper fills)
+    risk_manager:
+      stop_loss_pct: 0        # none, as the US configuration
+      take_profit_pct: 0
+      max_drawdown_pct: 0.15  # the account drawdown halt, a safety net only
+      sizing: equal-dollar    # the whole allocation in the one stock ...
+      basket_size: 1          # ... rounded down to the board lot (HSBC: 400 shares)
+    pricing:
+      rule: last              # the latest pushed price, 1% through it, as the US configuration
+      slip: 0.01
+      time_in_force: DAY
+    warmup_bars: 250          # the classifier fits on a trailing 120 hourly candles of features
+    confirm_fills: true       # wait for each order's outcome, as the US configuration
+    confirm_timeout_s: 150    # at least the unfilled-order policy's 3 x 30 s + 30 s (check-config checks)
+
+# Pre-trade risk (midfreq.trading.risk.RiskLimits), in HKD. One lot of HSBC is about HK$60,000.
+risk:
+  max_order_notional: 100000
+  max_position_notional: 100000
+  price_band_pct: 0.05        # a limit more than 5% from the last price is a fat finger
+  require_session_open: true  # no order outside 09:30-12:00 and 13:00-16:00 HKT or on a holiday
+
+# Orders left unfilled (midfreq.trading.execution.UnfilledOrderPolicy), as the US configuration.
+oms:
+  unfilled_order:
+    wait_s: 30
+    max_reprices: 2
+    quote_offset_bps: 0
+    last_offset_bps: 100
+    cancel_timeout_s: 30
+    max_cancel_retries: 3
+
+marketdata:
+  min_cross_section_share: 0.9
+  finality_grace_s: 30
+
+journal:
+  fsync: true                 # every order record on disk before the next step
+
+shadow:
+  fill_mode: none             # for `midfreq-node run --mode shadow` (node_startup_check.sh)

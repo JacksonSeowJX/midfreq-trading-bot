@@ -458,3 +458,46 @@ session runner by hand for the rest of the session (it runs to the close):
 crontab ~/midfreq/backups/crontab.20261019.txt
 MIDFREQ_ROOT=$HOME/midfreq/runtime nohup ~/midfreq/releases/0.1.1/ops/run_sp100_forward_test.sh >> ~/midfreq/logs/cron_sp100.log 2>&1 &
 ```
+
+## C. The Hong Kong session on the node: from Tuesday 20 October 2026
+
+What runs. `config/node_hk.yaml`: the node on the Hong Kong paper account (`moomoo-hk`) during Hong
+Kong hours, started by the schedule at 09:35 SGT on weekdays (`NODE_MODE=paper`) and stopped at
+16:02. It trades the ML Direction Classifier on HSBC (HK.00005) with the settings in
+`config/hk_forward_test.json`, chosen by `scripts/live/pick_hk_live_config.py`. It is an
+infrastructure test of a second market, not a validated strategy: the Hong Kong search of 18 Oct
+2026 (`research/studies/hk_*.py`) found nothing fit to trade. It keeps everything apart from the US
+session: another account, its own state file (`state_hk_ml_00005.json`) and its own records folder,
+`live_sessions/hk/` (the order journal is one file per UTC day, which the two would otherwise share).
+The two sessions never overlap, so each has the account's whole quote quota.
+
+### C1. Install (after the release that carries it is current)
+
+```bash
+gcloud compute ssh trading-bot --zone asia-southeast1-b
+R=~/midfreq/current/defaults/config; C=~/midfreq/runtime/config
+cp -n $R/node_hk.yaml $R/hk_forward_test.json $C/         # -n: never overwrite the runtime's own files
+crontab -l > ~/midfreq/backups/crontab.$(date +%Y%m%d).txt
+crontab ~/midfreq/current/ops/vm/crontab.txt && crontab -l | grep -n 'run_node'   # 09:35 HK and 21:35 US
+```
+
+The node warms up from the runtime's candle store, so HSBC's hourly file must be current (refresh it
+as on 18 Oct: `MoomooProvider().get_historical_data('HK.00005', HOUR_1, ...)` appended with
+`DataStorage.append_data`, a backup of the file first). After each paper session the node appends the
+session's bars itself.
+
+### C2. Checks
+
+- Before the first session, with the market closed: `node_startup_check.sh 10 --release <version>
+  --config config/node_hk.yaml --market HK --no-account` must print PASS.
+- During Hong Kong hours, without sending anything: the same check in shadow mode for 70 minutes
+  sees an hourly bar close and the classifier decide.
+- Each session: `tail -f ~/midfreq/runtime/live_sessions/console_node_*.log` (the newest), the
+  launcher's lines in `~/midfreq/logs/cron_hk.log`, the records in `~/midfreq/runtime/live_sessions/hk/`
+  and the Hong Kong broker panel of the dashboard.
+
+### C3. Stopping it
+
+Comment the `node_hk.yaml` line in a copy of the crontab and install that, or roll back the release.
+SIGTERM to a running node stops trading at once and cancels its working orders, as in the US.
+

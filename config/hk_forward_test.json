@@ -1,0 +1,37 @@
+{
+  "generated_at": "2026-10-16 16:00:00",
+  "chosen_at_wallclock": "2026-10-18 20:44:32",
+  "purpose": "Infrastructure test of the trading node on a second market (Hong Kong paper account, Hong Kong hours). Not a validated edge: the 18 Oct 2026 Hong Kong search found nothing fit to trade, and this strategy's pass is consistent with luck across its family (White's Reality Check p = 0.79 under config A, 0.46 under config B).",
+  "strategy": "ML Direction Classifier",
+  "symbols": [
+    "HK.00005"
+  ],
+  "rationale": "Grid-searched the most recent training segment by Sharpe, the same procedure each walk-forward window uses and the US forward test used.",
+  "train_window": {
+    "start": "2026-07-24 16:00:00",
+    "end": "2026-10-16 16:00:00",
+    "days": 84
+  },
+  "objective": "sharpe_ratio",
+  "commission_per_side": 0.0016,
+  "slippage_bps": 5.0,
+  "configs_searched": 12,
+  "configs_that_traded": 12,
+  "params": {
+    "refit_every": 100,
+    "buy_threshold": 0.65,
+    "sell_threshold": 0.5
+  },
+  "boundary_warnings": [
+    "refit_every=100 is the grid MAXIMUM ([20, 60, 100])",
+    "buy_threshold=0.65 is the grid MAXIMUM ([0.52, 0.65])",
+    "sell_threshold=0.5 is the grid MAXIMUM ([0.35, 0.5])"
+  ],
+  "in_sample": {
+    "objective": -0.4473384552442461,
+    "return_pct": -0.13464268799997806,
+    "trades": 16
+  },
+  "capital": 100000.0,
+  "capital_rationale": "HK$100,000 of the Hong Kong paper account, as the earlier Hong Kong paper test. HSBC trades in board lots of 400 shares (about HK$60,000 at HK$150), so the strategy holds one lot; the node rounds buys down to the lot."
+}

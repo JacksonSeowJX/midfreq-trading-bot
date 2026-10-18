@@ -16,8 +16,14 @@ PATH=/usr/local/bin:/usr/bin:/bin:/snap/bin
 35 21,22 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime NODE_CONFIG=config/node_sp100.yaml NODE_MODE=paper $HOME/midfreq/current/ops/run_node.sh --scheduled >> $HOME/midfreq/logs/cron_sp100.log 2>&1
 #ROLLBACK 35 21,22 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime $HOME/midfreq/current/ops/run_sp100_forward_test.sh --scheduled >> $HOME/midfreq/logs/cron_sp100.log 2>&1
 
-# Hong Kong roster: paused while the S&P 100 test runs (the two exceed the account's
-# 100-symbol subscription quota). To resume, remove the leading "#PAUSED ".
+# Hong Kong session on the trading node (config/node_hk.yaml, Hong Kong paper account): an
+# infrastructure test of a second market, not a validated strategy (see that file). Fires at 09:35,
+# five minutes after the Hong Kong open (HKT = SGT, no daylight saving); stops at 16:02, long before
+# the US session, so the two never hold subscriptions at once.
+35 9 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime NODE_CONFIG=config/node_hk.yaml NODE_MODE=paper $HOME/midfreq/current/ops/run_node.sh --scheduled >> $HOME/midfreq/logs/cron_hk.log 2>&1
+
+# The session runner's Hong Kong roster: paused (superseded by the node's Hong Kong session above).
+# To resume it instead, comment the line above and remove the leading "#PAUSED ".
 #PAUSED 25 9 * * 1-5  MIDFREQ_ROOT=$HOME/midfreq/runtime $HOME/midfreq/current/ops/run_daily_candidates.sh >> $HOME/midfreq/logs/cron_roster.log 2>&1
 
 # The bot's record to the hosted dashboard's bucket, every 2 minutes (does nothing until the

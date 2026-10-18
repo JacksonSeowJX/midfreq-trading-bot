@@ -20,6 +20,14 @@ test on the trading node, in paper mode, and keeps the session runner's line, co
 format. The forward-test sessions reported under [Results](../results/forward_test.md) were run by
 the session runner.
 
+The schedule also starts a Hong Kong session on the node at 09:35 SGT on weekdays
+([`config/node_hk.yaml`](repo:config/node_hk.yaml)), on the Hong Kong paper account during Hong Kong
+hours. It is an infrastructure test of a second market, not a validated strategy: the Hong Kong
+strategy search found nothing fit to trade, and the one strategy that met the validation standard,
+the ML Direction Classifier on HSBC, is consistent with luck across its family. It has its own
+account, state file and records folder (`live_sessions/hk/`), and stops at 16:02, hours before the
+US session starts, so the two never share the account's quote quota.
+
 ## The session runner
 
 ```mermaid
