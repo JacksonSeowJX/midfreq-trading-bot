@@ -30,7 +30,7 @@ The research question was whether any systematic strategy shows a real, tradable
 | Strategies implemented | 13: trend following, mean reversion, pairs trading, regime switching, cross-sectional reversal and momentum, an ML direction classifier, and buy-and-hold with a risk overlay |
 | Stock universes | 19 Hong Kong stocks, 15 large US stocks, the S&P 100, and the Hang Seng Index (88 stocks) |
 | Validation standard | Walk-forward over 3 years, split two ways (9 windows and 15 windows, each 70% training and 30% test). A result passes only if its mean out-of-sample return is positive and at least 50% of its test windows are profitable under both splits |
-| Results brought to that standard | 217, of which 13 passed (6%) |
+| Results brought to that standard | 178, of which 27 passed (15%); 16 of the 27 are simply holding a stock, the yardstick |
 | Strongest result | Cross-sectional reversal on the S&P 100. It passes at the broker's real fee of 0.005% per side (+5.73% and +0.63% per test window) with a Probability of Backtest Overfitting of 0.274 |
 | Corrected for the search | White's Reality Check over the 8 cross-sectional candidates gives p = 0.094 and 0.098, so the result cannot be told apart from luck. It also passes or fails depending on the week its data ends |
 | Live trading | Paper trading from a Google Cloud VM: Hong Kong single-stock strategies from July to September 2026, then a forward test of S&P 100 reversal on a US$100,000 allocation from 28 September 2026 |

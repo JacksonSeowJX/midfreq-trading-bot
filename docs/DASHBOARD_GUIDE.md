@@ -17,10 +17,10 @@ open the page named in the link from the dashboard's left-hand menu instead.
    on paper: its value, profit or loss, every trade and what it holds. The blue panel,
    *Paper account*, is the broker's own view of the account. See
    [Example A](#example-a-the-live-forward-test).
-2. Open **Overview** in the left-hand menu. The figures at the top say that 217 results were
-   held to the validation standard and 13 passed. Scroll down to *Corrected for the search*:
+2. Open **Overview** in the left-hand menu. The figures at the top say that 178 results were
+   held to the validation standard and 27 passed. Scroll down to *Corrected for the search*:
    the verdict reads *Does not pass*. See
-   [Example B](#example-b-the-13-results-that-pass-and-the-correction-for-the-search).
+   [Example B](#example-b-the-results-that-pass-and-the-correction-for-the-search).
 3. **Try it:** [Backtest, with the live forward test's settings](/backtest?preset=forward-test).
    Press **Run backtest**. A few seconds later the result shows a return of +56.83% over the
    year to 25 September 2026. [Example C](#example-c-the-live-settings-in-a-backtest-and-the-cost-of-fees)
@@ -101,8 +101,8 @@ panel says so.
 
 ## Overview
 
-1. Read the four figures at the top: *Results tested* 217, *Passed the standard* 13 (6.0% of
-   results), *Studies* 9 and *Strategy families* 9. The note beneath states the standard (see
+1. Read the four figures at the top: *Results tested* 178, *Passed the standard* 27 (15.2% of
+   results), *Studies* 7 and *Strategy families* 7. The note beneath states the standard (see
    [the glossary](#glossary)).
 2. In the **Results** card, narrow the rows with the search box, the switch *Show only results
    that passed*, or the family buttons. Three tabs show them:
@@ -252,25 +252,26 @@ record of it agrees with the broker's.
 5. Under *Session history*, click a session to see the account totals the bot read at its
    start and end, and its fills.
 
-### Example B: the 13 results that pass, and the correction for the search
+### Example B: the results that pass, and the correction for the search
 
-1. Open [Overview](/overview). The figures read 217 results tested and 13 passed (6.0% of
+1. Open [Overview](/overview). The figures read 178 results tested and 27 passed (15.2% of
    results).
-2. Turn on *Show only results that passed*. Thirteen rows remain:
+2. Turn on *Show only results that passed*. Twenty-seven rows remain:
 
    | Rows | What they are |
    |---|---|
-   | 7 | *Buy & Hold benchmark*: simply holding one stock (US.MSFT, US.XOM, US.GOOGL, US.JPM, HK.00939, HK.00005, HK.00883). They are the yardstick, not trading strategies. |
+   | 16 | *Buy & Hold benchmark*: simply holding one stock, 10 in the US (US.AMZN, US.JPM, US.GOOGL, US.WMT, US.NVDA, US.V, US.AAPL, US.META, US.MSFT, US.JNJ) and 6 in Hong Kong (HK.00005, HK.00883, HK.01398, HK.00939, HK.00941, HK.02020). They are the yardstick, not trading strategies. |
    | 3 | Cross-sectional reversal on the S&P 100: the study's own row, and two rows of its cost sweep (at 0% and 0.005% commission), that is, the same strategy at different fees. |
-   | 1 | *Buy & Hold + Risk Overlay* on US.JPM: holding the stock with a stop-loss and a trailing stop. |
-   | 2 | *ML Direction Classifier* on US.GOOGL and on HK.00005, with mean test returns between +0.01% and +0.22% per window. |
+   | 1 | *Buy & Hold + Risk Overlay* on US.JNJ: holding the stock with a stop-loss and a trailing stop, which returned less than holding it without them (+0.22% and +0.25% against +0.44% and +1.67% per window). |
+   | 7 | Single-stock strategies: on the US stocks, the ML classifier on US.META, US.JPM, US.PG and US.GOOGL, the HMM regime switch on US.AAPL and the rule-based regime switch on US.GOOGL; in Hong Kong, the ML classifier on HK.00005. Mean test returns lie between +0.01% and +1.48% per window, and none of the six US pairs beat holding the same stock under both configurations. |
 
-   Leaving aside holding a stock, with or without a risk overlay, the only strategy that passes
-   with returns clearly above zero is cross-sectional reversal on the S&P 100: +5.88% per test
-   window under Config A and +0.65% under Config B, with 56% and 67% of windows profitable;
-   at the broker's real fee of 0.005% per side, +5.73% and +0.63%.
+   Leaving aside holding a stock, with or without a risk overlay, the strongest result is
+   cross-sectional reversal on the S&P 100: +5.88% per test window under Config A and +0.65%
+   under Config B, with 56% and 67% of windows profitable; at the broker's real fee of 0.005% per
+   side, +5.73% and +0.63%. The US stocks rose over the period, and none of the six single-stock
+   passes on them beat holding the same stock under both configurations.
 3. Turn the switch off and open **Pass rate by family**: *Single-Stock Strategies* passed 1 of
-   57, *Single-Stock Strategies (US)* 0 of 45 and *Single-Stock Strategies (new sectors)* 0 of 24.
+   57 and *Single-Stock Strategies (US)* 6 of 45.
 4. Type `cost sweep` in the search box. The S&P 100 result passes at 0% and 0.005%
    commission, and fails at 0.03% and at 0.16%, the Hong Kong rate.
 5. Scroll to **Corrected for the search**. Eight cross-sectional combinations were tried,
@@ -312,7 +313,7 @@ A single backtest over one period is not evidence of an edge. The live settings 
 a grid search over the last few months of this same year (the choice is recorded in
 `config/sp100_forward_test.json`), so this backtest partly scores them on the data they were
 picked from. [Example E](#example-e-a-walk-forward-validation) shows the size of that effect, and
-[Example B](#example-b-the-13-results-that-pass-and-the-correction-for-the-search) the result on
+[Example B](#example-b-the-results-that-pass-and-the-correction-for-the-search) the result on
 unseen data: +5.73% and +0.63% per test window at this fee, which the Reality Check cannot tell
 apart from luck. The cost effect is the same there: the cost sweep fails at 0.16%.
 

@@ -10,27 +10,28 @@ things tried, and the single-stock strategies did not beat holding the same stoc
 | Strategies | 13: trend following, mean reversion, pairs trading, regime switching, cross-sectional reversal and momentum, an ML direction classifier, and buy-and-hold with a risk overlay |
 | Universes | 19 Hong Kong stocks, 15 large US stocks, the S&P 100, and the Hang Seng Index (88 stocks) |
 | Standard | walk-forward over 3 years under two configurations, Config A (9 windows) and Config B (15), each 70% training; a result passes only if, under both, its mean out-of-sample return per test window is positive and at least 50% of its test windows are profitable ([Optimization and validation](../concepts/optimization_and_validation.md#the-two-configuration-standard)) |
-| Held to the standard | **217** results, from 9 studies in 9 families |
-| Passed | **13** (6.0%) |
+| Held to the standard | **178** results, from 7 studies in 7 families |
+| Passed | **27** (15.2%), 16 of them simply holding a stock |
 | Corrected for the search | White's Reality Check over the 8 cross-sectional candidates: **p = 0.094** (Config A) and **p = 0.098** (Config B), above the 0.05 needed |
 | Overfitting of the strongest result | Probability of Backtest Overfitting **0.274** over 96 configurations (pure noise gives 0.5) |
 | Stability of the live setting | fails all three pre-registered tests over 17,920 settings: a narrow peak, below the median setting from August 2023 to July 2026, before the days it was chosen on |
 | Forward test, to 16 October 2026 | US$100,000 at **−5.29%** after four rebalances, against **+2.03%** for an equal-weight index of the same 98 stocks; too short to confirm or refute the result |
 
-## The 13 results that passed
+## The 27 results that passed
 
 | Results | What they are |
 |---|---|
-| 7 | *Buy & Hold benchmark*: simply holding one stock (US.MSFT, US.XOM, US.GOOGL, US.JPM, HK.00939, HK.00005, HK.00883). They are the yardstick, not trading strategies. |
+| 16 | *Buy & Hold benchmark*: simply holding one stock, 10 in the US (US.AMZN, US.JPM, US.GOOGL, US.WMT, US.NVDA, US.V, US.AAPL, US.META, US.MSFT, US.JNJ) and 6 in Hong Kong (HK.00005, HK.00883, HK.01398, HK.00939, HK.00941, HK.02020). They are the yardstick, not trading strategies. |
 | 3 | Cross-sectional reversal on the S&P 100: the study's own row, and two rows of its cost sweep, at 0% and at 0.005% commission, that is, the same strategy at different fees. |
-| 1 | *Buy & Hold + Risk Overlay* on US.JPM: holding the stock with a stop-loss and a trailing stop. |
-| 2 | *ML Direction Classifier* on US.GOOGL and on HK.00005, with mean test returns between +0.01% and +0.22% per window. |
+| 1 | *Buy & Hold + Risk Overlay* on US.JNJ: holding the stock with a stop-loss and a trailing stop, which returned less than holding it without them (+0.22% and +0.25% against +0.44% and +1.67% per window). |
+| 7 | Single-stock strategies: on the US stocks, the ML classifier on US.META, US.JPM, US.PG and US.GOOGL, the HMM regime switch on US.AAPL and the rule-based regime switch on US.GOOGL; in Hong Kong, the ML classifier on HK.00005. Mean test returns lie between +0.01% and +1.48% per window, and none of the six US pairs beat holding the same stock under both configurations. |
 
-Leaving aside holding a stock, with or without a risk overlay, the only strategy that passes with
-returns clearly above zero is cross-sectional reversal on the S&P 100: +5.88% per test window
-under Config A and +0.65% under Config B, with 56% and 67% of windows profitable. Of the
-single-stock strategies, 1 of 57 results passed on the Hong Kong stocks, 0 of 45 on the US stocks
-and 0 of 24 on the stocks of the new sectors.
+Leaving aside holding a stock, with or without a risk overlay, the strongest result is
+cross-sectional reversal on the S&P 100: +5.88% per test window under Config A and +0.65% under
+Config B, with 56% and 67% of windows profitable. Of the single-stock strategies, 1 of 57 results
+passed on the Hong Kong stocks (24 of them on the stocks of the new sectors, none passing) and 6
+of 45 on the US stocks. The US stocks rose over the period, and none of the six passes beat
+holding the same stock under both configurations.
 
 ## The strongest result
 
@@ -71,9 +72,9 @@ and a live trading system checked against a real broker ([The forward test](forw
 
 ## On the dashboard
 
-The dashboard's **Overview** page shows every one of the 217 results, the pass rate by family,
+The dashboard's **Overview** page shows every one of the 178 results, the pass rate by family,
 the Config A against Config B chart, and the correction for the search; **Research files** opens
-each study's raw output. [Example B](../concepts/dashboard.md#example-b-the-13-results-that-pass-and-the-correction-for-the-search)
+each study's raw output. [Example B](../concepts/dashboard.md#example-b-the-results-that-pass-and-the-correction-for-the-search)
 of the dashboard guide walks through these figures.
 
 !!! info "The hosted dashboard"

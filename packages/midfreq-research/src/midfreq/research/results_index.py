@@ -29,12 +29,17 @@ REQUIRED = ['config_a_oos', 'config_a_consistency', 'config_b_oos', 'config_b_co
 
 # Studies whose numbers are known to be untrustworthy. The 2026-09-08
 # audit found six defects; cross_sectional_corrected supersedes the three
-# cross-sectional studies that ran before the fixes.
+# cross-sectional studies that ran before the fixes. The 2026-10-19 re-runs
+# on the corrected machinery replace three more: buy_hold_benchmark (Hong
+# Kong, now buy_hold_benchmark_hk), ml_classifier_baseline_sameday (the US
+# classifier, now inside us_robust_validation_full) and
+# best_tool_new_stocks_full (its 8 stocks are inside best_tool_robust_v2_full).
 SUPERSEDED = {
     'cross_sectional_sp100', 'cross_sectional_hsi', 'cross_sectional_robust',
     'cross_sectional_momentum_robust', 'cross_sectional_momentum_broad',
     'cross_sectional_walkforward', 'best_tool_robust_full', 'best_tool_full',
-    'ml_classifier_macro',
+    'ml_classifier_macro', 'buy_hold_benchmark', 'ml_classifier_baseline_sameday',
+    'best_tool_new_stocks_full',
 }
 
 # What each study was testing, for grouping in the overview.
@@ -47,6 +52,7 @@ STUDY_META = {
     'us_robust_validation_full':   ('Single-Stock Strategies (US)', 'symbol'),
     'ml_classifier_baseline_sameday': ('ML Direction Classifier', 'symbol'),
     'buy_hold_benchmark':          ('Buy & Hold benchmark', 'symbol'),
+    'buy_hold_benchmark_hk':       ('Buy & Hold benchmark (HK)', 'symbol'),
     'buy_hold_benchmark_us':       ('Buy & Hold benchmark (US)', 'symbol'),
 }
 

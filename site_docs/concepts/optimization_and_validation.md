@@ -96,7 +96,7 @@ test window is positive and at least 50% of its test windows are profitable. Req
 guards against a result that depends on where the windows happen to fall. The studies write
 these four figures for every result (`config_a_oos`, `config_a_consistency`, `config_b_oos`,
 `config_b_consistency`) with the verdict (`robust`), and `midfreq.research.results_index`
-stacks them into one table: 217 results, of which 13 pass ([Results](../results/index.md)).
+stacks them into one table: 178 results, of which 27 pass ([Results](../results/index.md)).
 
 ## White's Reality Check
 

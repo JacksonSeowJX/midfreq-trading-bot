@@ -99,7 +99,7 @@ library.
 
     ---
 
-    What the research found: 217 results held to the validation standard, 13 passed, and none
+    What the research found: 178 results held to the validation standard, 27 passed, and none
     survived the correction for the search. The live forward test.
 
     [:octicons-arrow-right-24: Results](results/index.md)
