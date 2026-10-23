@@ -8,6 +8,13 @@
 #   NODE_MODE    shadow | sim | paper | live: overrides the configuration's node.mode
 #   DRY_RUN=1    resolve everything, check the configuration, print the command, start nothing
 #   FAKE_ET      a New York time (YYYY-MM-DDTHH:MM) to test the gate and the duration
+#   START_ATTEMPTS  how many times to start the node if it fails to start (default 3)
+#   RETRY_WAIT_S    seconds between those attempts (default 120)
+#
+# A node that fails to start (exit code 4: nothing traded, e.g. OpenD refusing a subscription
+# for a moment, as on 21 Oct 2026) is started again, up to START_ATTEMPTS times; a scheduled run
+# only while it is still within 30 minutes after the open, and each attempt runs to the same
+# close. A session that started and then stopped is never restarted here.
 #
 # The duration defaults to two minutes after the close of the configuration's first market
 # (the venue's last session close in config/venues.json, in its own time zone), so the session's
@@ -57,28 +64,33 @@ case "$EFFECTIVE_MODE" in
 esac
 
 # --scheduled: proceed only within 30 minutes after the market's open on a weekday (cron can
-# then fire at both possible local times around a daylight-saving change).
-if [ "${1:-}" = "--scheduled" ]; then
-  shift
-  if ! "$PY" - "$TZ_NAME" "$OPEN_HHMM" <<'PYEOF'
+# then fire at both possible local times around a daylight-saving change). gate_open [SECONDS]
+# asks whether that holds now, or SECONDS from now (the start-up retries below ask it again).
+gate_open() {
+  "$PY" - "$TZ_NAME" "$OPEN_HHMM" "${1:-0}" <<'PYEOF'
 import os, sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-tz, open_hm = ZoneInfo(sys.argv[1]), sys.argv[2]
+tz, open_hm, ahead = ZoneInfo(sys.argv[1]), sys.argv[2], int(sys.argv[3])
 now = datetime.now(tz)
 if os.environ.get("FAKE_ET"):
     now = datetime.fromisoformat(os.environ["FAKE_ET"]).replace(tzinfo=tz)
+now += timedelta(seconds=ahead)
 if open_hm == "none":
     sys.exit(0)
 oh, om = map(int, open_hm.split(":"))
 mins = now.hour * 60 + now.minute
 ok = now.weekday() < 5 and oh * 60 + om <= mins <= oh * 60 + om + 30
-print(f"[gate] {now:%a %Y-%m-%d %H:%M %Z}: {'market open, running' if ok else 'not the open, skipping'}")
+if not os.environ.get("GATE_QUIET"):
+    print(f"[gate] {now:%a %Y-%m-%d %H:%M %Z}: {'market open, running' if ok else 'not the open, skipping'}")
 sys.exit(0 if ok else 1)
 PYEOF
-  then
-    exit 0
-  fi
+}
+SCHEDULED=0
+if [ "${1:-}" = "--scheduled" ]; then
+  shift
+  SCHEDULED=1
+  gate_open || exit 0
 fi
 
 if [ $# -ge 1 ]; then
@@ -136,9 +148,31 @@ if pgrep -f '[r]un_live|[m]idfreq\.trading\.cli run|[m]idfreq-node run' >/dev/nu
 fi
 
 mkdir -p "$LOG_DIR"
-"$PY" -u -m "$NODE" run --config "$CFG" ${MODE_ARGS[@]+"${MODE_ARGS[@]}"} --duration "$DURATION" \
-    2>&1 | tee "$CONSOLE"
-STATUS=${PIPESTATUS[0]}
+ATTEMPTS=${START_ATTEMPTS:-3}
+WAIT_S=${RETRY_WAIT_S:-120}
+STARTED_AT=$(date +%s)
+attempt=1
+while :; do
+  "$PY" -u -m "$NODE" run --config "$CFG" ${MODE_ARGS[@]+"${MODE_ARGS[@]}"} --duration "$DURATION" \
+      2>&1 | tee -a "$CONSOLE"
+  STATUS=${PIPESTATUS[0]}
+  [ "$STATUS" -eq 4 ] || break
+  if [ "$attempt" -ge "$ATTEMPTS" ]; then
+    echo "the node failed to start $attempt times; giving up for this session" | tee -a "$CONSOLE"
+    break
+  fi
+  if [ "$SCHEDULED" = 1 ] && ! FAKE_ET="${FAKE_ET:-}" GATE_QUIET=1 gate_open "$(( $(date +%s) - STARTED_AT + WAIT_S ))"; then
+    echo "the node failed to start, and the window after the open has passed; not retrying" | tee -a "$CONSOLE"
+    break
+  fi
+  echo "the node failed to start (attempt $attempt of $ATTEMPTS); trying again in ${WAIT_S}s" | tee -a "$CONSOLE"
+  sleep "$WAIT_S"
+  attempt=$((attempt + 1))
+  # the same close as the first attempt: the duration shrinks by the time spent
+  DURATION=$(( DURATION - ( $(date +%s) - STARTED_AT ) / 60 ))
+  STARTED_AT=$(date +%s)
+  [ "$DURATION" -gt 0 ] || { echo "no time left before the close; not retrying" | tee -a "$CONSOLE"; break; }
+done
 
 echo
 echo "--- session summary ---"

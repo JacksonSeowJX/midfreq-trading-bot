@@ -9,7 +9,8 @@ The trading node's command line, `midfreq-node` (or `python -m midfreq.trading.c
 stalls; the exit code is 0 after a clean stop. `--mode live` is refused unless the configuration's
 account also says `environment: live` (the node checks the execution client agrees).
 `check-config` reads and checks the configuration and says which components can be imported,
-without connecting to anything. Exit codes: 0 ok, 1 failed, 2 invalid configuration.
+without connecting to anything. Exit codes: 0 ok, 1 failed, 2 invalid configuration, 4 the node
+failed to start (nothing traded; ops/run_node.sh tries again inside its window).
 """
 from __future__ import annotations
 
@@ -19,6 +20,9 @@ import sys
 from typing import List, Optional, Sequence
 
 from midfreq.trading.config.settings import ConfigError, MODES, load_config, resolve_strategy_class, strategy_params
+
+
+START_FAILED = 4
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -34,8 +38,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     try:
         return node.run(duration_min=args.duration)
     except Exception as e:
-        print(f"the node failed: {e}", file=sys.stderr)
-        return 1
+        # run() raises only from start(): the session never began, so starting again is safe
+        print(f"the node failed to start: {e}", file=sys.stderr)
+        return START_FAILED
 
 
 def _cmd_check(args: argparse.Namespace) -> int:

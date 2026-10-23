@@ -86,6 +86,8 @@ class FillBookingMixin:
                 or str(fill.client_order_id)
             self.log.info("[%s] %s %g %s @ %s (order %s%s)", decision_ts, "BUY" if is_buy else "SELL", qty, symbol,
                           px, order_id, f", {exit_reason}" if exit_reason else "")
+            if ok:
+                self._filled_at[symbol] = self.services.clock.timestamp_ns()
             if ok and self.session_log is not None:
                 self.session_log.trade(decision_ts, symbol, "BUY" if is_buy else "SELL", qty, px, order_id, exit_reason)
             try:

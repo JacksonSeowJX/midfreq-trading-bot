@@ -181,3 +181,51 @@ def test_paper_and_live_need_an_explicit_state_name():
     assert validate(cfg) == []
     cls = resolve_strategy_class(cfg.strategies[0].cls)[0]
     assert state_slug(cfg.strategies[0], cls, "shadow") == "crosssectionalreversal"
+
+
+def _launcher_with_fake_node(tmp_path, codes, fake_et="2026-10-14T09:35", wait_s="0", scheduled=False):
+    """ops/run_node.sh with a node that exits with `codes` in turn (4: failed to start)."""
+    import os
+    import shutil
+    import subprocess
+    import sys
+    (tmp_path / "config").mkdir(exist_ok=True)
+    for name in ("node_sp100.yaml", "sp100_forward_test.json", "venues.json", "connections.yaml"):
+        shutil.copy2(REPO / "config" / name, tmp_path / "config" / name)
+    fake = tmp_path / "python"
+    fake.write_text("#!/bin/bash\n"
+                    'if [ "$2" = "-m" ] && [ "$3" = "midfreq.trading.cli" ] && [ "$4" = "run" ]; then\n'
+                    '  n=$(( $(cat "$COUNTER" 2>/dev/null || echo 0) + 1 )); echo $n > "$COUNTER"\n'
+                    '  echo "fake node attempt $n"; codes=($FAKE_CODES); exit ${codes[$((n-1))]:-0}\n'
+                    "fi\n"
+                    f'exec "{sys.executable}" "$@"\n')
+    fake.chmod(0o755)
+    env = dict(os.environ, PYTHON=str(fake), FAKE_ET=fake_et, MIDFREQ_ROOT=str(tmp_path), RETRY_WAIT_S=wait_s,
+               START_ATTEMPTS="3", COUNTER=str(tmp_path / "attempts"), FAKE_CODES=" ".join(map(str, codes)))
+    env.pop("DRY_RUN", None)
+    args = ["bash", str(REPO / "ops" / "run_node.sh")] + (["--scheduled"] if scheduled else ["5"])
+    r = subprocess.run(args, cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=120)
+    attempts = int((tmp_path / "attempts").read_text()) if (tmp_path / "attempts").exists() else 0
+    return r, attempts
+
+
+def test_launcher_starts_the_node_again_after_a_failed_start(tmp_path):
+    r, attempts = _launcher_with_fake_node(tmp_path, [4, 4, 0])
+    assert attempts == 3 and r.returncode == 0, r.stdout + r.stderr
+    assert "attempt 1 of 3" in r.stdout and "attempt 2 of 3" in r.stdout
+
+
+def test_launcher_gives_up_after_its_attempts(tmp_path):
+    r, attempts = _launcher_with_fake_node(tmp_path, [4, 4, 4, 4])
+    assert attempts == 3 and r.returncode == 4 and "giving up" in r.stdout
+
+
+def test_launcher_never_restarts_a_session_that_ran(tmp_path):
+    r, attempts = _launcher_with_fake_node(tmp_path, [1, 0])
+    assert attempts == 1 and r.returncode == 1
+
+
+def test_a_scheduled_retry_stays_inside_the_window_after_the_open(tmp_path):
+    r, attempts = _launcher_with_fake_node(tmp_path, [4, 0], fake_et="2026-10-14T09:59", wait_s="120",
+                                           scheduled=True)
+    assert attempts == 1 and "window after the open has passed" in r.stdout, r.stdout + r.stderr

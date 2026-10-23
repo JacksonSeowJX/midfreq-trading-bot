@@ -28,6 +28,11 @@ from midfreq.trading.core.interfaces import (
 from midfreq.trading.ops.logs import log_context
 from midfreq.trading.persistence.session_log import SessionLog
 from midfreq.trading.strategy.legacy.fills import FillBookingMixin
+
+# A broker's position list can lag its fills: the Hong Kong paper account still listed 0 shares a
+# second after a 400-share fill had been reported (23 Oct 2026). A symbol filled this recently is
+# not shrunk to the broker's view; a real difference is still taken once this has passed.
+FILL_SETTLE_S = 600.0
 from midfreq.trading.strategy.legacy.orders import OrderRoutingMixin, _OrderMeta
 from midfreq.trading.strategy.legacy.portfolio import LiveLegacyPortfolio
 from midfreq.trading.strategy.services import NodeServices
@@ -104,6 +109,8 @@ class LiveLegacyAdapter(OrderRoutingMixin, FillBookingMixin):
         self._recovered: List[Dict[str, Any]] = []              # fills booked at resume (trade lines)
         self._rebalance_marked: Optional[int] = None            # cross-section whose rebalance is saved as done
         self._booked: Set[tuple] = set()
+        self._filled_at: Dict[str, int] = {}                    # symbol -> clock time of its last booked fill
+        self.fill_settle_s = FILL_SETTLE_S
         self._buffer: Dict[int, Dict[InstrumentId, Bar]] = {}
         self._published: Set[int] = set()       # buffered cross-sections the MarketDataService published
         self._fed_ts: Optional[int] = None      # newest ts_event fed to the strategy
@@ -434,16 +441,26 @@ class LiveLegacyAdapter(OrderRoutingMixin, FillBookingMixin):
     def reconcile(self, account: Optional[Mapping[str, Any]], broker_positions: state_mod.BrokerPositions) -> bool:
         """The periodic shrink-only check against the broker (the original's sync_with_broker).
         A symbol with an order still open is left alone: the broker may already show the fill
-        the strategy has not booked yet, and shrinking the claim then would refuse that fill."""
+        the strategy has not booked yet, and shrinking the claim then would refuse that fill.
+        A symbol filled within `fill_settle_s` is left alone too: the broker's position list may
+        not show the fill yet, and shrinking the claim then would erase a fill that happened."""
         def shrunk(sym, local, broker):
             self.log.warning("[sync] %s: claimed %s but broker holds %s — shrinking claim", sym, local, broker)
         in_flight = {m.symbol for m in self._by_object.values() if not self._resolved(m)}
-        if broker_positions is not None and in_flight:
+        now = self.services.clock.timestamp_ns()
+        settling = {s for s, t in self._filled_at.items() if now - t < self.fill_settle_s * 1e9} - in_flight
+        if broker_positions is not None and (in_flight or settling):
             view = {s: dict(p) for s, p in broker_positions.items()}
-            for sym in in_flight:
+            for sym in in_flight | settling:
                 local = self.portfolio.get_position_qty(sym)
                 view[sym] = {**view.get(sym, {}), "qty": max(local, view.get(sym, {}).get("qty", 0))}
-            self.log.info("[sync] %s: order in flight, not reconciled this time", ", ".join(sorted(in_flight)))
+            if in_flight:
+                self.log.info("[sync] %s: order in flight, not reconciled this time", ", ".join(sorted(in_flight)))
+            lagging = [s for s in sorted(settling)
+                       if self.portfolio.get_position_qty(s) > (broker_positions.get(s) or {}).get("qty", 0)]
+            if lagging:
+                self.log.info("[sync] %s: filled less than %.0f s ago and the broker does not show it yet; not "
+                              "reconciled this time", ", ".join(lagging), self.fill_settle_s)
             broker_positions = view
         ok = state_mod.shrink_to_broker(self.portfolio, account, broker_positions, self.capital_cap, shrunk)
         if not ok:
