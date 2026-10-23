@@ -1,6 +1,6 @@
 [project]
 name = "midfreq-engine"
-version = "0.1.5"
+version = "0.1.6"
 description = "The native backtest core in C++17: the event loop, portfolio accounting, risk rules, metrics and the ported candle strategies, exposed to Python with pybind11."
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26"]
