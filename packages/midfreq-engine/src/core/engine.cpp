@@ -27,6 +27,11 @@ BacktestResult run_backtest(const MarketData& data, const std::string& strategy,
     for (size_t i = range.begin; i < range.end; ++i) {
         const SymbolId s = data.symbol(i);
         const Bar bar = data.bar(i);
+        // one equity point per timestamp, taken once all of its bars are in: when the next
+        // timestamp begins (before its first bar touches the prices), and after the last
+        if (last_equity_ts && bar.ts != *last_equity_ts)
+            equity.push_back(EquityPoint{*last_equity_ts, pf.current_equity(last, seen)});
+        last_equity_ts = bar.ts;
         last[s] = bar.close;
         if (!seen[s]) {
             seen[s] = 1;
@@ -36,14 +41,10 @@ BacktestResult run_backtest(const MarketData& data, const std::string& strategy,
 
         strat->on_bar(s, bar);
 
-        // at most one equity point per timestamp, taken after its first bar
-        if (!last_equity_ts || bar.ts != *last_equity_ts) {
-            equity.push_back(EquityPoint{bar.ts, pf.current_equity(last, seen)});
-            last_equity_ts = bar.ts;
-        }
         if (progress && ((i - range.begin) % step == 0 || i + 1 == range.end))
             progress(static_cast<double>(i - range.begin + 1) / static_cast<double>(range.size()));
     }
+    equity.push_back(EquityPoint{*last_equity_ts, pf.current_equity(last, seen)});
 
     res.ok = true;
     res.metrics = compute_metrics(pf, equity, last, seen);

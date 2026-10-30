@@ -8,7 +8,7 @@ from midfreq.backtest.backtester import Backtester
 from midfreq.core.candle import Timeframe
 from midfreq.core.portfolio import Portfolio
 from midfreq.data.storage import DataStorage
-from midfreq.strategies.candle_strategies import MovingAverageCrossover
+from midfreq.strategies.candle_strategies import CrossSectionalReversal, MovingAverageCrossover
 
 
 def write_symbol(storage, symbol, closes, start=datetime(2026, 1, 5)):
@@ -96,3 +96,25 @@ class TestBenchmark:
                          fast_period=3, slow_period=10)
         expected = (closes[-1] - closes[0]) / closes[0] * 100
         assert metrics['benchmark_return_pct'] == pytest.approx(expected)
+
+
+class TestEquityCurve:
+    def test_each_point_values_every_symbol_at_that_timestamps_close(self, storage):
+        # AAA flat, BBB up 1 a day; a two-stock basket of both is bought at day 2's close and
+        # held, so from day 3 each point is cash plus both holdings at THAT day's closes. Taken
+        # at each day's first candle (AAA's), BBB would be a day behind.
+        closes_b = [50.0 + i for i in range(10)]
+        write_symbol(storage, 'AAA', [100.0] * 10)
+        write_symbol(storage, 'BBB', closes_b)
+        portfolio = Portfolio()
+        metrics = Backtester(storage=storage, portfolio=portfolio, engine='python').run(
+            CrossSectionalReversal, symbols=['AAA', 'BBB'], timeframe=Timeframe.DAY_1,
+            lookback=1, top_n=2, rebalance_every=1)
+        assert [t['action'] for t in portfolio.trade_history] == ['BUY', 'BUY']
+        qa, qb = portfolio.positions['AAA']['qty'], portfolio.positions['BBB']['qty']
+        curve = portfolio.equity_curve_detailed
+        assert len(curve) == 10                                  # one point per timestamp
+        assert curve[1]['equity'] == portfolio.initial_cash       # day 2: before the buys
+        for day in range(2, 10):
+            assert curve[day]['equity'] == pytest.approx(portfolio.cash + qa * 100.0 + qb * closes_b[day])
+        assert curve[-1]['equity'] == metrics['final_equity']

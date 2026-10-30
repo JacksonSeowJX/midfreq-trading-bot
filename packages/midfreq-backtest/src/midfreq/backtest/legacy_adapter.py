@@ -92,7 +92,7 @@ class LegacyStrategyAdapter(Strategy):
         self.latest_prices: Dict[str, float] = {}
         self.first_prices: Dict[str, float] = {}
         self.total_events = 0
-        self._last_equity_ts = None
+        self._equity_ts = None                    # the timestamp whose equity point is still to come
 
     # ── lifecycle ────────────────────────────────────────────────────
 
@@ -113,16 +113,25 @@ class LegacyStrategyAdapter(Strategy):
         ts = self._legacy_timestamp(bar)
         candle = Candle(timestamp=ts, open=bar.open, high=bar.high, low=bar.low,
                         close=bar.close, volume=bar.volume)
+        # Equity once per timestamp, once all of its candles are in (when the next timestamp
+        # begins, and at the stop): midfreq.backtest.backtester's exact rule.
+        if self._equity_ts is not None and ts != self._equity_ts:
+            self._record_equity()
+        self._equity_ts = ts
         self.latest_prices[symbol] = candle.close
         if symbol not in self.first_prices:
             self.first_prices[symbol] = candle.close
         self.strategy.on_data(symbol, candle)
-        # Equity once per timestamp, on its first candle: midfreq.backtest.backtester's exact rule.
-        if ts != self._last_equity_ts:
-            self.legacy_portfolio.equity_curve_detailed.append(
-                {"timestamp": ts, "equity": self.legacy_portfolio.get_current_equity(self.latest_prices)})
-            self._last_equity_ts = ts
         self.total_events += 1
+
+    def on_stop(self) -> None:
+        if self._equity_ts is not None:
+            self._record_equity()
+            self._equity_ts = None
+
+    def _record_equity(self) -> None:
+        self.legacy_portfolio.equity_curve_detailed.append(
+            {"timestamp": self._equity_ts, "equity": self.legacy_portfolio.get_current_equity(self.latest_prices)})
 
     def _legacy_timestamp(self, bar: Bar) -> pd.Timestamp:
         spec = self._venues.get(bar.bar_type.instrument_id.venue)

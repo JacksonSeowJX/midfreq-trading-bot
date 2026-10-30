@@ -2,8 +2,9 @@
 // the optimiser uses.
 //
 // One run: replay the merged bars in time order into a strategy; before each bar its symbol's
-// latest price is updated, after it an equity point is recorded at most once per timestamp (on the
-// first bar of that timestamp, as the Python backtester does). At the end: metrics, and the
+// latest price is updated; one equity point is recorded per timestamp once all of its bars are in
+// (when the next timestamp begins, and after the last bar, as the Python backtester does). At the
+// end: metrics, and the
 // buy-and-hold benchmark (equal capital in every symbol at its first price).
 #pragma once
 

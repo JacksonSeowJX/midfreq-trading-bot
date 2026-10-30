@@ -82,6 +82,13 @@ class PythonBacktester:
         merged = merged.sort_index(kind='mergesort')
         return merged
 
+    def _record_equity(self, timestamp, latest_prices: Dict[str, float]) -> None:
+        """Append the equity at `timestamp` (all of its candles processed) to the detailed curve."""
+        self.portfolio.equity_curve_detailed.append({
+            'timestamp': timestamp,
+            'equity': self.portfolio.get_current_equity(latest_prices)
+        })
+
     def run(self, strategy_class: Type[BaseStrategy], symbols: list[str], timeframe: Timeframe,
             start_date: datetime = None, end_date: datetime = None,
             progress_callback: Optional[Callable[[float], None]] = None,
@@ -161,11 +168,21 @@ class PythonBacktester:
         first_prices: Dict[str, float] = {}
         
         # ─── Replay Events in Time Order ──────────────────────────────
-        last_equity_date = None  # Track when we last recorded equity
-        
+        # One equity point per timestamp, taken once ALL of that timestamp's
+        # candles are in: when the next timestamp begins, and after the last.
+        # It used to be taken at the timestamp's FIRST candle, which valued
+        # every other symbol at its previous close and left out their trades,
+        # so on a basket the curve lagged the run's own final value (about
+        # 0.2% on a 15-stock cross-sectional run) and the Sharpe ratio and
+        # drawdown computed from it were off. One-symbol runs are unchanged.
+        equity_ts = None
+
         for i, (idx, row) in enumerate(event_stream.iterrows()):
             symbol = row['_symbol']
-            
+            if equity_ts is not None and idx != equity_ts:
+                self._record_equity(equity_ts, latest_prices)
+            equity_ts = idx
+
             # Reconstruct Candle object
             candle = Candle(
                 timestamp=idx,
@@ -185,22 +202,13 @@ class PythonBacktester:
             
             # Pass into strategy brain
             strategy.on_data(symbol, candle)
-            
-            # ─── Per-Candle Equity Tracking ───────────────────────────
-            # Record equity snapshot at most once per unique timestamp
-            # (avoids duplicate entries when multiple symbols share a timestamp)
-            candle_date = idx
-            if candle_date != last_equity_date:
-                equity = self.portfolio.get_current_equity(latest_prices)
-                self.portfolio.equity_curve_detailed.append({
-                    'timestamp': idx,
-                    'equity': equity
-                })
-                last_equity_date = candle_date
-            
+
             # Progress callback
             if progress_callback and (i % 50 == 0 or i == total_events - 1):
                 progress_callback((i + 1) / total_events)
+
+        if equity_ts is not None:
+            self._record_equity(equity_ts, latest_prices)
 
         print(f"\n=== Simulation Complete ===")
         
