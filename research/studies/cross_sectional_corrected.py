@@ -41,8 +41,15 @@ affected them directly.
      survives zero costs is stronger than one assuming an invented rate.
 
 Usage:
-    uv run python research/studies/cross_sectional_corrected.py
+    uv run python research/studies/cross_sectional_corrected.py [--us-end-date D] [--hk-end-date D]
+
+Without the end dates each market's window ends at the newest candle every
+stock in it has. The report's figures (Section 4.9) came from the cache as it
+stood on 9 Sep 2026, whose windows end on 21 Aug (US) and 28 Aug (HK):
+
+    uv run python research/studies/cross_sectional_corrected.py --us-end-date 2026-08-21 --hk-end-date 2026-08-28
 """
+import argparse
 import time
 import json
 
@@ -98,13 +105,19 @@ def symbols_for(market):
 
 
 def main():
+    ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
+    ap.add_argument('--us-end-date', default=None, help="the S&P 100 window's last day (default: newest common candle)")
+    ap.add_argument('--hk-end-date', default=None, help="the Hang Seng window's last day (default: newest common candle)")
+    args = ap.parse_args()
+    as_of = {'US (S&P 100)': args.us_end_date, 'HK (Hang Seng Index)': args.hk_end_date}
+
     storage = DataStorage()
     rows, detail = [], {}
     t0 = time.time()
 
     for market, cfg_market in MARKETS.items():
         symbols = symbols_for(market)
-        end = storage.latest_common_timestamp(symbols, Timeframe.HOUR_1.value)
+        end = storage.latest_common_timestamp(symbols, Timeframe.HOUR_1.value, as_of=as_of[market])
         start = end - timedelta(days=HISTORY_DAYS)
         print(f"\n=== {market}: {len(symbols)} symbols | window {start.date()} -> {end.date()} "
               f"| commission {cfg_market['cost_note']} ===", flush=True)
