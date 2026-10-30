@@ -173,6 +173,10 @@ class LiveLegacyAdapter(OrderRoutingMixin, FillBookingMixin):
             self.strategy.defer_unready_rebalance = True
         if hasattr(self.strategy, "full_cross_section"):
             self.strategy.full_cross_section = len(self.symbols)
+        if hasattr(self.strategy, "trim_buys_to_cash"):
+            # The order path trims a buy to the cash at its limit price (orders.py), the price
+            # actually paid; the strategy's own trim, at the candle's close, is for backtests.
+            self.strategy.trim_buys_to_cash = False
         return resumed
 
     def _check_state_market(self, source: Path, saved: Mapping[str, Any]) -> None:

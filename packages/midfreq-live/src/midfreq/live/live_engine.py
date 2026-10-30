@@ -369,6 +369,11 @@ class LiveTradingEngine:
         # close of the candle it ranked on; this is the live equivalent.
         if hasattr(self.strategy, 'full_cross_section'):
             self.strategy.full_cross_section = len(symbols)
+        # A backtest-only correction (a buy the cash cannot cover is cut to
+        # what it covers, at the candle's close); live trading keeps the
+        # behaviour it has always had.
+        if hasattr(self.strategy, 'trim_buys_to_cash'):
+            self.strategy.trim_buys_to_cash = False
 
     def _warm_up(self, candles: int = 60):
         """

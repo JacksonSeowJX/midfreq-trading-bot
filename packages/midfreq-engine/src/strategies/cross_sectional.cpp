@@ -8,6 +8,7 @@ namespace midfreq::engine {
 CrossSectional::CrossSectional(StrategyContext ctx, const Params& p, bool momentum)
     : HistoryStrategy(ctx),
       momentum_(momentum),
+      trim_buys_to_cash_(p.get_int("trim_buys_to_cash", 1) != 0),
       lookback_(p.get_int("lookback", 10)),
       top_n_(p.get_int("top_n", 2)),
       rebalance_every_(std::max<int64_t>(1, p.get_int("rebalance_every", 1))),
@@ -109,7 +110,8 @@ bool CrossSectional::rebalance() {
         if (held >= top_n_) break;
         if (pf_.position_qty(sym) == 0) {
             const Bar& c = pending_[static_cast<size_t>(pending_slot_[sym])].second;
-            const int64_t qty = basket_qty(sym, c.close, budget);
+            int64_t qty = basket_qty(sym, c.close, budget);
+            if (trim_buys_to_cash_) qty = fit_to_cash(c.close, qty);
             if (qty > 0) enter(sym, qty, c.close, c.ts);
         }
     }
@@ -123,6 +125,21 @@ double CrossSectional::position_budget() const {
         if (i >= 0) equity += static_cast<double>(p.qty) * pending_[static_cast<size_t>(i)].second.close;
     }
     return equity / static_cast<double>(std::max<int64_t>(1, top_n_));
+}
+
+int64_t CrossSectional::fit_to_cash(double price, int64_t qty) const {
+    // the most of qty the cash pays for, costed as Portfolio::execute_trade charges it
+    const double mult = 1.0 + pf_.slippage_mult();
+    const double rate = pf_.commission_rate();
+    const double cash = pf_.cash();
+    const auto cost = [&](int64_t q) {
+        const double value = static_cast<double>(q) * (price * mult);
+        return value + value * rate;
+    };
+    if (qty <= 0 || cost(qty) <= cash) return qty;
+    int64_t q = std::min(qty, py_int(cash / (price * (mult * (1.0 + rate)))));
+    while (q > 0 && cost(q) > cash) --q;
+    return q;
 }
 
 int64_t CrossSectional::basket_qty(SymbolId s, double price, double budget) {

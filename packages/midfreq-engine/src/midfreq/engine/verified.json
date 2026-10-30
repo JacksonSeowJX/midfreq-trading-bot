@@ -12,8 +12,8 @@
     "PairsTradingStrategy": "51e44c5113550570c89b674b3c8c82990585c0b3b7ce303e7e6207e060d77dbe",
     "EnsembleStrategy": "f3405a1e42b7fd49f8a20a2c7cefc21661c4563fc80d64fdcb2b0cd2d4b43266",
     "RegimeSwitchStrategy": "6e77bcc8f729ea0ae69ca68e17a6cc9ba29cd585e3fcf63fb9b6cf12555e9d93",
-    "CrossSectionalReversal": "33956c930450769ff81708f7fcc61c1541a65481ab284adb4fee5257fb6b4e38",
-    "CrossSectionalMomentum": "bc9ddaf37b621762937ef1d86b1e526739d756cab1cc4efa22ea54c9ffe48edd",
+    "CrossSectionalReversal": "32b9e662051bac9b57fea59c50dc826cba8158c467c7ca383d8bc888aaa53d2a",
+    "CrossSectionalMomentum": "87926fae4e48c3f9f405670d416f1929fbf3b3dba35eb615fc2319dd40d218b9",
     "BuyAndHoldRiskOverlay": "66268be79ade2c31b914b7779163b81f105b984cb2c96e36890741e495e48256"
   }
 }

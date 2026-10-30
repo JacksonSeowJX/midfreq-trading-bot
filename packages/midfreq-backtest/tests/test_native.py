@@ -125,6 +125,25 @@ def test_every_ported_strategy_is_covered():
     assert {cls for cls, _ in CASES} == set(native_strategy_classes())
 
 
+def test_the_cases_cover_basket_buys_cut_to_the_cash(storage, monkeypatch):
+    """The momentum case cuts dozens of buys to the cash left (a kept winner outgrew its share),
+    so the equivalence tests below compare that path on both engines too."""
+    trimmed = []
+    fit = cs.CrossSectionalReversal._fit_to_cash
+
+    def counting(self, price, qty):
+        q = fit(self, price, qty)
+        if q != qty:
+            trimmed.append((qty, q))
+        return q
+
+    monkeypatch.setattr(cs.CrossSectionalReversal, "_fit_to_cash", counting)
+    with contextlib.redirect_stdout(io.StringIO()):
+        PythonBacktester(storage, Portfolio(initial_cash=100_000.0, commission_rate=0.0016)).run(
+            cs.CrossSectionalMomentum, SYMBOLS, H1, lookback=20, top_n=2, rebalance_every=5)
+    assert len(trimmed) > 10 and all(0 < q < qty for qty, q in trimmed)
+
+
 @pytest.mark.parametrize("cls,params", CASES, ids=lambda v: v.__name__ if isinstance(v, type) else "")
 @pytest.mark.parametrize("risk_kind", [None, "fractional", "kelly", "equal", "fixed"])
 def test_identical_to_the_python_backtester(storage, cls, params, risk_kind):

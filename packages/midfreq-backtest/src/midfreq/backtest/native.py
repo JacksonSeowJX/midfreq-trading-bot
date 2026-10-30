@@ -74,7 +74,8 @@ class NativeUnavailable(RuntimeError):
 # ─── Which strategies are native, and their parameters as the C++ reads them ──────────────────
 
 def _cross_sectional(s) -> Dict[str, Any]:
-    return {"lookback": s.lookback, "top_n": s.top_n, "rebalance_every": s.rebalance_every}
+    return {"lookback": s.lookback, "top_n": s.top_n, "rebalance_every": s.rebalance_every,
+            "trim_buys_to_cash": int(bool(s.trim_buys_to_cash))}
 
 
 def _zscore(s) -> Dict[str, Any]:

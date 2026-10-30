@@ -280,6 +280,13 @@ def test_incomplete_published_cross_section_is_decided_at_once(tmp_path):
     assert rig.adapter.strategy.full_cross_section == 10                  # restored afterwards
 
 
+def test_the_order_path_alone_trims_a_buy_to_the_cash(tmp_path):
+    """The backtest's trim (at the candle's close) is off live: the order path trims at the
+    limit price, the price actually paid (test_buy_trimmed_to_cash_at_the_worst_case...)."""
+    rig = make(tmp_path)
+    assert rig.adapter.strategy.trim_buys_to_cash is False
+
+
 def test_rebalance_sells_then_buys_with_the_proceeds(tmp_path):
     """Confirm mode against a venue that fills at once: the buy is sized on the sale's proceeds,
     as the original engine (synchronous) sized it."""

@@ -105,6 +105,9 @@ class EqualWeightBasketConfig(StrategyConfig):
     # to its full share of equity is not rejected once slippage and commission are added.
     slippage_bps: float = 0.0
     commission_rate: float = 0.0
+    # A buy the cash cannot cover at its full share (the names kept from the last basket have
+    # gained) is cut to what the cash covers, instead of being rejected by the venue.
+    trim_buys_to_cash: bool = True
 
 
 class EqualWeightBasket(Strategy):
@@ -147,8 +150,28 @@ class EqualWeightBasket(Strategy):
             if self.portfolio.net_qty(iid) == 0:
                 price = self.cache.last_price(iid)
                 qty = int(budget / (price * self.cost_mult)) if price and price > 0 else 0
+                if self.config.trim_buys_to_cash:
+                    qty = self._fit_to_cash(price, qty)
                 if qty > 0:
                     self.submit_order(self.order_factory.market(iid, OrderSide.BUY, qty))
+
+    def _fit_to_cash(self, price: float, qty: int) -> int:
+        """The most of `qty` the account's cash pays for at `price` with the slippage and fee
+        allowances, costed as the candle version (CrossSectionalReversal._fit_to_cash) costs it."""
+        mult = 1.0 + self.config.slippage_bps / 10000.0
+        rate = self.config.commission_rate
+        cash = self.portfolio.balance(self.config.currency)
+
+        def cost(q):
+            value = q * (price * mult)
+            return value + value * rate
+
+        if qty <= 0 or cost(qty) <= cash:
+            return qty
+        q = min(qty, int(cash / (price * (mult * (1.0 + rate)))))
+        while q > 0 and cost(q) > cash:
+            q -= 1
+        return q
 
     def _equity(self) -> float:
         equity = self.portfolio.balance(self.config.currency)

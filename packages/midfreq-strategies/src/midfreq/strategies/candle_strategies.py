@@ -1031,6 +1031,7 @@ class CrossSectionalReversal(BaseStrategy):
         self.min_cross_section = 0          # set by the live engine
         self.defer_unready_rebalance = False  # set by the live engine
         self.full_cross_section = 0         # set by the live engine: universe size
+        self.trim_buys_to_cash = True       # off in the live engine: its order path trims
         self._closed_ts = None              # last cross-section already counted
 
     def on_start(self):
@@ -1161,6 +1162,8 @@ class CrossSectionalReversal(BaseStrategy):
             if self.portfolio.get_position_qty(symbol) == 0:
                 c = self.pending[symbol]
                 qty = self._basket_qty(symbol, c.close, budget)
+                if self.trim_buys_to_cash:
+                    qty = self._fit_to_cash(c.close, qty)
                 if qty > 0:
                     self.portfolio.execute_trade(symbol, True, qty, c.close, c.timestamp)
                     if self.risk_manager:
@@ -1186,6 +1189,36 @@ class CrossSectionalReversal(BaseStrategy):
             if candle is not None:
                 equity += pos['qty'] * candle.close
         return equity / max(1, self.top_n)
+
+    def _fit_to_cash(self, price: float, qty: int) -> int:
+        """
+        The most of `qty` the cash pays for at `price`, costed exactly as
+        Portfolio.execute_trade charges it (slippage on the price,
+        commission on the value).
+
+        Each entrant is sized at an equal share of equity, but the names
+        kept from the last basket are not trimmed back to their share, so
+        when they have gained, the cash left is short of the entrants'
+        shares. execute_trade then rejected the last buy outright and its
+        whole share sat in cash until the next rebalance, a drag that is
+        largest for momentum, whose kept names are the winners. The live
+        order path already cuts such a buy to the cash available; this
+        does the same in a backtest. An affordable buy is unchanged.
+        """
+        mult = 1.0 + getattr(self.portfolio, 'slippage_mult', 0.0)
+        rate = self.portfolio.commission_rate
+        cash = self.portfolio.cash
+
+        def cost(q):
+            value = q * (price * mult)
+            return value + value * rate
+
+        if qty <= 0 or cost(qty) <= cash:
+            return qty
+        q = min(qty, int(cash / (price * (mult * (1.0 + rate)))))
+        while q > 0 and cost(q) > cash:
+            q -= 1
+        return q
 
     def _basket_qty(self, symbol: str, price: float, budget: float) -> int:
         if self.risk_manager:

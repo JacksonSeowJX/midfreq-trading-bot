@@ -113,7 +113,8 @@ private:
 
 // CrossSectionalReversal (and Momentum): rank every symbol's recent return each cross-section
 // (the bars sharing a timestamp), rebalance into the bottom (top) `top_n` every
-// `rebalance_every` cross-sections, equal dollars per name.
+// `rebalance_every` cross-sections, equal dollars per name; a buy the cash cannot cover is cut to
+// what it covers (`trim_buys_to_cash`, 1 unless the parameters say 0).
 class CrossSectional : public HistoryStrategy {
 public:
     CrossSectional(StrategyContext ctx, const Params& p, bool momentum);
@@ -127,9 +128,10 @@ private:
     bool rebalance();
     double position_budget() const;
     int64_t basket_qty(SymbolId s, double price, double budget);
+    int64_t fit_to_cash(double price, int64_t qty) const;
     void clear_pending();
 
-    bool momentum_;
+    bool momentum_, trim_buys_to_cash_;
     int64_t lookback_, top_n_, rebalance_every_;
     std::optional<Timestamp> current_ts_, closed_ts_;
     std::vector<std::pair<SymbolId, Bar>> pending_;  // dict order

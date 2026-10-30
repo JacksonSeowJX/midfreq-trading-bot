@@ -55,7 +55,8 @@ original engine fed every closed candle. The live settings the original engine g
 are given here too: `min_cross_section` (90% of the universe), `defer_unready_rebalance`, and
 `full_cross_section` (the universe's size; for a cross-section the MarketDataService published
 incomplete at its window's end, the number of bars it holds, so it is decided on now rather than
-when the next candle arrives an hour later).
+when the next candle arrives an hour later). A basket's `trim_buys_to_cash` is turned off: the
+order path trims a buy to the cash at its limit price itself.
 
 Records: `session_*.jsonl` through midfreq.trading.session_log and `state_<strategy>.json`
 through midfreq.trading.state, both in the original engine's formats.

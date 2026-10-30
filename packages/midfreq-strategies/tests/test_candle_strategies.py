@@ -7,7 +7,7 @@ from midfreq.core.candle import Candle
 from midfreq.core.portfolio import Portfolio
 from midfreq.strategies.candle_strategies import (
     STRATEGY_REGISTRY, MovingAverageCrossover, RegimeSwitchStrategy,
-    CrossSectionalReversal, MLDirectionClassifier,
+    CrossSectionalMomentum, CrossSectionalReversal, MLDirectionClassifier,
 )
 
 T0 = datetime(2026, 1, 5, 10, 0)
@@ -136,6 +136,46 @@ class TestCrossSectionalReversal:
         feed_cross_section(s, closes)
         assert p.get_position_qty('B') == 0
         assert len(s.history['B']) > 0  # still tracked despite never trading
+
+
+class TestBasketBuysTrimmedToCash:
+    """Momentum keeps its winners, so after a rebalance the cash left can be short of an
+    entrant's equal share of equity. A, B bought at hour 1 (US$50,000 each); at hour 2 A has
+    risen 50% and is kept, B has fallen 20% and is sold, and C enters: its share is about
+    US$57,358 but the sale left about US$39,972."""
+    CLOSES = {'A': [100.0, 110.0, 165.0, 165.0],
+              'B': [100.0, 105.0, 84.0, 84.0],
+              'C': [100.0, 90.0, 99.0, 99.0]}
+
+    def run(self, trim):
+        p = Portfolio(initial_cash=100_000.0, commission_rate=0.0016)
+        s = CrossSectionalMomentum(p, lookback=1, top_n=2, rebalance_every=1)
+        s.trim_buys_to_cash = trim
+        feed_cross_section(s, self.CLOSES)
+        return p
+
+    def test_the_entrant_gets_what_the_cash_covers(self):
+        p = self.run(trim=True)
+        sell_b, buy_c = p.trade_history[2], p.trade_history[3]
+        assert (sell_b['symbol'], sell_b['action'], buy_c['symbol'], buy_c['action']) == ('B', 'SELL', 'C', 'BUY')
+        cash = sell_b['cash_after']
+        assert int(cash / (99.0 * 1.0016)) == buy_c['qty'] == 403        # not the 578 of its share
+        assert buy_c['cash_after'] < 99.0 * 1.0016                      # less than one more share left
+        assert p.get_position_qty('A') == 453
+
+    def test_without_the_trim_the_entrant_was_rejected_and_its_share_sat_in_cash(self):
+        p = self.run(trim=False)
+        assert [t['symbol'] for t in p.trade_history] == ['A', 'B', 'B']
+        assert p.get_position_qty('C') == 0 and p.cash > 39_000
+
+    def test_an_affordable_buy_is_unchanged(self):
+        p = Portfolio(initial_cash=10_000.0, commission_rate=0.001)
+        s = CrossSectionalReversal(p, lookback=1, top_n=2)
+        assert s._fit_to_cash(100.0, 50) == 50
+        assert s._fit_to_cash(100.0, 99) == 99          # 9,909.90 of 10,000
+        assert s._fit_to_cash(100.0, 200) == 99         # 100 shares would cost 10,010
+        p.slippage_mult = 0.0005                        # the backtester's slippage, as it charges it
+        assert s._fit_to_cash(100.0, 200) == 99         # 99 x 100.05 x 1.001 = 9,914.85
 
 
 class TestMLDirectionClassifier:
