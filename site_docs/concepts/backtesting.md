@@ -50,8 +50,8 @@ are refused; there is no short selling. Quantities are not rounded to board lots
 | `benchmark_return_pct`, `alpha` | the equal-weight buy-and-hold return of the same symbols, and the strategy's return minus it |
 | `open_positions`, `cash_balance`, `total_events`, `slippage_bps` | the state at the end and the inputs of the run |
 
-The portfolio keeps every trade in `trade_history` and the equity at every timestamp in
-`equity_curve_detailed`.
+The portfolio keeps every trade in `trade_history` and the equity at every timestamp, taken once
+all of that timestamp's candles are in, in `equity_curve_detailed`.
 
 ### Trading costs
 

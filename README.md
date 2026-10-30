@@ -30,9 +30,9 @@ The research question was whether any systematic strategy shows a real, tradable
 | Strategies implemented | 13: trend following, mean reversion, pairs trading, regime switching, cross-sectional reversal and momentum, an ML direction classifier, and buy-and-hold with a risk overlay |
 | Stock universes | 19 Hong Kong stocks, 15 large US stocks, the S&P 100, and the Hang Seng Index (88 stocks) |
 | Validation standard | Walk-forward over 3 years, split two ways (9 windows and 15 windows, each 70% training and 30% test). A result passes only if its mean out-of-sample return is positive and at least 50% of its test windows are profitable under both splits |
-| Results brought to that standard | 178, of which 27 passed (15%); 16 of the 27 are simply holding a stock, the yardstick |
-| Strongest result | Cross-sectional reversal on the S&P 100. It passes at the broker's real fee of 0.005% per side (+5.73% and +0.63% per test window) with a Probability of Backtest Overfitting of 0.274 |
-| Corrected for the search | White's Reality Check over the 8 cross-sectional candidates gives p = 0.094 and 0.098, so the result cannot be told apart from luck. It also passes or fails depending on the week its data ends |
+| Results brought to that standard | 178, of which 28 passed (16%); 16 of the 28 are simply holding a stock, the yardstick |
+| Strongest results | Cross-sectional reversal and momentum on the S&P 100. Reversal, the strategy the forward test trades, passes at the broker's real fee of 0.005% per side (+2.53% and +0.43% per test window) with a Probability of Backtest Overfitting of 0.278; momentum passes without commission (+1.89% and +3.80%) |
+| Corrected for the search | White's Reality Check over the 8 cross-sectional candidates gives p = 0.069 and 0.146, so the best of them cannot be told apart from luck. Reversal also passes or fails depending on the week its data ends |
 | Live trading | Paper trading from a Google Cloud VM: Hong Kong single-stock strategies from July to September 2026, then a forward test of S&P 100 reversal on a US$100,000 allocation from 28 September 2026 |
 
 No strategy beat chance once the number of things tried was accounted for, and the single-stock strategies did not beat simply holding the same stocks. What the project delivers is the framework, a validation method that catches results a single backtest would have reported as real, and a live system checked against a real broker.
@@ -168,13 +168,16 @@ uv run lint-imports      # checks that packages only import the layers below the
 
 Reproduce the report's key numbers (these need the price cache):
 ```bash
+# The cross-sectional study: reversal and momentum on the S&P 100 and the Hang Seng (report Section 4.9)
+uv run python research/studies/cross_sectional_corrected.py --us-end-date 2026-08-21 --hk-end-date 2026-08-28
+
 # Cost sensitivity of the S&P 100 result (report Section 4.9)
 uv run python research/studies/cross_sectional_cost_sensitivity.py --end-date 2026-08-21
 
-# Probability of Backtest Overfitting, 0.274 (report Section 4.11)
+# Probability of Backtest Overfitting, 0.278 (report Section 4.11)
 uv run python research/studies/pbo_sp100_reversal.py --end-date 2026-08-21
 
-# White's Reality Check, p = 0.094 and 0.098 (report Section 4.11)
+# White's Reality Check, p = 0.069 and 0.146 (report Section 4.11)
 uv run python research/studies/reality_check_study.py --end-date "2026-08-28 16:00" --n-boot 20000
 ```
 

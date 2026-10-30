@@ -185,7 +185,8 @@ why every comparison in the project fixes the sizing.
 
 The cross-sectional strategies rank a whole universe at each rebalance. The S&P 100 universe
 comes from `config/symbols.json`, limited to the symbols with cached candles, and a basket is
-sized by splitting the equity equally across the stocks it holds:
+sized by splitting the equity equally across the stocks it holds (a buy the cash cannot cover at
+its full share is cut to what the cash covers):
 
 ```python
 from midfreq.core.config import ConfigLoader
@@ -202,14 +203,14 @@ show(run(CrossSectionalReversal, sp100, US_FEE, risk_manager=basket,
 
 ```text
 100 symbols with cached hourly candles
-return +56.83%  final 156,828  Sharpe 1.44  max DD 20.50%  win rate 57.0%  trades 449  buy and hold +24.86%  alpha +31.97%
+return +57.80%  final 157,804  Sharpe 1.47  max DD 20.45%  win rate 57.1%  trades 451  buy and hold +24.86%  alpha +32.94%
 ```
 
 Every 19 hourly candles, the strategy ranks the 100 stocks by their return over the last 30
 candles and holds, in equal amounts, the 3 with the lowest. These are the live forward test's
 settings, and the figures are those of
 [Example C](../concepts/dashboard.md#example-c-the-live-settings-in-a-backtest-and-the-cost-of-fees),
-where the dashboard runs the same backtest. The maximum drawdown of 20.50% exceeds the 10% halt
+where the dashboard runs the same backtest. The maximum drawdown of 20.45% exceeds the 10% halt
 because the halt is measured from the starting capital, not from the peak.
 
 !!! warning "This is not evidence of an edge"

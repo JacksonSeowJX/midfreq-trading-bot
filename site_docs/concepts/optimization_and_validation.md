@@ -96,7 +96,7 @@ test window is positive and at least 50% of its test windows are profitable. Req
 guards against a result that depends on where the windows happen to fall. The studies write
 these four figures for every result (`config_a_oos`, `config_a_consistency`, `config_b_oos`,
 `config_b_consistency`) with the verdict (`robust`), and `midfreq.research.results_index`
-stacks them into one table: 178 results, of which 27 pass ([Results](../results/index.md)).
+stacks them into one table: 178 results, of which 28 pass ([Results](../results/index.md)).
 
 ## White's Reality Check
 
@@ -117,8 +117,8 @@ winner alone, ignoring that others were tried: the p-value a report would quote 
 only the winner.
 
 The project ran it over the 8 cross-sectional candidates, reversal and momentum on each of four
-universes, with 20,000 resamples: p = 0.094 under Config A and 0.098 under Config B, against
-0.058 and 0.015 for the winner tested alone. Both corrected values are above 0.05, so the best
+universes, with 20,000 resamples: p = 0.069 under Config A and 0.146 under Config B, against
+0.043 and 0.019 for the winner tested alone. Both corrected values are above 0.05, so the best
 result cannot be told apart from the luck of picking the best of eight.
 
 ## Probability of Backtest Overfitting
@@ -133,7 +133,7 @@ near 0.5, it is a coin flip; above 0.5, it picks configurations that do worse th
 
 `build_performance_matrix` runs the backtests, one per configuration and subset;
 `pbo_from_matrix` does the arithmetic on that matrix; `compute_pbo` does both. For the S&P 100
-reversal, over 96 configurations and 10 subsets (252 splits), PBO is 0.274.
+reversal, over 96 configurations and 10 subsets (252 splits), PBO is 0.278.
 
 ## Parameter stability
 

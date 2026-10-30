@@ -169,7 +169,10 @@ def load_search_correction(results_dir: Optional[Path] = None) -> Optional[dict]
             'luck_p95': (c.get('bootstrap_max_quantiles') or {}).get('p95'),
             'means': dict(sorted(means.items(), key=lambda kv: kv[1])),
         })
-    pbo_file = rdir / 'pbo_sp100_reversal_full96.json'
+    # The study writes pbo_sp100_reversal_<stamp>.json; the first run, before it
+    # stamped its output, is pbo_sp100_reversal_full96.json.
+    pbo_runs = sorted(rdir.glob('pbo_sp100_reversal_2*.json'))
+    pbo_file = pbo_runs[-1] if pbo_runs else rdir / 'pbo_sp100_reversal_full96.json'
     pbo = json.loads(pbo_file.read_text()) if pbo_file.exists() else None
     return {'file': runs[-1].name, 'end': str(rc.get('common_end_date') or '')[:10],
             'n_boot': rc.get('n_boot'), 'configs': configs, 'pbo': pbo}

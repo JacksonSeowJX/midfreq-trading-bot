@@ -53,7 +53,7 @@ print(f"mean test return {s['avg_oos_return']:+.2f}%, mean train return {s['avg_
 ```
 
 ```text
-mean test return +3.45%, mean train return +17.66%, windows positive 100%, WF efficiency 29%
+mean test return +3.26%, mean train return +17.70%, windows positive 67%, WF efficiency 27%
 ```
 
 The windows, with the parameters chosen in each:
@@ -75,13 +75,13 @@ print(pd.DataFrame(rows).to_string(index=False))
 
 ```text
  window                    train                     test  lookback  top_n  rebalance_every  train %  test %  train Sharpe  test Sharpe
-      1 2025-09-25 to 2025-12-06 2025-12-06 to 2026-01-24        10      2                7    24.13    0.49          5.03         0.25
-      2 2026-01-24 to 2026-04-06 2026-04-06 to 2026-05-25        25      2                1    13.15    7.79          2.28         2.28
-      3 2026-05-25 to 2026-08-05 2026-08-05 to 2026-09-23        10      2                7    15.71    2.06          2.97         0.94
+      1 2025-09-25 to 2025-12-06 2025-12-06 to 2026-01-24        10      2                7    24.13   -0.07          5.12         0.09
+      2 2026-01-24 to 2026-04-06 2026-04-06 to 2026-05-25        25      2                1    13.26    7.80          2.39         2.45
+      3 2026-05-25 to 2026-08-05 2026-08-05 to 2026-09-23        10      2                7    15.71    2.06          2.91         0.95
 ```
 
-Every test span made money, but far less than its training span, and the search chose
-different parameters in the second window. The training figures are what a grid search over
+Two of the three test spans made money, each far less than its training span, and the first
+lost 0.07%; the search chose different parameters in the second window. The training figures are what a grid search over
 each span would report; only the test figures are evidence, because only there were the
 parameters fixed before the data was seen.
 
@@ -100,10 +100,10 @@ print(f"{s['avg_train_return'] / train_days:.3f}% a day in training, "
 
 ```text
 121-day windows: 72 days of training, 49 of test
-0.245% a day in training, 0.070% a day in test
+0.246% a day in training, 0.067% a day in test
 ```
 
-0.070 over 0.245 is the walk-forward efficiency of 29%: out of sample, the chosen parameters
+0.067 over 0.246 is the walk-forward efficiency of 27%: out of sample, the chosen parameters
 earned less than a third of what they earned on the data they were chosen on. Below about 50%
 is a warning sign of overfitting.
 
@@ -143,13 +143,13 @@ print("passes the standard:", all(passes(s) for s in reversal.values()))
 ```
 
 ```text
-Config A: 9 windows, mean test return +1.215%, 77.8% of windows positive
-Config B: 15 windows, mean test return +3.837%, 66.7% of windows positive
+Config A: 9 windows, mean test return +1.042%, 77.8% of windows positive
+Config B: 15 windows, mean test return +3.480%, 66.7% of windows positive
 passes the standard: True
 ```
 
 These are the figures the project's Reality Check study recorded for this candidate
-(`results/reality_check_20260929_050842.json`). The candidate passes the standard. That is
+(`results/reality_check_20261030_204532.json`). The candidate passes the standard. That is
 evidence about this one candidate, which was not the only one tried.
 
 ## 5. Correct for the search
@@ -173,16 +173,16 @@ for name in ("A", "B"):
 ```
 
 ```text
-Config A: best Momentum, US 15 at +4.16% per window; p = 0.001 tested alone, 0.002 over both candidates
-Config B: best Reversal, US 15 at +3.84% per window; p = 0.015 tested alone, 0.016 over both candidates
+Config A: best Momentum, US 15 at +5.66% per window; p = 0.000 tested alone, 0.000 over both candidates
+Config B: best Reversal, US 15 at +3.48% per window; p = 0.019 tested alone, 0.022 over both candidates
 ```
 
 Over two candidates, the winner of each configuration looks real. But the correction is only as
 honest as the list of candidates it is given, and the project did not try two: it tried
 reversal and momentum on four universes over these same windows. Over all eight, the winners
-are Reversal on the S&P 100 under Config A (+6.15% per window) and Reversal on the US 15 under
-Config B (+3.84%, the candidate above, whose p-value alone is the 0.015 printed here), and the
-Reality Check gives p = 0.094 and 0.098. Neither is below 5%: the best result cannot be told
+are Reversal on the S&P 100 under Config A (+6.81% per window) and Reversal on the US 15 under
+Config B (+3.48%, the candidate above, whose p-value alone is the 0.019 printed here), and the
+Reality Check gives p = 0.069 and 0.146. Neither is below 5%: the best result cannot be told
 apart from the luck of picking the best of eight. See [Results](../results/index.md) and
 `research/studies/reality_check_study.py`, which runs all eight.
 
@@ -190,10 +190,10 @@ apart from the luck of picking the best of eight. See [Results](../results/index
 
 | Step | What it showed |
 |---|---|
-| Walk-forward, 1 year, 3 windows | test returns positive in every window, but a walk-forward efficiency of 29% |
+| Walk-forward, 1 year, 3 windows | test returns positive in two of the three windows, and a walk-forward efficiency of 27% |
 | Two-configuration standard, 3 years | the candidate passes under both cuts |
-| Reality Check over the 8 candidates tried | p = 0.094 and 0.098: not distinguishable from the luck of the search |
+| Reality Check over the 8 candidates tried | p = 0.069 and 0.146: not distinguishable from the luck of the search |
 
-On the S&P 100, the same strategy with the settings a grid search picked returns +56.83% in a
+On the S&P 100, the same strategy with the settings a grid search picked returns +57.80% in a
 single backtest over the last year ([Backtest a strategy](backtest_a_strategy.md#6-a-cross-sectional-strategy)).
 Each step of the validation removes part of what such a figure appears to show.

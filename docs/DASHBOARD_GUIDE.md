@@ -18,11 +18,11 @@ open the page named in the link from the dashboard's left-hand menu instead.
    *Paper account*, is the broker's own view of the account. See
    [Example A](#example-a-the-live-forward-test).
 2. Open **Overview** in the left-hand menu. The figures at the top say that 178 results were
-   held to the validation standard and 27 passed. Scroll down to *Corrected for the search*:
+   held to the validation standard and 28 passed. Scroll down to *Corrected for the search*:
    the verdict reads *Does not pass*. See
    [Example B](#example-b-the-results-that-pass-and-the-correction-for-the-search).
 3. **Try it:** [Backtest, with the live forward test's settings](/backtest?preset=forward-test).
-   Press **Run backtest**. A few seconds later the result shows a return of +56.83% over the
+   Press **Run backtest**. A few seconds later the result shows a return of +57.80% over the
    year to 25 September 2026. [Example C](#example-c-the-live-settings-in-a-backtest-and-the-cost-of-fees)
    explains why that figure is not evidence of an edge.
 
@@ -101,7 +101,7 @@ panel says so.
 
 ## Overview
 
-1. Read the four figures at the top: *Results tested* 178, *Passed the standard* 27 (15.2% of
+1. Read the four figures at the top: *Results tested* 178, *Passed the standard* 28 (15.7% of
    results), *Studies* 7 and *Strategy families* 7. The note beneath states the standard (see
    [the glossary](#glossary)).
 2. In the **Results** card, narrow the rows with the search box, the switch *Show only results
@@ -134,8 +134,8 @@ panel says so.
    obvious; a JSON file opens as a tree whose branches fold.
 3. The page's address names the open file (`/research?file=...`), so it can be linked to.
 
-**Try it:** [Research files, the cost sweep of the S&P 100 result](/research?file=cross_sectional_cost_sensitivity_20260922_231346.csv)
-and [Research files, the Reality Check](/research?file=reality_check_20260929_050842.json).
+**Try it:** [Research files, the cost sweep of the S&P 100 result](/research?file=cross_sectional_cost_sensitivity_20261030_204123.csv)
+and [Research files, the Reality Check](/research?file=reality_check_20261030_204532.json).
 
 ## Backtest
 
@@ -254,21 +254,23 @@ record of it agrees with the broker's.
 
 ### Example B: the results that pass, and the correction for the search
 
-1. Open [Overview](/overview). The figures read 178 results tested and 27 passed (15.2% of
+1. Open [Overview](/overview). The figures read 178 results tested and 28 passed (15.7% of
    results).
-2. Turn on *Show only results that passed*. Twenty-seven rows remain:
+2. Turn on *Show only results that passed*. Twenty-eight rows remain:
 
    | Rows | What they are |
    |---|---|
    | 16 | *Buy & Hold benchmark*: simply holding one stock, 10 in the US (US.AMZN, US.JPM, US.GOOGL, US.WMT, US.NVDA, US.V, US.AAPL, US.META, US.MSFT, US.JNJ) and 6 in Hong Kong (HK.00005, HK.00883, HK.01398, HK.00939, HK.00941, HK.02020). They are the yardstick, not trading strategies. |
    | 3 | Cross-sectional reversal on the S&P 100: the study's own row, and two rows of its cost sweep (at 0% and 0.005% commission), that is, the same strategy at different fees. |
+   | 1 | Cross-sectional momentum on the S&P 100: the same ranking, holding the stocks with the highest recent return instead of the lowest. |
    | 1 | *Buy & Hold + Risk Overlay* on US.JNJ: holding the stock with a stop-loss and a trailing stop, which returned less than holding it without them (+0.22% and +0.25% against +0.44% and +1.67% per window). |
    | 7 | Single-stock strategies: on the US stocks, the ML classifier on US.META, US.JPM, US.PG and US.GOOGL, the HMM regime switch on US.AAPL and the rule-based regime switch on US.GOOGL; in Hong Kong, the ML classifier on HK.00005. Mean test returns lie between +0.01% and +1.48% per window, and none of the six US pairs beat holding the same stock under both configurations. |
 
-   Leaving aside holding a stock, with or without a risk overlay, the strongest result is
-   cross-sectional reversal on the S&P 100: +5.88% per test window under Config A and +0.65%
-   under Config B, with 56% and 67% of windows profitable; at the broker's real fee of 0.005% per
-   side, +5.73% and +0.63%. The US stocks rose over the period, and none of the six single-stock
+   Leaving aside holding a stock, with or without a risk overlay, the strongest results are the
+   two cross-sectional strategies on the S&P 100: reversal, at +2.65% per test window under
+   Config A and +0.50% under Config B, with 56% and 67% of windows profitable (at the broker's
+   real fee of 0.005% per side, +2.53% and +0.43%), and momentum, at +1.89% and +3.80%, with 67%
+   under both. The US stocks rose over the period, and none of the six single-stock
    passes on them beat holding the same stock under both configurations.
 3. Turn the switch off and open **Pass rate by family**: *Single-Stock Strategies* passed 1 of
    57 and *Single-Stock Strategies (US)* 6 of 45.
@@ -279,13 +281,13 @@ record of it agrees with the broker's.
    and the best of eight can look good by luck alone. White's Reality Check removes every
    candidate's edge (it centres each one's test returns on zero), redraws the test windows
    20,000 times, and counts how often the best of the eight does as well as the real winner:
-   - under Config A (9 windows) the winner, *Reversal, S&P 100* at +6.15% per window, is
-     matched or beaten by luck in 9.4% of the redraws (5.8% had it been tested alone);
-   - under Config B (15 windows) the winner, *Reversal, US 15* at +3.84%, in 9.8% (1.5% alone).
+   - under Config A (9 windows) the winner, *Reversal, S&P 100* at +6.81% per window, is
+     matched or beaten by luck in 6.9% of the redraws (4.3% had it been tested alone);
+   - under Config B (15 windows) the winner, *Reversal, US 15* at +3.48%, in 14.6% (1.9% alone).
 
    Both are above the 5% needed, so the verdict reads *Does not pass*: the best result cannot be
    told apart from the luck of picking the best of eight.
-6. *PBO · S&P 100* reads 0.274 over 96 configurations: within the S&P 100 reversal, the
+6. *PBO · S&P 100* reads 0.278 over 96 configurations: within the S&P 100 reversal, the
    parameter set the search picks as best lands in the bottom half on unseen data in about a
    quarter of the splits tried. Pure noise would give 0.5.
 
@@ -299,22 +301,22 @@ record of it agrees with the broker's.
 2. Press **Run backtest**. It trades the 100 S&P 100 stocks with cached prices (the live test
    trades 98 of them). There is no one stock's price to chart, so the chart is of the equity
    against holding all 100 in equal amounts (dashed).
-3. The result: *Return* +56.83%, *Final value* USD 156,828, *Sharpe ratio* 1.44, *Max
-   drawdown* 20.50%, *Win rate* 57.0%, 449 trades, *Profit factor* 1.50, and *Buy and hold*
-   +24.86%, so alpha +31.97%. The dashed line ends at that +24.86%.
+3. The result: *Return* +57.80%, *Final value* USD 157,804, *Sharpe ratio* 1.47, *Max
+   drawdown* 20.45%, *Win rate* 57.1%, 451 trades, *Profit factor* 1.51, and *Buy and hold*
+   +24.86%, so alpha +32.94%. The dashed line ends at that +24.86%.
 4. **Try it:** [Backtest, the same at the Hong Kong commission of 0.16%](/backtest?preset=forward-test-hk-fees),
    or change *Commission per side (%)* from 0.005 to 0.160 by hand, and run it again.
-5. The same 449 trades now return +24.82% (USD 124,819), with a Sharpe ratio of 0.79 and a
-   max drawdown of 21.83%, against the same buy and hold of +24.86%: alpha -0.04%. The higher
-   fee takes 32 percentage points of the return, all of the margin over simply holding the
-   stocks.
+5. The same 451 trades now return +25.44% (USD 125,441), with a Sharpe ratio of 0.82 and a
+   max drawdown of 21.87%, against the same buy and hold of +24.86%: alpha +0.58%. The higher
+   fee takes 32 percentage points of the return, nearly all of the margin over simply holding
+   the stocks.
 
 A single backtest over one period is not evidence of an edge. The live settings were chosen by
 a grid search over the last few months of this same year (the choice is recorded in
 `config/sp100_forward_test.json`), so this backtest partly scores them on the data they were
 picked from. [Example E](#example-e-a-walk-forward-validation) shows the size of that effect, and
 [Example B](#example-b-the-results-that-pass-and-the-correction-for-the-search) the result on
-unseen data: +5.73% and +0.63% per test window at this fee, which the Reality Check cannot tell
+unseen data: +2.53% and +0.43% per test window at this fee, which the Reality Check cannot tell
 apart from luck. The cost effect is the same there: the cost sweep fails at 0.16%.
 
 ### Example D: three indicator strategies on one stock
@@ -348,15 +350,15 @@ This needs a local install ([Running the dashboard locally](#running-the-dashboa
    year at US costs, the method *Walk-forward*, the objective Sharpe ratio, 3 rolling windows
    and a 60% training share. The full grid has 96 combinations.
 2. Press **Run walk-forward**. It took about 30 seconds on a laptop when this guide was written.
-3. The result: *Mean test return* +3.45%, *Mean train return* +17.66%, *Windows positive* 100%,
-   *WF efficiency* 29%. The *Windows* table gives test returns of +0.49%, +7.79% and +2.06%,
-   against train returns of +24.13%, +13.15% and +15.71%, and the chosen parameters differ
+3. The result: *Mean test return* +3.26%, *Mean train return* +17.70%, *Windows positive* 67%,
+   *WF efficiency* 27%. The *Windows* table gives test returns of -0.07%, +7.80% and +2.06%,
+   against train returns of +24.13%, +13.26% and +15.71%, and the chosen parameters differ
    between windows (lookback 10, basket 2, rebalance every 7 in the first and third; lookback
    25, basket 2, rebalance every 1 in the second).
 4. The parameters a search picks earn far less on the span that follows than on the span they
    were picked on. The test spans are shorter than the training spans, so *WF efficiency*
-   compares the two per day: 29%, below the 50% the page treats as a warning. That gap is why
-   the project judges a strategy only by its test returns, and why the +56.83% of
+   compares the two per day: 27%, below the 50% the page treats as a warning. That gap is why
+   the project judges a strategy only by its test returns, and why the +57.80% of
    [Example C](#example-c-the-live-settings-in-a-backtest-and-the-cost-of-fees) is not evidence.
 
 The project's standard runs the same method over 3 years, twice: Config A with 9 windows and

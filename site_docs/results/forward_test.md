@@ -29,7 +29,7 @@ is the next window's test span. The search's in-sample figures (a return of 54.3
 ratio of 5.49 over those 84 days, to the close on 25 September) are what it selected on, not a
 forecast. The search as first run left out the window's final hourly bar and scored 54.2% and
 5.45; the same configuration wins either way, and the configuration records both. The validated
-out-of-sample expectation at this fee is +5.73% per window under Config A and +0.63% under
+out-of-sample expectation at this fee is +2.53% per window under Config A and +0.43% under
 Config B. Two of the chosen values, the 30-candle lookback and the 19-candle rebalance interval,
 are at the edge of their grids, which the configuration records as a warning. A study that
 extends the grid past both edges finds the setting a narrow peak that fails all three of its

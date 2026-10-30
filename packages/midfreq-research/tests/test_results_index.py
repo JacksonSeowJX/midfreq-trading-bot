@@ -41,3 +41,18 @@ def test_studies_replaced_by_the_corrected_re_runs_are_superseded(tmp_path):
         _csv(tmp_path, name, [_row('HK.00700', 1.0, 1.0)], 1_000)
     assert ri.load_all(results_dir=tmp_path).empty
     assert len(ri.load_all(current_only=False, results_dir=tmp_path)) == 3
+
+
+def _json(d, name, obj):
+    import json
+    (d / name).write_text(json.dumps(obj))
+
+
+def test_the_search_correction_reads_the_newest_pbo_run_before_the_unstamped_one(tmp_path):
+    rc = {'common_end_date': '2026-08-28 16:00', 'n_boot': 20000, 'by_config': {}}
+    _json(tmp_path, 'reality_check_20261030_204532.json', rc)
+    _json(tmp_path, 'pbo_sp100_reversal_full96.json', {'pbo': 0.274, 'n_configs': 96})
+    assert ri.load_search_correction(results_dir=tmp_path)['pbo']['pbo'] == 0.274
+    _json(tmp_path, 'pbo_sp100_reversal_20261015_120000.json', {'pbo': 0.30, 'n_configs': 96})
+    _json(tmp_path, 'pbo_sp100_reversal_20261030_204424.json', {'pbo': 0.278, 'n_configs': 96})
+    assert ri.load_search_correction(results_dir=tmp_path)['pbo']['pbo'] == 0.278
