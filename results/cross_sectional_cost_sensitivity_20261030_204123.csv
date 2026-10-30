@@ -1,0 +1,9 @@
+commission_per_side,label,config_a_oos,config_a_consistency,config_b_oos,config_b_consistency,robust
+0.0,"0%
+(best case)",2.645,55.6,0.497,66.7,True
+5e-05,"0.005%
+(moomoo SG actual)",2.53,55.6,0.434,66.7,True
+0.0003,"0.03%
+(old placeholder)",1.984,55.6,-0.726,53.3,False
+0.0016,"0.16%
+(HK rate, pessimistic)",-0.808,33.3,-1.575,40.0,False

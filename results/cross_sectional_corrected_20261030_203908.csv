@@ -1,0 +1,5 @@
+market,strategy,n_stocks,window_start,window_end,commission,config_a_oos,config_a_consistency,config_b_oos,config_b_consistency,robust
+US (S&P 100),Cross-Sectional Reversal,100,2023-08-22,2026-08-21,"zero (best-case bound, uncalibrated)",2.645,55.6,0.497,66.7,True
+US (S&P 100),Cross-Sectional Momentum,100,2023-08-22,2026-08-21,"zero (best-case bound, uncalibrated)",1.89,66.7,3.8,66.7,True
+HK (Hang Seng Index),Cross-Sectional Reversal,88,2023-08-29,2026-08-28,0.16%/side (calibrated from live fills),-1.063,33.3,-3.62,40.0,False
+HK (Hang Seng Index),Cross-Sectional Momentum,88,2023-08-29,2026-08-28,0.16%/side (calibrated from live fills),-6.282,22.2,-1.164,46.7,False
