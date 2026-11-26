@@ -81,7 +81,8 @@ Update 12 (18 Sep 26)
 Update 13 (9 Oct 26)
 - https://youtu.be/18lVFtQxvnY
 
-Update 14 (18 Oct 26)
+FYP Presentation (5min cut)
+- https://youtu.be/o-WtKDO2IGY
 
 
 ## System Overview
